@@ -10,7 +10,16 @@
 - 代价是**绘图与指标全部要重写**：klinecharts 的 overlay 模板和 `createIndicator({ figures })` 在 Vela 里对应的是 **drawing types 注册表**和 **native indicator 插件**，不是参数级替换。
 - 最大不确定项：Vela **没有公开的 projector**（`time→x` 只存在于内部 `Projector` 类型，`chart` 上没有访问器）。这会影响我们"用时间戳自己算坐标画 Pine line/box/label"的做法，需要用 `@luxalgo/vela-pinets` 引擎替代（见 §7 风险 R1）。
 
-**前置决策**：迁移期间主线 `main` 继续用 klinecharts，`vela` 分支用 `?chart=vela` 开关并行开发，验收通过再合并（见 §8）。
+### 1.1 已定决策（2026-11-04）
+
+| # | 决策 | 影响 |
+|---|---|---|
+| D1 | **Pine 走 `@luxalgo/vela-pinets`** | 自研 `pineDraw.js`(225) / `pineCore.js`(265) 的坐标与绘图层全部下掉，`pine.js` 只留脚本编辑与参数面板 |
+| D2 | **艾略特波浪（abcd/xabcd/one~eightWaves 6 个工具）砍掉** | P3 少 1 人日，映射表删 6 行，工具栏直接不给这组 |
+| D3 | **一个 `VelaWorkspace` + `setLayout()` 切换格数**（不是每 TAB 一个 workspace） | 内存低、状态单点；TAB 语义改成「命名的工作区快照」，靠 `getState/applyState` 存切 |
+| D4 | **不并存**：`main` 只有 klinecharts，`vela` 分支只有 Vela，不做 `?chart=` 运行时开关 | 省掉 port 适配层（约 100–150 行 + 双实现维护）；代价见 §8.2 |
+
+**D4 的直接后果**：这两条分支会长期分叉。业务层（`session.js` / `trade.js` / `ingest.js` / `download.js` / `db.js` / `theme.js`）与图表无关的改动仍可互相 cherry-pick，但 `main.js`、`draw.js`、`chart.js`、`workspace.js` 这几处一旦动手就是两条线，不再合并。所以 **`main` 在迁移期间要冻结图表相关改动**，只接业务和修 bug。
 
 ## 2. 现状盘点
 
@@ -61,40 +70,33 @@
 | 绘图层级/收藏 | 无 | `sendToBack(id)`、`favorites()/isFavorite(type)` | **白捡** |
 | 对象树 / 数据窗口 / 符号搜索 | 自研 | `ObjectTree` / `DataWindow` / `SymbolPicker`（workspace 内置） | **白捡（要不要用另说）** |
 
-## 4. 目标架构
+## 4. 目标架构（D4：直接替换，不做双实现）
 
 ```
-业务层（不改或小改）
-  main.js  session.js  trade.js  ingest.js  download.js  db.js …
-        │  只认 Port 接口，不 import 任何图表库
-        ▼
-  app/src/chartPort.js        ← 新增：统一的图表能力接口（60–80 行）
-        ├── app/src/chart-kline.js   ← 现有 chart.js/draw.js/workspace.js 收敛到这里（默认）
-        └── app/src/chart-vela.js    ← 新增：Vela 实现
+vela 分支                              main 分支（冻结图表层）
+app/src/                               同结构，klinecharts
+  vela.js       ← 新增：Vela 初始化 + 数据/回放/视图（替代 chart.js + replay.js）
+  vela-draw.js  ← 新增：chart.drawings 封装（替代 draw.js）
+  vela-ws.js    ← 新增：VelaWorkspace + setLayout + getState/applyState（替代 workspace.js）
+  vela-ind.js   ← 新增：native indicator 注册 + Pine 引擎接线（替代 indicators.js 的 kline 部分）
+  main.js       ← 改：只 import 上面四个，不 import 任何图表库
 ```
 
-Port 接口草案（按 §2 的实际调用面倒推，只保留业务需要的）：
+- 不写 `chartPort.js`：分支内没有第二种实现，port 只会是多余的一层间接。
+- `crosshairSync.js` 直接删（用 `workspace.sync` + `setExternalCrosshair`）。
+- `replay.js` 直接删（用 `chart.replay`）。
+- `magnet.js`（82 行，`convertToPixel` 吸附）删掉，用 `drawings.setSnapMode()`。
+
+**业务层要改的接口面**（因为 48 处 `getDataList()` 必须收敛）：
 
 ```js
-// 生命周期
-mount(el, opts) / destroy() / resize()
-// 数据与回放
-setBars(bars, {symbol, timeframe}) / cursorTime() / seek(ts)
-replay: { play(ms) / pause() / step(n) / stop() / onState(cb) }
-// 视图
-visibleRange() / setVisibleRange(r) / onCrosshair(cb)   // cb: {time, price, ohlc}；Vela 侧接 renderer.onCrosshairMove
-// 绘图
-drawings(): { list() / add(type, pts, style) / update(id, patch) / remove(ids) / select(id) / setTool(type) }
-        + persist(): {load(key), save(key, doc)}
-// 指标
-indicators(): { list() / add(src|type, inputs) / remove(id) / setVisible(id, v) }
-// 多图
-layout: { cells() / setLayout(spec) / setActive(id) / setCellMarket(id, {symbol, timeframe}) / sync(kind, setting) }
-// 输出
-screenshotCanvas()
+// vela.js 暴露三个替代 getDataList() 的查询
+barAt(time)        // 某根
+lastBar()          // 当前游标那根（回放态 = 最后一根可见）
+barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 ```
 
-`?chart=vela` 决定 `chartPort.js` 里实例化哪个实现；两套实现共用同一个 `selftest`。
+其余业务代码只改 `state.app.chart.getDataList()` → `state.app.bars.*`，机械替换。
 
 ## 5. 绘图工具映射表（需要实测逐条确认）
 
@@ -105,7 +107,6 @@ screenshotCanvas()
 | `horizontal-line` / `price-line` | 内置水平线/价格线 |  |
 | `fibonacci` 系列（retracement/extension/segment/spiral/circle/fan） | 内置 fib 组 | 需核对我们自定义的 6 个 level 预设能否保留 |
 | `parallel-channel` | 内置通道/平行通道 |  |
-| `abcd` / `xabcd` / `oneWave`…`eightWaves`（艾略特） | **可能没有** | 若缺，需 `registerDrawingType()` 自实现 6 个 |
 | `gann-box` / `measure` / `rect` / `circle` / `triangle` / `arrow` | 内置对应项 **[待实测]** |  |
 | 涂鸦（free draw） | `DrawingPolyline` / `DrawingMode` |  |
 | 每工具样式模板（`drawStyles.js` 192 行） | `SerializedDrawing.style` + `add(type, { style })` | 字段名不同，模板要重映射 |
@@ -113,44 +114,61 @@ screenshotCanvas()
 
 结论：**约 60% 可映射，艾略特波浪 6 个工具可能需要自研注册**（这是 §6 里 P3 的主要不确定性）。
 
-## 6. 分阶段任务
+## 6. 分阶段任务（D1–D4 之后的版本）
 
 | 阶段 | 内容 | 产物 | 验收判据 | 人日 |
 |---|---|---|---|---:|
-| **P0 骨架** | vendor Vela（`app/vendor/vela/`，与 klinecharts 并存）；`chartPort.js` 抽接口；`?chart=` 开关；两套 selftest 跑通空图 | `chartPort.js`、`chart-vela.js`（空壳）、vendor 目录 | `?chart=vela` 能建空图、`?chart=kline` 行为零变化；`check_js` 通过 | 2 |
-| **P1 数据与回放** | 二进制 → `OHLCV[]`；`setMarket({data})`；接 `replay.start/step/play/stop`；速度映射表；随机起点 | 回放走 Vela | `selftest` 回放组（3/9/18/29）在 vela 模式下全绿；4M 根加载 < 5 s、内存 < 400 MB | 3 |
-| **P2 多图与同步** | `VelaWorkspace` 替换 `workspace.js`；每格 `setSymbol/setTimeframe`；`sync.set()` 开十字光标；TAB = 多 workspace 实例；`getState/applyState` 接现有 `ui:tabs` | 多图/多品种/同步 | 分屏 1/2/3/4、多品种同屏、十字同步（selftest 14/15/37-C1）全绿 | 4 |
-| **P3 绘图** | 按 §5 映射表接 `chart.drawings`；样式模板重映射；绘图管理面板改 `removeMany`；缺的工具用 `registerDrawingType` 补 | 20+ 工具可用 | 每个工具至少一次「画出来 → 拖动 → 刷新后还在」；selftest 4/7/8/16/23/36-D3 全绿 | 5 |
-| **P4 指标** | 内置指标改 `registerNativeIndicator`（关键位 5 / SMC 5 / flow / 自定义）；图例与设置抽屉接 `indicator.handle`；Pine 换 `@luxalgo/vela-pinets` 引擎，删 `pineDraw.js`/`pineCore.js` 的坐标层 | 指标库全量可用 | 每个指标给出"值/画法"截图；Pine 仪表盘/表格/`alert()` 面板仍工作 | 5 |
-| **P5 收尾** | 5 套主题 → `VelaTheme`；截图 → `screenshotCanvas()`；`Esc`/右键菜单/快捷键接 Vela 的 keymap；删 `crosshairSync.js`、`replay.js`、`chart.js` 旧实现；文档与 `?selftest` 全量回归 | 主线可合并 | `?selftest=1..37` 全绿；`check_refs` 干净；包体与首屏对比记录 | 3 |
+| **P0 骨架 + 三个未知项验证** | vendor Vela（`app/vendor/vela/`）；`vela.js` 建空图；**验证 R1 坐标通路**、**vela-pinets 能否在本项目数据上跑指标**、**离线 `setMarket({data})` 的行为** | `vela.js`（骨架）、vendor 目录、`docs/VELA-P0-NOTES.md` | 三件事各有实测结论（能/不能/代价）；`check_js` 通过；空图能画出一根 K 线 | 2 |
+| **P1 数据与回放** | 二进制 → `OHLCV[]`；`setMarket({data})`；`chart.replay.start/step/play/stop`；速度映射 0.25×–16×；随机起点 | 回放走 Vela，`replay.js` 删除 | 回放组自检（3/9/18/29）在 vela 分支全绿；4M 根加载 < 5 s、内存 < 400 MB | 3 |
+| **P2 工作区与同步** | `VelaWorkspace` + `setLayout('2h'/'4'/'8')`；每格 `setSymbol/setTimeframe`；`sync.set()` 跨图同步；**TAB = `getState/applyState` 的工作区快照**（D3）；`volTag` 等状态栏接 `onCrosshairMove` | `vela-ws.js`，删 `workspace.js`/`crosshairSync.js` | 分屏 1–4 格可切；多品种同屏；十字光标同步；TAB 切换后布局/品种/游标全还原 | 4 |
+| **P3 绘图** | 按 §5 映射表逐个接 `chart.drawings`；`drawStyles.js` 模板 → `SerializedDrawing.style`；绘图管理面板 → `removeMany/lock/show`；砍掉艾略特组（D2）；新建「撤销/重做」按钮（Vela 白给） | `vela-draw.js` | 每个工具：画出来 → 拖动 → 刷新后还在；绘图管理全选/删除可用；`Esc` 取消绘制 | 4 |
+| **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC 5 / flow / 自定义；图例 + 设置抽屉接 `chart.indicators()`；**Pine 换 `vela-pinets`**（D1）：`registerEngine('pine', new PineEngine())`、`addIndicator(src,{inputs,pane})`、删 `pineDraw/pineCore` 坐标层；`alert()` 接 `EngineAlert` | `vela-ind.js` | 每个指标给出「值/画法」截图；Pine 仪表盘、表格、`alert()` 面板仍工作；参数面板 `options` 仍出下拉 | 5 |
+| **P5 收尾** | 5 套主题 → `VelaTheme`（含色盲）；截图 → `screenshotCanvas()`；`Esc`/右键/快捷键接 Vela keymap；`setLocale('zh-Hans')` 让 Vela 自带控件中文化；全量回归 + 文档 | 可交付的 vela 分支 | `?selftest=1..37`（改造后）全绿；包体与首屏对比记录；`main` 是否切换的结论 | 3 |
 
-**合计 ≈ 22 人日**（与 `docs/VELA-FEASIBILITY.md` 的 17–27 区间一致）。P3、P4 是唯一可能超支的两段。
+**合计 ≈ 21 人日**。比 D4 之前少 1 人日（省掉 port），但**分叉成本不计在内**（见 §8.2）。
 
 ## 7. 风险与对策
 
 | # | 风险 | 影响 | 对策 |
 |---|---|---|---|
-| R1 | **无公开 projector**：`time→x` 拿不到，自研 `pineDraw.js`（用时间戳二分映射画 line/box/label）无路可走 | Pine 绘图失效 | 改用 `@luxalgo/vela-pinets` 的 `PineEngine`，让 Vela 自己画；或注册 renderer layer 在插件层拿 `CoordinateSystem`（`timeToX/yToPrice` 有声明）——P0 阶段先验证这条通路 |
+| R1 | **无公开 projector**：`time→x` 拿不到 | 只有「自己画」的代码受影响 | 主路：D1 已定用 `vela-pinets`，Pine 绘图交给引擎；备用：`registerRendererLayer()` 的插件层能拿 `CoordinateSystem.timeToX/yToPrice`（声明存在）——**P0 必须实测这条备用路**，否则以后想自绘任何东西都没接口 |
 | R2 | **pre-1.0 版本漂移**（4 个月 47 个版本） | 迁移期 API 变动 | vendor 锁定 0.9.3 具体文件；P0 记录版本指纹；升级只走独立小提交 |
-| R3 | 艾略特 6 个 overlay 可能不存在 | 功能缺口 | P3 先实测，缺则 `registerDrawingType` 自研（估 +2 人日，已含在 P3） |
+| ~~R3~~ | ~~艾略特 overlay 缺失~~ | — | **已关闭（D2 砍掉）** |
 | R4 | Pine 引擎从 PineTS 直连换成 `vela-pinets`，**仍是 AGPL-3.0** | 许可性质不变 | 自用无碍；`NOTICE.md` 已声明。若要闭源分发需另行处理（与本次迁移无关） |
 | R5 | Vela 包体更大（core 1.13 MB min，我们现有 klinecharts 240 KB） | 首屏 + | 本地自用、走 `file://`/本机 HTTP，非关键；记录实测对比即可 |
 | R6 | 5 套主题（含色盲）要靠 `VelaTheme` 逐 token 映射 | 视觉回归 | P5 做主题截图对比，色盲主题单独校验 `--up/--down` 与 ▲▼ 是否仍由我们 CSS 提供 |
-| R7 | `getDataList()` 48 处直接摸数组 | 业务层被牵连 | Port 只暴露 `barAt(time)` / `lastBar()` / `barsInRange()` 三个方法，把 48 处改成按需查询（P1 做，不计入 P2 的 4 天） |
+| R7 | `getDataList()` 48 处直接摸数组 | 业务层被牵连 | `vela.js` 只暴露 `barAt/lastBar/barsInRange` 三个查询，48 处机械替换（P1 内做） |
+| R8 | **`main` 与 `vela` 长期分叉**（D4 的代价） | 图表层改动双向都得做两遍；`main.js` 会越差越远 | ①迁移期 `main` 冻结图表层，只接业务/修 bug；②`main.js` 里图表无关的部分（面板、TAB、报告）尽量在分支合并前同步一次；③设定时限：P0 起 6 周内出「切/不切」结论 |
 
-## 8. 回滚与并行策略
+## 8. 分叉管理与回滚（D4）
 
-1. **分支隔离**：迁移只在 `vela` 分支；`main` 保持 klinecharts，随时可发。
-2. **运行时开关**：`?chart=vela|kline`，默认 `kline`；`localStorage['ui:chartlib']` 记忆选择。
-3. **硬开关条件（任一不满足就不合并）**：`?selftest=1..37` 全绿；P1–P4 的验收判据全部满足；主线 30 分钟压测无内存增长。
-4. **回滚**：删 `chart-vela.js` 与 vendor 目录，端口恢复 `chart-kline`，不改业务层——这是 Port 层存在的唯一理由。
+### 8.1 分支职责
+| 分支 | 图表库 | 状态 |
+|---|---|---|
+| `main` | klinecharts 10.1.0 | **主线**，随时可用；迁移期冻结图表层改动（只接业务、修 bug、文档） |
+| `vela` | Vela 0.9.3 + vela-pinets | 迁移实验，坏了自己修，不影响主线 |
 
-## 9. 待确认（开工前需要你拍板）
+### 8.2 分叉代价与对策
+- **会双向漂移的**：`main.js`（4,025 行，UI 与图表混在一起）、`draw.js`、`chart.js`、`workspace.js`。
+- **可安全 cherry-pick 的**：`session.js`、`trade.js`、`ingest.js`、`download.js`、`csvparse.js`、`zip.js`、`db.js`、`theme.js`、`instruments.js`、`tools/*`、`docs/*`。
+- 对策：非图表改动**先落 `main`**，再 `git cherry-pick` 到 `vela`；反过来不要做（避免把 Vela 依赖带回主线）。
+- 时限：P0 起 **6 周**内给「切 / 不切」结论，避免变成永久分叉。
 
-1. **Pine 路线**：用 `@luxalgo/vela-pinets`（省 2–3 人日，但把绘图/表格全交给它，行为可能与我们现在的 DOM 表格不同），还是保留自研 Pine 层 + 只把坐标换算换成插件层（多 2–3 人日，行为可控）？
-2. **艾略特波浪**：如果 Vela 没有，是自己补 6 个 drawing type，还是直接砍掉这组工具？
-3. **TAB 与 workspace**：每个 TAB 一个 `VelaWorkspace` 实例（隔离好、内存高），还是一个 workspace 用 `layout` 切换格数（内存低、状态耦合）？
-4. **是否保留 klinecharts 长期并存**：如果只打算迁完就删，Port 层可以更薄（少写 100 行适配），但并行期风险更高。
+### 8.3 回滚
+- 单个阶段失败 → 在 `vela` 分支内 `git revert`，主线无感。
+- 整体放弃 → `main` 原样不动，`vela` 分支归档（标记 `abandoned`），零成本。
+- 决定切换 → `vela` 合入 `main` 后删分支；`app/vendor/klinecharts*` 与 `klinecharts-extension/` 一并删除（约 1.2 MB + 40 个文件）。
+
+## 9. 决策记录
+
+| # | 问题 | 决定 | 日期 |
+|---|---|---|---|
+| D1 | Pine 走哪条路 | **`@luxalgo/vela-pinets` 引擎**，自研 Pine 绘图层下掉 | 2026-11-04 |
+| D2 | 艾略特波浪怎么办 | **砍掉**（6 个工具不给） | 2026-11-04 |
+| D3 | TAB 与 workspace 关系 | **一个 `VelaWorkspace` + `setLayout()`**；TAB 变成工作区快照 | 2026-11-04 |
+| D4 | 是否与 klinecharts 并存 | **不并存**，两分支各用一套，不做运行时开关 | 2026-11-04 |
+
+剩余待确认（不阻塞 P0）：裁掉艾略特后工具栏是否补别的形态（如「测量/持仓」上升为主按钮）；`zh-Hans` 内置文案与本项目自写中文是否统一口径。
 
 ## 10. 参考
 
