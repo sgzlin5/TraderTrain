@@ -1985,17 +1985,22 @@ function renderLegend() {
     const res = idx >= 0 ? ind.result?.[idx] : null;
     const given = ind.styles?.lines || [];
     // 自建指标可能没有 figures（自己 draw 线），退化成展示 result 里的前几个数值
-    const figs = (ind.figures || []).length
+    // 用 {f, k} 保留原始下标：下面是“按值过滤”，颜色仍要按原始序号取，否则线色会串位
+    const figsAll = (ind.figures || []).length
       ? (ind.figures || [])
           .filter(f => f.type === 'line' || f.type === 'bar' || f.type === 'circle')
           .filter(f => (f.title || '').trim())          // 纯占位 figure（SMC 这类自己 draw 的不带数据）不进图例
+          .map((f, k) => ({ f, k }))
       : Object.keys(res || {}).filter(k => typeof res[k] === 'number').slice(0, 3)
-          .map(k => ({ key: k, title: `${k.toUpperCase()}: `, type: 'line' }));
-    const vals = figs
-      .slice(0, 8)
-      .map((f, k) => {
+          .map((key, k) => ({ f: { key, title: `${key.toUpperCase()}: `, type: 'line' }, k }));
+    const rawOf = (f) => (res && Object.prototype.hasOwnProperty.call(res, f.key) ? res[f.key] : null);
+    // 只有一部分线有值时，把恒为 null 的线隐掉（ZLEMA 只设 1 个周期时不该出现 “ZLEMA2: n/a”）
+    const hasVal = figsAll.some(({ f }) => rawOf(f) != null);
+    const shown = (hasVal ? figsAll.filter(({ f }) => rawOf(f) != null) : figsAll).slice(0, 8);
+    const vals = shown
+      .map(({ f, k }) => {
         const color = given[k]?.color || palette[k % palette.length];
-        const raw = res && Object.prototype.hasOwnProperty.call(res, f.key) ? res[f.key] : null;
+        const raw = rawOf(f);
         const title = (f.title || f.key || '').trim() || f.key;
         return `<span class="lg-val" style="color:${transparentColor(color) ? 'var(--dimmer)' : color}">${title} ${fmtLegendValue(raw, ind.precision ?? 2)}</span>`;
       }).join('');
@@ -4023,3 +4028,4 @@ if (params.get('selftest') === '34') import('./selftest34.js').then(m => m.run(s
 if (params.get('selftest') === '35') import('./selftest35.js').then(m => m.run(state));
 if (params.get('selftest') === '36') import('./selftest36.js').then(m => m.run(state));
 if (params.get('selftest') === '37') import('./selftest37.js').then(m => m.run(state));
+if (params.get('selftest') === '38') import('./selftest38.js').then(m => m.run(state));

@@ -1305,3 +1305,22 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 
 注：全局 `contextmenu` 是 capture + `stopPropagation`，会把 tab 的处理器一起吃掉的 —— 加了 `inTabs()` 判断放行 `#tabList / #tabMenu`。
 回归 `?selftest=1..37`（36 项）全绿。
+
+## 内置指标：ZLEMA 零延迟均线（2026-11-04，`?selftest=38` 3.9 s）
+
+`ZLEMA = EMA(2×close − close[lag], N)`，`lag = floor((N−1)/2)`，SMA 种子；前 `lag` 根退化成收盘价。
+
+| 判据 | 实测 |
+|---|---|
+| 注册进内核 | `getSupportedIndicators()` 含 `ZLEMA` = **true** |
+| 指标库条目 | `通用` 分类、`overlay=true`、名「零延迟均线 ZLEMA」、星级 4.5 |
+| 挂到主图 | `paneId = candle_pane`，`calcParams=[20]`，`result.length = 1200 = 数据根数` |
+| 数值正确性 | 与独立参考实现逐点对比 **1,181 点，最大差 0**（< 1e-6） |
+| 退化口径 | `period=1` → `lag=0, k=1` ⇒ 与收盘价最大差 **0** |
+| 多线 | `[9,20,50]` 三条线末值 `4089.69 / 4085.03 / 4078.11`，全部有限 |
+| 指标库面板 | 「通用」下 28 条，找到该行、按钮显示「已添加」 |
+| 移除 | `removeIndicator({name})` 后不在 `getIndicators()` |
+
+顺带修的真问题：**图例把未使用的参数线显示成 `n/a`**（ZLEMA 只设 1 个周期时出现 `ZLEMA2: n/a / ZLEMA3: n/a`）。`renderLegend()` 改成「同一指标里只要有线有值，就把恒为 null 的线过滤掉」，并按原始 figure 序号取颜色（否则过滤后线色串位）。BOLL/MACD 这类一条参数多条线的指标不受影响（它们三线都有值）。
+
+回归 `?selftest=1..38`（37 项）全绿；其中 31（截屏）在 reload 后首帧偶发「图表还没画出来」，`Page.bringToFront` + 重跑即通过，属已知 flake。

@@ -98,7 +98,52 @@ const AVWAP = {
   }
 };
 
-export const CUSTOM_INDS = [PDHL, ORB, AVWAP];
+/* ---------------- 4. ZLEMA 零延迟均线（Ehlers） ---------------- */
+// ZLEMA = EMA(2*close - close[lag], period)，lag = floor((period-1)/2)
+// 用意：把均线的“相位滞后”折掉一半，价格拐头时比同周期 EMA 更贴现价
+function zlemaSeries(dataList, period) {
+  const p = Math.max(1, Math.floor(Number(period) || 20));
+  const lag = Math.floor((p - 1) / 2);
+  const k = 2 / (p + 1);
+  const out = new Array(dataList.length).fill(null);
+  let seedSum = 0, ema = null;
+  for (let i = 0; i < dataList.length; i++) {
+    const c = dataList[i].close;
+    // 前 lag 根没有参考点：退化成原始价，否则开头一大段是空洞
+    const src = i >= lag ? 2 * c - dataList[i - lag].close : c;
+    if (i < p - 1) { seedSum += src; continue; }
+    if (ema === null) { seedSum += src; ema = seedSum / p; out[i] = ema; continue; }
+    ema = src * k + ema * (1 - k);
+    out[i] = ema;
+  }
+  return out;
+}
+
+const ZLEMA = {
+  name: 'ZLEMA',
+  shortName: '零延迟均线',
+  series: 'price',
+  precision: 2,
+  calcParams: [20],
+  figures: [
+    { key: 'z1', title: 'ZLEMA1: ', type: 'line', styles: () => ({ color: '#aceaff', size: 1.4 }) },
+    { key: 'z2', title: 'ZLEMA2: ', type: 'line', styles: () => ({ color: '#f0b25b', size: 1.4 }) },
+    { key: 'z3', title: 'ZLEMA3: ', type: 'line', styles: () => ({ color: '#c9a0ff', size: 1.4 }) }
+  ],
+  calc: (dataList, indicator) => {
+    const params = (indicator?.calcParams || [20])
+      .slice(0, 3)
+      .map(v => Math.max(1, Math.floor(Number(v) || 20)));
+    const cols = params.map(p => zlemaSeries(dataList, p));
+    return dataList.map((_, i) => ({
+      z1: cols[0] ? cols[0][i] : null,
+      z2: cols[1] ? cols[1][i] : null,
+      z3: cols[2] ? cols[2][i] : null
+    }));
+  }
+};
+
+export const CUSTOM_INDS = [PDHL, ORB, AVWAP, ZLEMA];
 
 export const CUSTOM_META = {
   PDHL: { label: '前日高/低/收 PDH·PDL·PDC', cat: '关键位', overlay: true,
@@ -107,6 +152,8 @@ export const CUSTOM_META = {
     desc: '开盘后 N 分钟高/低 · 突破/回踩观察' },
   AVWAP: { label: '锚定 VWAP', cat: '关键位', overlay: true,
     desc: '日锚定成交量加权均价 · 无量退化均价' },
+  ZLEMA: { label: '零延迟均线 ZLEMA', cat: '通用', overlay: true,
+    desc: '去滞后 EMA：EMA(2×收盘 − 收盘[lag])，lag=(N−1)/2 · 拐头更快' },
   SMC_FVG: { label: 'FVG / IFVG', cat: 'SMC', overlay: true,
     desc: '延伸至填补 · 收盘穿越后反转' },
   SMC_MST: { label: '聪明钱概念', cat: 'SMC', overlay: true,
