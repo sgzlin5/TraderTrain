@@ -86,7 +86,7 @@ registerRendererLayer({ id:'p0probe', create: () => ({
 
 1. **P1 增加一项**：显式 `visibleRange`（默认 180 根太短，不符合"打开就看到一段历史"）。
 2. **P4 增加前置实验**：同图多脚本 `runScript` 的 `ok:false` 问题（§3）。
-3. **P2 简化**：`cells[id].data` 直接支持离线数据，**不需要写 DataProvider**；但"增量追加"（我们现有的 append 语义）在离线模式下是整表替换 → 追增量时要么重建 `setMarket`，要么改用自定义 `DataProvider`（`MarketDataFeed`/`DataProvider` 接口）。→ **P1 内定方案**。
+3. **P2 简化**：`cells[id].data` 直接支持每格离线数据 → 自检与 DEMO 用它，不必为每个格子注册 provider。生产数据走 §8 的 `DataProvider`。
 4. `inspect()` 结构与我们预想不同，自检断言按 `{indicators, totals}` 写。
 5. 包体：esbuild 打包 vela+vela-pinets+workspace = **2.21 MB**（未压缩，min 后估算 ~1.3–1.5 MB），对比现状 klinecharts 240 KB + pinets 796 KB ≈ 1.04 MB，**净增约 0.3–0.5 MB**，本地自用可接受。
 
@@ -99,3 +99,38 @@ npx esbuild p0.js --bundle --format=esm --minify --outfile=p0.bundle.js
 python -m http.server 8732 --bind 127.0.0.1
 # 打开 http://127.0.0.1:8732/p0.html ，页面右上角打印 window.__P0__
 ```
+
+## 8. P0-b · 自定义 `DataProvider`（模式 2）实测
+
+问题：离线数组（模式 1）只在建图时吃一次整表，没有增量语义。Vela 还有两条路：
+
+| 模式 | 入口 | 增量 | 适用 |
+|---|---|---|---|
+| 1 离线数组 | `setMarket({ data })` | 无（整表替换） | 自检、DEMO 数据 |
+| 2 `DataProvider` | `chart.data.registerProvider('name', p)` + `setMarket({ provider:'name' })` | **有**：每次按 `{from, to, limit}` 取数；`loadRange` 专拉尾部未缓存段 | **我们的 IndexedDB 分块存储** |
+| 3 `MarketDataFeed`（底层） | 自定义 feed：`load / loadProgressive / subscribe(onBar) / loadRange` | `subscribe(cfg, onBar)` 可推进**实时** forming bar | 将来接实时行情 |
+
+**实跑（200,000 根 1m，provider 返回内存数组）**：
+
+```
+providers: ['memtest']
+getBars('MEM1','1m',{limit:5000}) → 5000 根，调用 1 次
+首屏 35 ms · historyComplete() 0 ms · 总耗时 4.2 s（含后续 setVisibleRange 与回放）
+heap 41 MB · market.offline = false · market.symbol = 'MEM1'
+回放：replay.start({from}) 正常，state.remaining=499，step() → true
+```
+
+- **Provider 模式下回放同样可用**，不需要为回放另写逻辑。
+- 默认可见窗口仍是 **180 根**（两种模式一致）。
+- ⚠️ **深度回填未验证**：把视口移到 20 万根之前时**没有触发第二次取数**（`calls` 一直是 1）。说明给 `limit` 时 Vela 认为这就是全部历史；真正的"往左翻拉更多"要么给 `from/to`、要么实现 `getBarsProgressive`。→ **P1 必须验证**（这决定 4M 根数据是"一次拉 5000 + 按需回填"还是"整段进内存"）。
+
+## 9. 数据模式决策（P1 前置）
+
+**采用模式 2（自定义 `DataProvider`）**，理由：
+
+1. 我们的数据本来就在 IndexedDB 的 `chunks` 里按块存（28 B/根），`getBars(range)` 正好用现成的 `binread.js` 按需读，不必把 4M 根一次性解到内存；
+2. `loadRange` 语义 = "只拉未缓存的尾部" = 我们现在的「下载追加」；
+3. `subscribe(onBar)` 给未来接实时行情留了口子；
+4. 离线数组（模式 1）保留，只用于 `?selftest` 与 DEMO 数据——自检不该依赖 IndexedDB。
+
+代价：多写 `vela-data.js`（`getBars` / `listSymbols` / `getSymbolInfo` 三个方法 + 复用它现有的分块读取），约 **150 行、+0.5 人日**（P1 从 3 → 3.5 人日，总 21 → 21.5）。

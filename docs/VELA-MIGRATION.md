@@ -119,13 +119,13 @@ barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 | 阶段 | 内容 | 产物 | 验收判据 | 人日 |
 |---|---|---|---|---:|
 | **P0 骨架 + 三个未知项验证** | vendor Vela（`app/vendor/vela/`）；`vela.js` 建空图；**验证 R1 坐标通路**、**vela-pinets 能否在本项目数据上跑指标**、**离线 `setMarket({data})` 的行为** | `vela.js`（骨架）、vendor 目录、`docs/VELA-P0-NOTES.md` | 三件事各有实测结论（能/不能/代价）；`check_js` 通过；空图能画出一根 K 线 | 2 |
-| **P1 数据与回放** | 二进制 → `OHLCV[]`；`setMarket({data})`；`chart.replay.start/step/play/stop`；速度映射 0.25×–16×；随机起点 | 回放走 Vela，`replay.js` 删除 | 回放组自检（3/9/18/29）在 vela 分支全绿；4M 根加载 < 5 s、内存 < 400 MB | 3 |
+| **P1 数据与回放** | **写 `vela-data.js` 自定义 `DataProvider`**（`getBars` 复用 `binread.js` 分块读、`loadRange` 拉尾部增量、`listSymbols`/`getSymbolInfo`）；顺带验证深度回填（`from/to` vs `getBarsProgressive`）；`chart.replay.start/step/play/stop`；速度映射 0.25×–16×；随机起点；离线数组仅留给 selftest/DEMO | `vela-data.js`，`replay.js` 删除 | 回放组自检（3/9/18/29）全绿；4M 根首屏 < 1 s、翻到最早历史能按需回填、内存 < 400 MB | 3.5 |
 | **P2 工作区与同步** | `VelaWorkspace` + `setLayout('2h'/'4'/'8')`；每格 `setSymbol/setTimeframe`；`sync.set()` 跨图同步；**TAB = `getState/applyState` 的工作区快照**（D3）；`volTag` 等状态栏接 `onCrosshairMove` | `vela-ws.js`，删 `workspace.js`/`crosshairSync.js` | 分屏 1–4 格可切；多品种同屏；十字光标同步；TAB 切换后布局/品种/游标全还原 | 4 |
 | **P3 绘图** | 按 §5 映射表逐个接 `chart.drawings`；`drawStyles.js` 模板 → `SerializedDrawing.style`；绘图管理面板 → `removeMany/lock/show`；砍掉艾略特组（D2）；新建「撤销/重做」按钮（Vela 白给） | `vela-draw.js` | 每个工具：画出来 → 拖动 → 刷新后还在；绘图管理全选/删除可用；`Esc` 取消绘制 | 4 |
 | **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC 5 / flow / 自定义；图例 + 设置抽屉接 `chart.indicators()`；**Pine 换 `vela-pinets`**（D1）：`registerEngine('pine', new PineEngine())`、`addIndicator(src,{inputs,pane})`、删 `pineDraw/pineCore` 坐标层；`alert()` 接 `EngineAlert` | `vela-ind.js` | 每个指标给出「值/画法」截图；Pine 仪表盘、表格、`alert()` 面板仍工作；参数面板 `options` 仍出下拉 | 5 |
 | **P5 收尾** | 5 套主题 → `VelaTheme`（含色盲）；截图 → `screenshotCanvas()`；`Esc`/右键/快捷键接 Vela keymap；`setLocale('zh-Hans')` 让 Vela 自带控件中文化；全量回归 + 文档 | 可交付的 vela 分支 | `?selftest=1..37`（改造后）全绿；包体与首屏对比记录；`main` 是否切换的结论 | 3 |
 
-**合计 ≈ 21 人日**。比 D4 之前少 1 人日（省掉 port），但**分叉成本不计在内**（见 §8.2）。
+**合计 ≈ 21.5 人日**。比 D4 之前少 1 人日（省掉 port），但**分叉成本不计在内**（见 §8.2）。
 
 ## 7. 风险与对策
 
