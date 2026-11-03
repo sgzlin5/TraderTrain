@@ -65,7 +65,8 @@ data/         manifest.json（行情清单一览；bin/ 不入库）
 | [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 验收记录与判据 |
 | [docs/BACKLOG.md](docs/BACKLOG.md) | 待办与已砍项 |
 | [docs/PINE-SUPPORT.md](docs/PINE-SUPPORT.md) | Pine 支持范围 |
-| [docs/VELA-FEASIBILITY.md](docs/VELA-FEASIBILITY.md) | 换 Vela 图表的可行性评估（结论：暂不迁） |
+| [docs/VELA-FEASIBILITY.md](docs/VELA-FEASIBILITY.md) | 换 Vela 图表的可行性评估（实测包体/耗时） |
+| [docs/VELA-MIGRATION.md](docs/VELA-MIGRATION.md) | klinecharts → Vela 迁移方案（分支 `vela`） |
 | [docs/UI-AUDIT-2026-11-03.md](docs/UI-AUDIT-2026-11-03.md) | 界面审计项 |
 
 ## 已知限制（摘要）
