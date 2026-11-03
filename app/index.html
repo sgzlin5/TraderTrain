@@ -121,6 +121,13 @@
 <div id="main">
   <aside id="tools" class="toolbar" aria-label="绘图工具"></aside>
     <main id="chart"></main>
+    <div id="chartEmpty" hidden>
+      <div class="ce-card">
+        <b>还没有行情数据</b>
+        <p>这个窗口的数据空间是空的。去「04 数据」下载一段（外汇/黄金走 Dukascopy，加密走 Binance），或导入本地 CSV / ZIP。</p>
+        <button id="ceGoData" class="btn-primary">打开数据面板</button>
+      </div>
+    </div>
   <div id="chartLegend" class="chart-legend"></div>
 
   <aside id="tradePanel" class="panel" hidden>
@@ -359,6 +366,26 @@
   </section>
 
   <section>
+    <h3>换机迁移 <small>配置 / 行情</small></h3>
+    <div class="dl-row">
+      <button id="xferCfgExport" class="btn ghost" title="主题/版面/TAB/指标偏好/绘图/场次/档案 打包成一个 json">导出配置</button>
+      <button id="xferCfgImport" class="btn ghost" title="从另一台机器导出的 json 还原配置">导入配置</button>
+      <input id="xferCfgFile" type="file" accept=".json,application/json" hidden>
+    </div>
+    <div class="dl-row">
+      <button id="xferDataExport" class="btn ghost" title="把已导入的 K 线打包成 .ttdata（28 B/根，不压缩）">导出行情</button>
+      <button id="xferDataImport" class="btn ghost" title="读取 .ttdata，把行情与清单一起装回本机">导行情包</button>
+      <input id="xferDataFile" type="file" accept=".ttdata,.bin,application/octet-stream" hidden>
+    </div>
+    <div id="xferProgWrap" hidden>
+      <progress id="xferProg" value="0" max="100"></progress>
+      <div class="prog-line"><span id="xferText"></span></div>
+    </div>
+    <p id="xferMsg" class="msg"></p>
+    <p class="hint">配置不含行情；行情包自带清单，导入后即可回放。换机顺序：先导配置 → 再导行情包 → 页面自动重载。</p>
+  </section>
+
+  <section>
     <h3>存储占用</h3>
     <p id="usage" class="meta-line">-</p>
     <p class="hint">单次导入上限 1 GB；总容量取浏览器配额，超过 80% 会提示清理。</p>
@@ -587,6 +614,6 @@
 </aside>
 
 <script src="vendor/klinecharts.min.js"></script>
-<script type="module" src="src/main.js?v=20261104y"></script>
+<script type="module" src="src/main.js?v=20261105c"></script>
 </body>
 </html>

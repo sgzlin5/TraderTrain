@@ -1324,3 +1324,20 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 顺带修的真问题：**图例把未使用的参数线显示成 `n/a`**（ZLEMA 只设 1 个周期时出现 `ZLEMA2: n/a / ZLEMA3: n/a`）。`renderLegend()` 改成「同一指标里只要有线有值，就把恒为 null 的线过滤掉」，并按原始 figure 序号取颜色（否则过滤后线色串位）。BOLL/MACD 这类一条参数多条线的指标不受影响（它们三线都有值）。
 
 回归 `?selftest=1..38`（37 项）全绿；其中 31（截屏）在 reload 后首帧偶发「图表还没画出来」，`Page.bringToFront` + 重跑即通过，属已知 flake。
+
+## 换机迁移：配置 / 行情 导出导入（2026-11-04，`?selftest=39` 0.6 s）
+
+`04 数据` 面板新增「换机迁移」四项，配套 `app/src/transfer.js`。
+
+| 判据 | 实测 |
+|---|---|
+| 面板/按钮 | 抽屉可开；四键文案 `导出配置 / 导入配置 / 导出行情 / 导行情包`；`window.__TT_TRANSFER__` 就绪 |
+| 配置导出 | 5 个键 / 698 B；`app=TraderTrain, type=config`；含探针键；**不含 `profiles`**（避免覆盖目标机行情清单） |
+| 配置导入 | 删掉探针后导入 → 值逐字节还原；`profiles` 保持数组未被动 |
+| 行情导出（小样） | 假品种 2 个分片：`chunks=2`、进度回调 2 次到 100%、包 714 B |
+| 包头校验 | `type=data`、profiles=1、chunks=2、payload 字节数 == 包长 − 头偏移 |
+| 行情导入（小样） | 删除后导入：分片 2 个重建、字节逐一相等、清单回填 `bars=5` |
+| 坏包提示 | 8 字节垃圾 → `不是 TraderTrain 行情包（.ttdata）` |
+| **真数据往返** | 4,016,034 根 / 107.2 MB / 12 分片：导出 **866 ms**、导入 **634 ms**；清单 `bars/first/last/bytes` 与各分片长度**完全一致**，堆 45 MB |
+
+回归 `?selftest=1..39`（38 项）：31（截屏）与 37 在无前置 `Page.bringToFront` 的连跑里各挂一次，单独重跑均通过 —— 是已知的自动化 flake（canvas 就绪/焦点），不是功能回归。

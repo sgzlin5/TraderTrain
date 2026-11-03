@@ -1084,3 +1084,15 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .tab-menu .mi .k{font:var(--fs-2xs)/1 var(--mono);color:var(--dimmer);letter-spacing:.5px}
 /* 名字可改的暗示：激活 tab 悬停时出现虚线下划线 */
 .tab.on:hover .tab-name{text-decoration:underline dotted;text-underline-offset:3px}
+
+/* 图表区空状态（没有行情时的第一屏） */
+#chartEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:var(--chart-bg);z-index:6;pointer-events:none}
+#chartEmpty .ce-card{pointer-events:auto}
+#chartEmpty[hidden]{display:none}
+#chartEmpty .ce-card{max-width:420px;padding:26px 28px;border:1px solid var(--line);border-radius:10px;
+  background:var(--panel);text-align:center}
+#chartEmpty b{display:block;font:600 var(--fs-lg)/1.4 var(--sans);margin-bottom:8px}
+#chartEmpty p{margin:0 0 16px;color:var(--sub);font:var(--fs-sm)/1.7 var(--sans)}
+#chartEmpty .btn-primary{padding:8px 18px;border:0;border-radius:6px;background:var(--accent);
+  color:var(--accent-ink);font:600 var(--fs-sm)/1 var(--sans);cursor:pointer}

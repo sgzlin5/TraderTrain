@@ -3926,6 +3926,13 @@ async function boot() {
   catch (err) { msg(`manifest 读取失败：${err.message}`, true); }
   await renderAvail();
   await refresh();
+  // 没有任何行情 → 图表区给一句人话（exe 首次启动、换了数据空间都会遇到）
+  const ce = $('chartEmpty');
+  if (ce) {
+    ce.hidden = state.profiles.length > 0;
+    $('ceGoData') && ($('ceGoData').onclick = () => { ce.hidden = true; $('btnData')?.click(); });
+  }
+
   if (state.profiles.length) {
     const lastId = await kvGet('ui:profile').catch(() => null);
     const pick = state.profiles.find(p => p.id === lastId) || state.profiles[state.profiles.length - 1];
@@ -3968,6 +3975,87 @@ async function boot() {
     $('btnData').classList.toggle('active', !$('drawer').hidden);
   };
   $('closeDrawer').onclick = () => { $('drawer').hidden = true; $('btnData').classList.remove('active'); };
+  wireTransfer();
+/* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
+function wireTransfer() {
+  const msg = $('xferMsg');
+  const wrap = $('xferProgWrap');
+  const prog = $('xferProg');
+  const text = $('xferText');
+  const say = (t, kind = '') => { if (msg) { msg.textContent = t; msg.dataset.kind = kind; } };
+
+  const busy = (on) => {
+    for (const id of ['xferCfgExport', 'xferCfgImport', 'xferDataExport', 'xferDataImport']) {
+      const b = $(id); if (b) b.disabled = on;
+    }
+  };
+  const showProg = (on) => { if (wrap) wrap.hidden = !on; if (on && prog) prog.value = 0; };
+  const onProg = (p) => {
+    if (!prog) return;
+    prog.value = p.pct || 0;
+    if (text) text.textContent = p.total
+      ? `${p.pct}% · ${(p.done / 1048576).toFixed(1)} / ${(p.total / 1048576).toFixed(1)} MB · 分片 ${p.chunk || 0}/${p.chunks || 0}`
+      : '准备中…';
+  };
+
+  $('xferCfgExport')?.addEventListener('click', async () => {
+    busy(true); say('正在打包配置…');
+    try {
+      const T = await import('./transfer.js');
+      const r = await T.exportConfig();
+      T.downloadBlob(r.blob, r.name);
+      say(`配置已导出：${r.keys} 项 · ${T.fmtBytes(r.bytes)} · ${r.name}`, 'ok');
+    } catch (e) { say(`导出配置失败：${e.message}`, 'err'); }
+    finally { busy(false); }
+  });
+
+  $('xferCfgImport')?.addEventListener('click', () => $('xferCfgFile')?.click());
+  $('xferCfgFile')?.addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0]; ev.target.value = '';
+    if (!f) return;
+    busy(true); say(`正在导入配置 ${f.name} …`);
+    try {
+      const T = await import('./transfer.js');
+      const r = await T.importConfig(f);
+      say(`配置已导入：${r.keys} 项 · 页面即将重载…`, 'ok');
+      setTimeout(() => location.reload(), 900);
+    } catch (e) { say(`导入配置失败：${e.message}`, 'err'); busy(false); }
+  });
+
+  $('xferDataExport')?.addEventListener('click', async () => {
+    busy(true); showProg(true); say('正在打包行情…');
+    try {
+      const T = await import('./transfer.js');
+      const r = await T.exportData(onProg);
+      if (!r.chunks) { say('本机还没有可导出的行情（先导入或下载一段）', 'warn'); showProg(false); busy(false); return; }
+      T.downloadBlob(r.blob, r.name);
+      say(`行情已导出：${r.profiles} 个品种 · ${r.chunks} 个分片 · ${T.fmtBytes(r.bytes)} · ${r.name}`, 'ok');
+    } catch (e) { say(`导出行情失败：${e.message}`, 'err'); }
+    finally { showProg(false); busy(false); }
+  });
+
+  $('xferDataImport')?.addEventListener('click', () => $('xferDataFile')?.click());
+  $('xferDataFile')?.addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0]; ev.target.value = '';
+    if (!f) return;
+    busy(true); showProg(true); say(`正在读取 ${f.name} …`);
+    try {
+      const T = await import('./transfer.js');
+      const peek = await T.peekData(f);
+      say(`包内 ${peek.header.profiles?.length || 0} 个品种 · ${peek.header.chunks?.length || 0} 个分片，开始写入…`);
+      const r = await T.importData(f, onProg);
+      say(`行情已导入：${r.profiles} 个品种（${(r.symbols || []).join(' / ') || '—'}）· ${r.chunks} 个分片 · ${T.fmtBytes(r.bytes)}，页面即将重载…`, 'ok');
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) { say(`导行情包失败：${e.message}`, 'err'); busy(false); showProg(false); }
+  });
+
+  window.__TT_TRANSFER__ = { exportConfig: async () => (await import('./transfer.js')).exportConfig(),
+    importConfig: (f) => import('./transfer.js').then(m => m.importConfig(f)),
+    exportData: (cb) => import('./transfer.js').then(m => m.exportData(cb)),
+    importData: (f, cb) => import('./transfer.js').then(m => m.importData(f, cb)),
+    peekData: (f) => import('./transfer.js').then(m => m.peekData(f)) };
+}
+
   $('goto').onclick = async () => {
     if (!state.app) return;
     const v = $('date').value;
@@ -4029,3 +4117,4 @@ if (params.get('selftest') === '35') import('./selftest35.js').then(m => m.run(s
 if (params.get('selftest') === '36') import('./selftest36.js').then(m => m.run(state));
 if (params.get('selftest') === '37') import('./selftest37.js').then(m => m.run(state));
 if (params.get('selftest') === '38') import('./selftest38.js').then(m => m.run(state));
+if (params.get('selftest') === '39') import('./selftest39.js').then(m => m.run(state));
