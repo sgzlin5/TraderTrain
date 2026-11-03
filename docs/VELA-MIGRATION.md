@@ -119,7 +119,7 @@ barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 | 阶段 | 内容 | 产物 | 验收判据 | 人日 |
 |---|---|---|---|---:|
 | **P0 骨架 + 三个未知项验证** | vendor Vela（`app/vendor/vela/`）；`vela.js` 建空图；**验证 R1 坐标通路**、**vela-pinets 能否在本项目数据上跑指标**、**离线 `setMarket({data})` 的行为** | `vela.js`（骨架）、vendor 目录、`docs/VELA-P0-NOTES.md` | 三件事各有实测结论（能/不能/代价）；`check_js` 通过；空图能画出一根 K 线 | 2 |
-| **P1 数据与回放** | **写 `vela-data.js` 自定义 `DataProvider`**（`getBars` 复用 `binread.js` 分块读、`loadRange` 拉尾部增量、`listSymbols`/`getSymbolInfo`）；顺带验证深度回填（`from/to` vs `getBarsProgressive`）；`chart.replay.start/step/play/stop`；速度映射 0.25×–16×；随机起点；离线数组仅留给 selftest/DEMO | `vela-data.js`，`replay.js` 删除 | 回放组自检（3/9/18/29）全绿；4M 根首屏 < 1 s、翻到最早历史能按需回填、内存 < 400 MB | 3.5 |
+| **P1 数据与回放** | **写 `vela-data.js` 自定义 `DataProvider`**（`getBars` 按 `{from,to,limit}` 从 IndexedDB 分块切片，**永不返回整段**）；**回放深度 = `bars` 参数 8k–20k**；设定起点/随机起点 → `setMarket({bars, visibleRange})` 重建（实测 40 ms 级）；`replay.start/step/play`；速度映射；离线数组仅留给 selftest/DEMO | `vela-data.js`，`replay.js` 删除 | 5,000 根首屏 ≤150 ms / 堆 ≤60 MB；20,000 根堆 ≤120 MB；任意日期跳转 ≤300 ms；回放组自检（3/9/18/29）全绿 | 3.5 |
 | **P2 工作区与同步** | `VelaWorkspace` + `setLayout('2h'/'4'/'8')`；每格 `setSymbol/setTimeframe`；`sync.set()` 跨图同步；**TAB = `getState/applyState` 的工作区快照**（D3）；`volTag` 等状态栏接 `onCrosshairMove` | `vela-ws.js`，删 `workspace.js`/`crosshairSync.js` | 分屏 1–4 格可切；多品种同屏；十字光标同步；TAB 切换后布局/品种/游标全还原 | 4 |
 | **P3 绘图** | 按 §5 映射表逐个接 `chart.drawings`；`drawStyles.js` 模板 → `SerializedDrawing.style`；绘图管理面板 → `removeMany/lock/show`；砍掉艾略特组（D2）；新建「撤销/重做」按钮（Vela 白给） | `vela-draw.js` | 每个工具：画出来 → 拖动 → 刷新后还在；绘图管理全选/删除可用；`Esc` 取消绘制 | 4 |
 | **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC 5 / flow / 自定义；图例 + 设置抽屉接 `chart.indicators()`；**Pine 换 `vela-pinets`**（D1）：`registerEngine('pine', new PineEngine())`、`addIndicator(src,{inputs,pane})`、删 `pineDraw/pineCore` 坐标层；`alert()` 接 `EngineAlert` | `vela-ind.js` | 每个指标给出「值/画法」截图；Pine 仪表盘、表格、`alert()` 面板仍工作；参数面板 `options` 仍出下拉 | 5 |
@@ -137,6 +137,8 @@ barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 | R4 | Pine 引擎从 PineTS 直连换成 `vela-pinets`，**仍是 AGPL-3.0** | 许可性质不变 | 自用无碍；`NOTICE.md` 已声明。若要闭源分发需另行处理（与本次迁移无关） |
 | R5 | Vela 包体更大（core 1.13 MB min，我们现有 klinecharts 240 KB） | 首屏 + | 本地自用、走 `file://`/本机 HTTP，非关键；记录实测对比即可 |
 | R6 | 5 套主题（含色盲）要靠 `VelaTheme` 逐 token 映射 | 视觉回归 | P5 做主题截图对比，色盲主题单独校验 `--up/--down` 与 ▲▼ 是否仍由我们 CSS 提供 |
+| R9 | **回填只有"初始化按 `bars` 翻页"**，往左拖不会自动拉更早历史（P0-c 实测） | 用户想看更早只能重建窗口 | 把「设起点 / 随机起点 / 日期定位」统一实现为 `setMarket({bars, visibleRange})`（40 ms 级）；禁用"拖到尽头自动加载"的预期 |
+| R10 | **4M 根全量入内存 = 1 GB 堆**（P0-c 实测） | OOM / 卡顿 | `getBars` 内按 `limit` 自保截断；`bars` 默认 8k–20k；provider 永不返回整段 |
 | R7 | `getDataList()` 48 处直接摸数组 | 业务层被牵连 | `vela.js` 只暴露 `barAt/lastBar/barsInRange` 三个查询，48 处机械替换（P1 内做） |
 | R8 | **`main` 与 `vela` 长期分叉**（D4 的代价） | 图表层改动双向都得做两遍；`main.js` 会越差越远 | ①迁移期 `main` 冻结图表层，只接业务/修 bug；②`main.js` 里图表无关的部分（面板、TAB、报告）尽量在分支合并前同步一次；③设定时限：P0 起 6 周内出「切/不切」结论 |
 

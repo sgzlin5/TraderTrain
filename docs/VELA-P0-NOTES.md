@@ -134,3 +134,34 @@ heap 41 MB · market.offline = false · market.symbol = 'MEM1'
 4. 离线数组（模式 1）保留，只用于 `?selftest` 与 DEMO 数据——自检不该依赖 IndexedDB。
 
 代价：多写 `vela-data.js`（`getBars` / `listSymbols` / `getSymbolInfo` 三个方法 + 复用它现有的分块读取），约 **150 行、+0.5 人日**（P1 从 3 → 3.5 人日，总 21 → 21.5）。
+
+## 10. P0-c · 400 万根分块 provider：回填到底怎么走（决定性实测）
+
+数据源：4,000,000 根 1m **按索引程序化生成**（不预存，`barAt(i)` 现算），provider 按 `{from,to,limit}` 切片返回。
+
+| 场景 | provider 被调用的形态 | 内存 | 备注 |
+|---|---|---|---|
+| `setMarket({ bars: 5000 })` | **1 次**：`getBars({ limit:5000 })` | 42 MB | 首屏 40 ms |
+| 视口移到 2016 年 + `panBy(-0.9)` ×6 | **0 次新调用**（仍是 1） | 42 MB | **往左翻不会自动回填** |
+| `setMarket({ bars: 1_000_000 })` | **101 次**：`{to: t, limit: 10001}` 逐页向前 | 363 MB | 首屏 4 ms（异步回填） |
+| `getBarsProgressive` 返回全部 4M | 1 次：`{ limit:200000 }` | **1,081 MB** | 全量入内存 = 1 GB，**不能这么干** |
+
+### 三条硬结论
+
+1. **`bars` = 回放窗口深度**，Vela 会以 **10,001 根/页** 向前翻页补到指定深度；400 万根 = 1 GB 堆，**绝不能让 4M 全进内存**。
+2. **往左拖动不会触发再取数**。想要更早的历史只有两条路：`setMarket({ bars: 更大 })` 重建，或 `setMarket({ visibleRange:{from,to} })` 指定窗口。→ 我们现有的「设为起点 / 随机起点 / 日期定位」本来就要重灌一次窗口，正好对上，**40 ms 的开销可接受**。
+3. **`getBarsProgressive` 可用**：Vela 会用 `{limit}` 调它，允许边下边画（先给尾部 2000 根，再补历史）。
+
+### 落到方案上的调整（覆盖 §9 的早期说法）
+
+- **`vela-data.js` 的 `getBars` 实现**：按 `{from,to,limit}` 从 IndexedDB 分块切片返回，**永不返回整段**；`limit` 缺省时按 `min(请求区间, 20_000)` 截断自保。
+- **回放深度策略**：`bars` 用 **8,000–20,000**（堆 2–8 MB）；设定起点/随机起点 → `setMarket({ bars, visibleRange })` 重建，实测 40 ms 级。
+- **P1 验收判据改成可量化的**：设 5000 根 → 首屏 ≤ 150 ms、堆 ≤ 60 MB；设 20000 根 → 堆 ≤ 120 MB；跳到任意日期 ≤ 300 ms；全程无 101 次翻页式的隐藏开销（因为深度小）。
+- **P2/P4 注意**：每个格子各自一份 `bars` 深度，8 格 × 20,000 根 × 0.36 KB ≈ 58 MB，可接受；但**别在 8 格里都用 100 万深度**。
+
+### 复现
+
+```bash
+npx esbuild p0c.js --bundle --format=esm --minify --outfile=p0c.bundle.js
+python -m http.server 8732 --bind 127.0.0.1   # 打开 /p0c.html，看 window.__P0C__
+```
