@@ -1,5 +1,7 @@
 # K 线库迁移方案：klinecharts 10.1.0 → Vela 0.9.3
 
+> **状态：搁置（2026-11-04）** —— 方案与 P0 实测已完备，等重启再按 §6 的 P1 继续。实测结论见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
+>
 > 分支：`vela`（从 `main@7356dc2` 拉出）。本文只写**可执行方案**，不含营销。目标库 API 全部取自本机实测的 `@luxalgo/vela@0.9.3` 类型声明（`node_modules/@luxalgo/vela/dist/*.d.ts`），标 **[待实测]** 的是声明存在但行为未验证的部分。
 
 ## 1. 结论
