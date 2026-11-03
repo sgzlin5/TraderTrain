@@ -1,0 +1,17 @@
+# 浏览器配置（Chrome --app 的独立 profile，含 IndexedDB 行情数据，体积大且只在本机有意义）
+.chrome-profile/
+
+# 运行时缓存
+.cache/
+
+# 行情二进制（由 CSV 用 tools/csv2bin.py 生成，108 MB，不入库；manifest.json 保留）
+data/bin/
+
+# 本地快捷方式 / 系统垃圾
+*.lnk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 依赖（本项目不引入构建链，留个兜底）
+node_modules/

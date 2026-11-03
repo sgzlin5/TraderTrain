@@ -1,0 +1,16 @@
+# 行尾统一：源码/文档走 LF，避免 Windows 上 CRLF 反复触发 diff
+* text=auto eol=lf
+
+# 二进制（不要做行尾转换、不要文本 diff）
+*.jpeg binary
+*.jpg  binary
+*.png  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.zip  binary
+*.bin  binary
+
+# 第三方压缩包
+app/vendor/*.min.js linguist-vendored
+app/vendor/** linguist-vendored

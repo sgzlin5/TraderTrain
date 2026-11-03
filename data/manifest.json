@@ -1,0 +1,134 @@
+{
+ "version": 1,
+ "recordBytes": 28,
+ "generatedAt": null,
+ "profiles": [
+  {
+   "id": "XAUUSD-1m",
+   "symbol": "XAUUSD",
+   "period": {
+    "span": 1,
+    "type": "minute"
+   },
+   "recordBytes": 28,
+   "priceScale": 1000,
+   "zeroVolume": true,
+   "bars": 4016034,
+   "bytes": 112448952,
+   "first": 1420182060000,
+   "last": 1782539880000,
+   "gaps": 7293,
+   "dir": "data/bin/xau",
+   "chunks": [
+    {
+     "year": "2015",
+     "file": "XAUUSD-1m-2015.bin",
+     "bytes": 9836764,
+     "bars": 351313,
+     "first": 1420182060000,
+     "last": 1451606340000,
+     "sha256": "62adc5a7ac07e1469e2c613530cfbf63aa7ebd8dae6733e032dd8305771be20c"
+    },
+    {
+     "year": "2016",
+     "file": "XAUUSD-1m-2016.bin",
+     "bytes": 9905504,
+     "bars": 353768,
+     "first": 1451606400000,
+     "last": 1483163280000,
+     "sha256": "4115e44ce6c51472488c11514df2be2b9708df1295986efb578c90c662d540bb"
+    },
+    {
+     "year": "2017",
+     "file": "XAUUSD-1m-2017.bin",
+     "bytes": 9866080,
+     "bars": 352360,
+     "first": 1483426860000,
+     "last": 1514613480000,
+     "sha256": "05d2750f0c57bef9ce1ed29073af2a058d66717c953b9d274da049a33d4118c0"
+    },
+    {
+     "year": "2018",
+     "file": "XAUUSD-1m-2018.bin",
+     "bytes": 9895816,
+     "bars": 353422,
+     "first": 1514876460000,
+     "last": 1546300740000,
+     "sha256": "b92de783723547674fd345f1d08afdcc61ea8c177d465b7162b4bde98927fb76"
+    },
+    {
+     "year": "2019",
+     "file": "XAUUSD-1m-2019.bin",
+     "bytes": 9873500,
+     "bars": 352625,
+     "first": 1546300800000,
+     "last": 1577836740000,
+     "sha256": "0327f649831702690e67df4641fecb96ee3220c7c87a05c4a97059077658bd7f"
+    },
+    {
+     "year": "2020",
+     "file": "XAUUSD-1m-2020.bin",
+     "bytes": 9920148,
+     "bars": 354291,
+     "first": 1577836800000,
+     "last": 1609459140000,
+     "sha256": "431d1e0506d60f2f9f9d1be5ffedaa7a0e085796be3aa7f83e3c7e5209dcf533"
+    },
+    {
+     "year": "2021",
+     "file": "XAUUSD-1m-2021.bin",
+     "bytes": 9894808,
+     "bars": 353386,
+     "first": 1609459200000,
+     "last": 1640995140000,
+     "sha256": "e27b278c28983c9bf2efe075c3bc3278f3eefff8fed942669ea8adad3b9cb174"
+    },
+    {
+     "year": "2022",
+     "file": "XAUUSD-1m-2022.bin",
+     "bytes": 9937956,
+     "bars": 354927,
+     "first": 1640995200000,
+     "last": 1672466220000,
+     "sha256": "42e4af1254ccdd6069d74c945de4e8f7b3a088b1ca5aa9622191c779d218f643"
+    },
+    {
+     "year": "2023",
+     "file": "XAUUSD-1m-2023.bin",
+     "bytes": 8645056,
+     "bars": 308752,
+     "first": 1672729200000,
+     "last": 1703915820000,
+     "sha256": "b151ba5dd91c529ddfaed2d419a4c70a81b3c7f04a2fd16de052023a2debeba1"
+    },
+    {
+     "year": "2024",
+     "file": "XAUUSD-1m-2024.bin",
+     "bytes": 9946552,
+     "bars": 355234,
+     "first": 1704178800000,
+     "last": 1735689540000,
+     "sha256": "791d89678068259a4f5e4de318c24091904b83c0ac9f689634de9f1b771d5511"
+    },
+    {
+     "year": "2025",
+     "file": "XAUUSD-1m-2025.bin",
+     "bytes": 9910628,
+     "bars": 353951,
+     "first": 1735689600000,
+     "last": 1767225540000,
+     "sha256": "4528ec4a27b3c5a87c9526eb6156648e0170186c6d64af0472d0abfbefdd09d2"
+    },
+    {
+     "year": "2026",
+     "file": "XAUUSD-1m-2026.bin",
+     "bytes": 4816140,
+     "bars": 172005,
+     "first": 1767225600000,
+     "last": 1782539880000,
+     "sha256": "bc3bf6d35c02f7ecf019c646e5f98968ec44ef6ba37dfc06dd695e397f61ebe3"
+    }
+   ]
+  }
+ ]
+}

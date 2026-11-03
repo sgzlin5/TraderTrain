@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TraderTrain</title>
+<meta name="theme-color" content="#03070d">
+<meta name="description" content="TraderTrain — 本地 K 线回放、模拟交易与复盘训练台">
+<link rel="icon" href="assets/icon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/icon-16.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="reportRoot" aria-hidden="true"></div>
+
+<div id="buildBar" hidden>
+  <span>发现新版本，当前窗口还在跑旧代码</span>
+  <button id="buildReload">立即刷新</button>
+  <button id="buildLater" class="ghost">稍后</button>
+</div>
+
+<header id="top">
+  <div class="wordmark">
+    <img class="logo" src="assets/logo.png" alt="klinecharts logo" title="图表内核 klinecharts">
+    <span class="names"><strong class="rainbow">复盘行情，沉淀判断。</strong><em>TRADERTRAIN / REFLECT · REFINE</em></span>
+  </div>
+  <span class="vline"></span>
+  <div class="field">
+    <span class="lbl">品种</span>
+    <b id="symbol">XAUUSD</b>
+    <span class="tag">1M</span>
+    <span id="volTag" class="tag" hidden></span>
+  </div>
+  <div class="field">
+    <span class="lbl">周期</span>
+    <nav id="periods" aria-label="周期"></nav>
+  </div>
+  <div class="field">
+    <span class="lbl">定位</span>
+    <input type="date" id="date" title="定位到日期（UTC）">
+    <button id="goto" class="btn">跳转</button>
+  </div>
+  <span class="spacer"></span>
+  <nav class="nav" aria-label="功能">
+    <span class="vline"></span>
+    <button id="btnSession" class="btn"><i>01</i>场次</button>
+    <button id="btnArchive" class="btn"><i>02</i>复盘档案</button>
+    <button id="btnTrade" class="btn"><i>03</i>交易</button>
+    <button id="btnData" class="btn"><i>04</i>数据</button>
+  </nav>
+</header>
+
+<aside id="archivePanel" class="panel drawer wide" hidden>
+  <header class="panel-head">
+    <div><span class="no">02 / ARCHIVE</span><strong>复盘档案</strong></div>
+    <button aria-label="关闭" id="closeArchive" class="icon" title="关闭">✕</button>
+  </header>
+  <section>
+    <div class="row ar-filters">
+      <select id="arSymbol" class="sel" title="品种"></select>
+      <select id="arState" class="sel" title="状态">
+        <option value="all">全部</option>
+        <option value="open">进行中</option>
+        <option value="closed">已结束</option>
+      </select>
+      <select id="arSort" class="sel" title="排序">
+        <option value="time-desc">时间（新→旧）</option>
+        <option value="time-asc">时间（旧→新）</option>
+        <option value="pnl-desc">净盈亏（高→低）</option>
+        <option value="pnl-asc">净盈亏（低→高）</option>
+        <option value="count-desc">笔数（多→少）</option>
+        <option value="rating-desc">评分（高→低）</option>
+      </select>
+      <input id="arSearch" class="grow" placeholder="搜索名称 / 标签 / 结论">
+    </div>
+    <div class="row ar-summary"><span id="arSummary" class="meta-line">-</span>
+      <span class="spacer"></span>
+      <button aria-label="导出全部档案为 JSON" id="arExportAll" class="btn ghost" title="导出全部档案为 JSON">导出全部</button>
+    </div>
+  </section>
+  <section class="ar-body"><div id="arList" class="ar-list"></div></section>
+</aside>
+
+
+<div id="topbar2" class="topbar2">
+  <span class="tb2-label">图表操作</span>
+  <span class="spacer"></span>
+  <nav class="nav tb2-acts" aria-label="图表操作">
+    <button aria-label="保存配置到本地（Ctrl+S）" id="btnSave" class="icon-btn save-btn" title="保存配置到本地（Ctrl+S）">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+        <path d="M2.6 2.6h8.2l2.6 2.6v8.2H2.6z"/><path d="M5.2 2.6h5v3.6h-5z"/><path d="M4.6 9.4h6.8v3.9H4.6z"/>
+      </svg>
+    </button>
+    <button aria-label="布局设置" id="btnLayout" class="icon-btn" title="布局设置" aria-haspopup="true" aria-expanded="false">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+        <rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.2"/><path d="M1.6 8.6h12.8"/>
+      </svg>
+    </button>
+    <button aria-label="指标库" id="btnIndicator" class="icon-btn" title="指标库">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
+        <path d="M1.5 11.5l3.6-4.2 2.6 2.4 3-4.6 3.8 3.2"/>
+      </svg>
+      指标<span id="indBadge" class="badge" hidden>0</span>
+    </button>
+    <button aria-label="切换主题" id="btnTheme" class="icon-btn theme-btn" title="切换主题"><span id="themeIcon">☀</span></button>
+  </nav>
+</div>
+
+<div id="tabBar">
+  <div id="tabList" class="tab-list" role="tablist"></div>
+  <button aria-label="新增图表（新 TAB）" id="tabNew" class="tab-new" title="新增图表（新 TAB）">＋</button>
+</div>
+
+<div id="tabPark" hidden aria-hidden="true"></div>
+
+<div id="main">
+  <aside id="tools" class="toolbar" aria-label="绘图工具"></aside>
+    <main id="chart"></main>
+  <div id="chartLegend" class="chart-legend"></div>
+
+  <aside id="tradePanel" class="panel" hidden>
+    <div class="panel-head">
+      <div><span class="no">03 / ORDER</span><strong>模拟交易</strong></div>
+      <button aria-label="关闭" id="closeTrade" class="icon" title="关闭">✕</button>
+    </div>
+    <section>
+      <div class="row"><label class="fld"><span>数量 (oz)</span><input id="qty" type="number" value="10" min="0.01" step="1"></label></div>
+      <div class="row">
+        <label class="fld"><span>止损</span><input id="sl" type="number" step="0.01" placeholder="价格"></label>
+        <label class="fld"><span>止盈</span><input id="tp" type="number" step="0.01" placeholder="价格"></label>
+      </div>
+      <div class="row">
+        <button id="buy" class="btn ok">市价买</button>
+        <button id="sell" class="btn bad">市价卖</button>
+        <button id="flat" class="btn">平仓</button>
+      </div>
+    </section>
+    <section>
+      <h3>限价挂单</h3>
+      <div class="row">
+        <label class="fld"><span>价格</span><input id="limitPrice" type="number" step="0.01" placeholder="价格"></label>
+        <button id="limitBuy" class="btn">挂多</button>
+        <button id="limitSell" class="btn">挂空</button>
+        <button id="cancelOrders" class="btn ghost">撤单</button>
+      </div>
+    </section>
+    <div id="posBox" class="box">无持仓</div>
+    <section>
+      <h3>成交 <small id="tradeStats" class="muted"></small></h3>
+      <div id="tradeList" class="trades"></div>
+    </section>
+  </aside>
+</div>
+
+<div id="replayBar">
+  <div class="group">
+    <span class="lbl">起点</span>
+    <input type="datetime-local" id="startAt" step="60" title="回放起点（UTC）">
+    <button id="setStart" class="btn">设为起点</button>
+    <button aria-label="在数据范围内随机取一个回放起点" id="randomStart" class="btn" title="在数据范围内随机取一个回放起点">🎲 随机时间</button>
+  </div>
+  <span class="vline"></span>
+  <div class="group">
+    <button aria-label="回退一根（←）" id="back" class="icon" title="回退一根（←）">◀</button>
+    <button aria-label="播放/暂停（空格）" id="play" class="btn primary" title="播放/暂停（空格）">播放</button>
+    <button aria-label="前进一根（→）" id="fwd" class="icon" title="前进一根（→）">▶</button>
+    <select id="speed" class="sel" title="速度">
+      <option value="0.25">0.25×</option>
+      <option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option>
+      <option value="2">2×</option>
+      <option value="4">4×</option>
+      <option value="8">8×</option>
+      <option value="16">16×</option>
+    </select>
+  </div>
+  <span id="cursorInfo" class="readout">-</span>
+  <span class="spacer"></span>
+  <span id="toolHint" class="hintline"></span>
+</div>
+
+<footer id="status">
+  <span id="stPeriod">-</span><i>·</i>
+  <span id="stLoaded">-</span><i>·</i>
+  <span id="stTrade">-</span><i>·</i>
+  <span id="stAsOf" title="当前品种 1 分钟数据的最后一根（UTC）">数据截至 -</span>
+  <span class="spacer"></span>
+  <span id="stMsg"></span>
+  <button id="btnShot" class="st-shot" title="截屏当前窗口并复制到剪贴板" aria-label="截屏当前窗口并复制到剪贴板">
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2 5.2h2.3l1-1.6h5.4l1 1.6H14v7.2H2z"></path>
+      <circle cx="8" cy="8.8" r="2.6"></circle>
+    </svg>
+  </button>
+</footer>
+
+<aside id="sessionPanel" class="panel drawer" hidden>
+  <header class="panel-head">
+    <div><span class="no">01 / SESSION</span><strong>场次与统计</strong></div>
+    <button aria-label="关闭" id="closeSession" class="icon" title="关闭">✕</button>
+  </header>
+  <section>
+    <div class="row">
+      <input id="sessName" class="grow" placeholder="场次名称">
+      <button id="sessSaveName" class="btn">改名</button>
+    </div>
+    <div class="row"><textarea id="sessNote" rows="2" placeholder="备注（这轮在练什么）"></textarea></div>
+    <div class="row">
+      <button id="sessNew" class="btn">新建场次</button>
+      <button id="sessEnd" class="btn">结束场次</button>
+      <button id="sessExportJson" class="btn ghost">导出 JSON</button>
+      <button id="sessExportCsv" class="btn ghost">导出 CSV</button>
+    </div>
+    <p id="sessInfo" class="meta-line"></p>
+  </section>
+  <section><h3>绩效</h3><div id="statBox" class="stats"></div></section>
+  <section><h3>逐笔明细</h3><div id="sessTrades" class="trades"></div></section>
+  <section><h3>盘面截图 <small id="shotInfo"></small></h3><div id="shotList" class="shots"></div></section>
+  <section><h3>历史场次</h3><ul id="sessList" class="list"></ul></section>
+</aside>
+
+<aside id="pinePanel" class="panel drawer" hidden>
+  <header class="panel-head">
+    <div><span class="no">02 / PINE</span><strong>自编指标</strong></div>
+    <button aria-label="关闭" id="closePine" class="icon" title="关闭">✕</button>
+  </header>
+  <section>
+    <div class="row">
+      <input id="pineName" class="grow" placeholder="指标名称">
+      <button id="pineSample" class="btn ghost">示例</button>
+    </div>
+    <textarea id="pineSrc" spellcheck="false" placeholder="粘贴 Pine 源码（v5/v6，初版只支持 indicator）"></textarea>
+    <div class="row">
+      <button id="pineCheck" class="btn">检查代码</button>
+      <button id="pineApply" class="btn primary">保存并加图</button>
+      <button aria-label="需要脚本里有 strategy()" id="pineBacktest" class="btn" title="需要脚本里有 strategy()">回测</button>
+      <button id="pineAlerts" class="btn" aria-label="脚本触发的提醒" title="脚本里 alert() 触发的提醒">提醒<span id="alertBadge" class="badge" hidden>0</span></button>
+    </div>
+    <p id="pineMsg" class="msg"></p>
+  </section>
+  <section id="pineInputsWrap" hidden><h3>参数</h3><div id="pineInputs" class="params"></div></section>
+  <section><h3>已上图</h3><div id="pineApplied" class="trades"></div></section>
+  <section><h3>指标库</h3><ul id="libList" class="list"></ul></section>
+</aside>
+
+<aside id="alertPanel" class="panel drawer" hidden>
+  <header class="panel-head">
+    <div><span class="no">06 / ALERTS</span><strong>脚本提醒</strong></div>
+    <button id="closeAlerts" class="icon" title="关闭">✕</button>
+  </header>
+  <section>
+    <p id="alertMeta" class="meta-line">—</p>
+    <div id="alertList" class="alert-list"></div>
+  </section>
+</aside>
+
+<aside id="drawMgrPanel" class="panel drawer" hidden>
+  <header class="panel-head">
+    <div><span class="no">07 / DRAWINGS</span><strong>绘图管理</strong></div>
+    <button id="closeDrawMgr" class="icon" title="关闭">✕</button>
+  </header>
+  <section>
+    <p id="drawMgrMeta" class="meta-line">—</p>
+    <div class="row">
+      <button id="drawMgrAll" class="btn ghost">全选</button>
+      <button id="drawMgrDel" class="btn">删除选中</button>
+      <button id="drawMgrClear" class="btn ghost">清空当前周期</button>
+    </div>
+    <div id="drawMgrList" class="draw-mgr"></div>
+  </section>
+</aside>
+
+<aside id="stratPanel" class="panel drawer wide" hidden>
+  <header class="panel-head">
+    <div><span class="no">05 / BACKTEST</span><strong>策略回测</strong></div>
+    <button aria-label="关闭" id="closeStrat" class="icon" title="关闭">✕</button>
+  </header>
+  <section class="strat-body">
+    <p id="stratMeta" class="meta-line">—</p>
+    <div id="stratStats" class="strat-stats"></div>
+    <canvas id="stratCurve" class="strat-curve"></canvas>
+    <div id="stratTrades" class="strat-trades"></div>
+  </section>
+</aside>
+
+<aside id="drawer" class="panel drawer" hidden>
+  <header class="panel-head">
+    <div><span class="no">04 / DATA</span><strong>数据管理</strong></div>
+    <button aria-label="关闭" id="closeDrawer" class="icon" title="关闭">✕</button>
+  </header>
+
+  <section>
+    <h3>已导入</h3>
+    <ul id="profileList" class="list"><li class="muted">（空）</li></ul>
+  </section>
+
+  <section>
+    <h3>可导入 <small>data/manifest.json</small></h3>
+    <ul id="availList" class="list"><li class="muted">读取中…</li></ul>
+    <div id="progWrap" hidden>
+      <progress id="prog" value="0" max="100"></progress>
+      <div class="prog-line"><span id="progText"></span><button id="cancel" class="btn ghost">取消</button></div>
+    </div>
+    <p id="importMsg" class="msg"></p>
+  </section>
+
+  <section>
+    <h3>历史数据下载 <small>Dukascopy + Binance · UTC</small></h3>
+    <div class="dl-search">
+      <input id="dlSearch" placeholder="搜索标的：XAUUSD / 黄金 / 外汇" autocomplete="off">
+      <div id="dlResults" class="dl-results" hidden></div>
+    </div>
+    <div class="dl-picked">已选 <b id="dlSymbol">—</b><span id="dlName" class="muted"></span></div>
+    <div class="dl-row">
+      <label>周期 <select id="dlTf"><option value="M1">1 分钟</option></select></label>
+      <label>价格 <select id="dlPrice"><option>BID</option><option>ASK</option></select></label>
+    </div>
+    <div class="dl-row">
+      <label>从 <input id="dlFrom" type="date"></label>
+      <label>到 <input id="dlTo" type="date"></label>
+    </div>
+    <div class="dl-row">
+      <button id="dlStart" class="btn">下载并导入</button>
+      <button aria-label="把已有档案续到今天之前（UTC 昨天），只补缺失部分" id="dlAppend" class="btn ghost" title="把已有档案续到今天之前（UTC 昨天），只补缺失部分">补到昨天</button>
+      <button id="dlCancel" class="btn ghost" hidden>取消</button>
+    </div>
+    <div id="dlProgWrap" hidden>
+      <progress id="dlProg" value="0" max="100"></progress>
+      <div class="prog-line"><span id="dlText"></span></div>
+    </div>
+    <p id="dlMsg" class="msg"></p>
+    <p class="hint">一个列表包含两个源：外汇/金属/指数走 <b>Dukascopy</b>，加密走 <b>Binance 归档</b>（真实成交量、7×24）。
+      只下 1 分钟（其他周期应用内聚合）；已下过的按天/按月缓存，重下不走网络。</p>
+  </section>
+
+  <section>
+    <h3>从 ZIP / CSV 导入 <small>本地文件</small></h3>
+    <div id="csvDrop" class="drop-zone">
+      <span class="dz-main">把 .zip（内含多个 csv）或 .csv 拖到这里</span>
+      <button id="csvPick" class="btn ghost">选择文件</button>
+      <input id="csvFile" type="file" accept=".zip,.csv,.txt,.tsv" multiple hidden>
+    </div>
+    <div class="csv-row">
+      <label>品种 <input id="csvSymbol" placeholder="自动识别" size="10" autocomplete="off"></label>
+      <button id="csvGo" class="btn">导入</button>
+    </div>
+    <div id="csvProgWrap" hidden>
+      <progress id="csvProg" value="0" max="100"></progress>
+      <div class="prog-line"><span id="csvText"></span><button id="csvCancel" class="btn ghost">取消</button></div>
+    </div>
+    <p id="csvMsg" class="msg"></p>
+    <p class="hint">只认 1 分钟基础数据；表头需含 open/high/low/close（时间列名 datetime/time/date 均可）；
+      同时间戳去重、按年切片、直接写 IndexedDB。</p>
+  </section>
+
+  <section>
+    <h3>存储占用</h3>
+    <p id="usage" class="meta-line">-</p>
+    <p class="hint">单次导入上限 1 GB；总容量取浏览器配额，超过 80% 会提示清理。</p>
+  </section>
+</aside>
+
+<nav id="layoutMenu" class="ctx-menu layout-menu" hidden role="menu" aria-label="布局">
+  <div class="mi-head mi-head-btn"><span>分屏（多图 · 各格可独立周期）</span>
+    <button aria-label="关闭（Esc）" id="closeLayout" class="mi-x" title="关闭（Esc）">✕</button></div>
+  <div id="splitRows"></div>
+  <div class="mi-head" style="margin-top:6px">副图（当前图）</div>
+  <div id="paneRows" class="pane-rows"></div>
+  <div id="cxSyncRow" class="cx-row">
+    <label><input type="checkbox" id="cxSync" checked><span>各图十字光标同步</span></label>
+  </div>
+</nav>
+
+<div id="moreTools" class="ctx-menu more-tools" hidden>
+  <div class="mi-head mi-head-btn"><span>扩展工具 · klinecharts/extension</span>
+    <button aria-label="关闭（Esc）" id="closeMoreTools" class="mi-x" title="关闭（Esc）">✕</button></div>
+  <div id="moreToolsGrid" class="mt-grid"></div>
+</div>
+
+<aside id="indSettingsPanel" class="panel drawer ind-set-panel" hidden>
+  <header class="panel-head">
+    <div><span class="no">02 / INDICATOR</span><strong id="indSetHead">指标设置</strong></div>
+    <button aria-label="关闭" id="indSetClose" class="icon" title="关闭">✕</button>
+  </header>
+  <section class="ind-set-body">
+    <div class="row">
+      <label class="switch-row"><input type="checkbox" id="indSetVisible" checked> <span>在图上显示</span></label>
+      <span class="spacer"></span>
+      <button id="indSetReset" class="btn ghost">恢复默认</button>
+    </div>
+    <label class="ind-set-row" id="indSetParamsRow">
+      <span>参数</span>
+      <input id="indSetParams" class="grow" placeholder="如 20 或 6,12,20">
+    </label>
+    <p class="ind-set-hint" id="indSetParamsHint">多个参数用逗号分隔；均线填一个数就只画一条线。</p>
+  </section>
+  <section class="ind-set-body" id="indSetPineBox" hidden>
+    <h3>脚本参数 <small id="indSetPineSrc"></small></h3>
+    <div id="indSetInputs" class="ind-set-inputs"></div>
+    <p class="ind-set-hint">来自脚本里的 <code>input.*</code> 声明；改完点「应用」重算。留空表示用脚本默认值。</p>
+  </section>
+  <section class="ind-set-body">
+    <h3>线条</h3>
+    <div id="indSetLines" class="ind-set-lines"></div>
+  </section>
+  <footer class="ind-set-foot">
+    <button id="indSetCancel" class="btn ghost">取消</button>
+    <span class="spacer"></span>
+    <button id="indSetApply" class="btn primary">应用</button>
+  </footer>
+</aside>
+
+</div>
+
+<nav id="themeMenu"class="ctx-menu theme-menu" hidden role="menu" aria-label="主题">
+  <div class="mi-head">主题</div>
+  <div id="themeRows"></div>
+</nav>
+
+<aside id="indicatorPanel" class="panel drawer ind-lib" hidden>
+  <header class="ind-head">
+    <div>
+      <span class="ind-kicker">INDICATOR LIBRARY</span>
+      <strong class="ind-title">指标库</strong>
+    </div>
+    <button id="closeIndicator" class="ind-x" title="关闭" aria-label="关闭"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.6 2.6 L9.4 9.4 M9.4 2.6 L2.6 9.4"></path></svg></button>
+  </header>
+  <div class="ind-body">
+    <div class="ind-search-row">
+      <label class="ind-find">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.6"></circle><path d="M10.4 10.4 L14 14"></path></svg>
+        <input id="indSearch" placeholder="搜索全部内置指标，如 EMA、均线">
+      </label>
+      <button aria-label="刷新指标列表" id="indRefresh" class="ind-btn" title="刷新指标列表">刷新</button>
+    </div>
+    <div class="ind-meta">
+      <span class="ind-meta-txt">当前分类 · <b id="indTotal">0</b> 个指标</span>
+      <button id="indSaveCombo" class="ind-btn">保存当前组合</button>
+    </div>
+    <div id="indComboForm" class="ind-combo-form" hidden>
+      <input id="indComboName" placeholder="组合名称，如 日内关键位" maxlength="20">
+      <button id="indComboOk" class="ind-btn">保存</button>
+      <button id="indComboCancel" class="ind-btn ghost">取消</button>
+    </div>
+    <div class="ind-cats" id="indCats"></div>
+    <p class="ind-caption">当前目标：主盘 · <b id="indPeriod">1m</b> · 收藏保存在本机浏览器中。</p>
+    <button id="indNewPine" class="ind-wide" hidden>新建 Pine 指标</button>
+    <div id="indList" class="ind-list"></div>
+    <div id="indPineFoot" class="ind-foot" hidden>
+      <p class="ind-foot-note">从图表移除后仍保留在库中。Pine 脚本只存在本机浏览器里。</p>
+      <div class="ind-info">
+        <span class="ind-info-ico">i</span>
+        <span id="indInfoText">当前数据源没有成交量/逐笔：依赖它们的脚本只能部分显示。</span>
+      </div>
+    </div>
+  </div>
+  <!-- 已上图指标的管理列（面板里不显示，图例与设置抽屉的移除/配置走这里） -->
+  <div id="indActive" class="trades" hidden></div>
+  <span id="indTotal2" hidden></span><span id="indCount" hidden></span>
+
+</aside>
+
+<nav id="ctxMenu" class="ctx-menu" hidden role="menu" aria-label="图表菜单">
+  <button class="mi" data-act="reset" role="menuitem"><span class="ico">↺</span><span class="tx">复位图表</span></button>
+  <button class="mi has-sub" data-sub="layout" role="menuitem" aria-haspopup="true"><span class="ico">⚙</span><span class="tx">图表设置…</span><span class="chev">›</span></button>
+  <div class="mi-sep"></div>
+  <button class="mi" data-act="copy" role="menuitem"><span class="ico">⧉</span><span class="tx">复制此图表</span></button>
+  <button class="mi has-sub" data-sub="draw" role="menuitem" aria-haspopup="true"><span class="ico">⇄</span><span class="tx">从其他图复制绘制</span><span class="chev">›</span></button>
+</nav>
+
+<aside id="layoutPanel" class="ctx-sub ctx-layout" hidden>
+  <header class="sub-head">
+    <span class="no">05 / LAYOUT</span>
+    <strong>图表设置</strong>
+    <button aria-label="关闭" id="closeLayout" class="icon" title="关闭">✕</button>
+  </header>
+  <div class="pop-body">
+    <div class="pl-row">
+      <span class="pl-label">背景</span>
+      <div class="seg-mini" id="bgMode">
+        <button type="button" data-mode="theme">跟随皮肤</button>
+        <button type="button" data-mode="custom">自定义</button>
+      </div>
+      <input type="color" id="lyBg" class="swatch" value="#0b1220" title="自定义背景色">
+    </div>
+    <div class="pl-row">
+      <span class="pl-label">网格</span>
+      <label class="switch"><input type="checkbox" id="lyGrid" checked><i></i><span>显示</span></label>
+      <input type="color" id="lyGridColor" class="swatch" value="#0b0e14" title="网格线颜色">
+    </div>
+    <div class="pl-row">
+      <span class="pl-label">上涨</span>
+      <input type="color" id="lyUp" class="swatch" value="#5fe3c0" title="上涨实体与影线">
+      <span class="pl-hint" style="margin:0">实体 / 影线</span>
+    </div>
+    <div class="pl-row">
+      <span class="pl-label">下跌</span>
+      <input type="color" id="lyDown" class="swatch" value="#ff6f85" title="下跌实体与影线">
+      <span class="pl-hint" style="margin:0">实体 / 影线</span>
+    </div>
+    <div class="pl-row">
+      <span class="pl-label">边框</span>
+      <label class="switch"><input type="checkbox" id="lyBorderAuto" checked><i></i><span>跟随涨跌</span></label>
+      <input type="color" id="lyUpBorder" class="swatch" value="#5fe3c0" title="上涨边框">
+      <input type="color" id="lyDownBorder" class="swatch" value="#ff6f85" title="下跌边框">
+    </div>
+    <p class="pl-hint">改动即时生效并自动保存。</p>
+  </div>
+  <footer class="pop-foot">
+    <button id="lyReset" class="btn ghost">恢复默认</button>
+    <button id="lyDone" class="btn">完成</button>
+  </footer>
+</aside>
+
+<div id="ovBar" class="ov-bar" hidden>
+  <span id="ovName" class="ov-name">趋势线</span>
+  <input type="color" id="ovColor" class="swatch" title="线条颜色">
+  <select id="ovWidth" title="线宽">
+    <option value="0.8">0.8px</option>
+    <option value="1">1px</option>
+    <option value="1.4">1.4px</option>
+    <option value="2">2px</option>
+    <option value="3">3px</option>
+  </select>
+  <button aria-label="更多设置" id="ovMore" class="icon" title="更多设置">⋯</button>
+  <button aria-label="该工具的默认样式" id="ovTune" class="icon" title="该工具的默认样式">⚙</button>
+  <button aria-label="删除此绘图" id="ovDel" class="icon" title="删除此绘图">🗑</button>
+</div>
+
+<nav id="ovMenu" class="ctx-menu ov-menu" hidden>
+  <div class="mi-head">线型</div>
+  <div class="ov-chips" id="ovLs">
+    <button class="ov-chip" data-ls="solid">实线</button>
+    <button class="ov-chip" data-ls="dashed">虚线</button>
+    <button class="ov-chip" data-ls="dotted">点线</button>
+  </div>
+  <div class="mi-sep"></div>
+  <div class="mi-head">模板 <small>点击 = 应用并设为该工具默认</small></div>
+  <div id="ovTplList" class="ov-tpl"></div>
+  <div class="ov-saverow" id="ovTplSaveRow" hidden>
+    <input id="ovTplName" placeholder="模板名称，如 粗虚线">
+    <button id="ovTplSaveOk" class="btn primary">保存</button>
+  </div>
+  <div class="mi-sep"></div>
+  <button class="mi" data-ov="save"><span class="tx">＋ 保存为模板…</span></button>
+  <button class="mi" data-ov="apply-default"><span class="tx">↺ 应用默认模板</span></button>
+  <div class="mi-sep"></div>
+  <button class="mi" data-ov="fib"><span class="tx">斐波那契层级…</span></button>
+  <button class="mi" data-ov="reset"><span class="tx">恢复内置默认</span></button>
+</nav>
+
+<aside id="drawStylePanel" class="ctx-sub ds-panel" hidden>
+  <header class="sub-head">
+    <span class="no">07 / STYLE</span>
+    <strong>绘图样式</strong>
+    <button aria-label="关闭" id="closeDrawStyle" class="icon" title="关闭">✕</button>
+  </header>
+  <div id="drawStyleRows" class="ds-rows"></div>
+  <section class="ds-fib">
+    <h3>斐波那契层级</h3>
+    <div id="fibLevels" class="ds-levels"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="fibLevelInput" class="grow" placeholder="新增层级，如 0.705 / 1.618">
+      <button id="fibLevelAdd" class="btn">添加</button>
+    </div>
+    <div class="row" id="fibPresets"></div>
+  </section>
+  <footer class="pop-foot">
+    <span class="pl-hint">改动立即生效并保存</span>
+    <button id="drawStyleDone" class="btn primary">完成</button>
+  </footer>
+</aside>
+
+<aside id="copyDrawPanel" class="ctx-sub ctx-list" hidden>
+  <header class="sub-head">
+    <span class="no">06 / DRAW</span>
+    <strong>复制绘制</strong>
+    <button aria-label="关闭" id="closeCopyDraw" class="icon" title="关闭">✕</button>
+  </header>
+  <div id="copyDrawList" class="sub-list"></div>
+  <p class="pl-hint" style="margin:8px 0 0">仅复制落在当前窗口内的绘图</p>
+</aside>
+
+<script src="vendor/klinecharts.min.js"></script>
+<script type="module" src="src/main.js?v=20261104w"></script>
+</body>
+</html>
