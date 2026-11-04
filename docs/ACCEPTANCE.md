@@ -1535,3 +1535,24 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 **顺带修**：
 - `selftest38`（ZLEMA）原先断言分类为 `general`、面板点 `data-cat="general"` —— ZLEMA 迁到「均线」后同步改为 `ma`（保留 `general` 回退）
 - 打包漏了 `tools/fixtures`，导致 `selftest37` 的 ZIP64 段在 exe 里取不到 `TTZ64.zip` → `build.sh` 增加 `--add-data "../tools/fixtures;tools/fixtures"`
+
+## SMC / 结构趋势面板 可视化修复（2026-11-04 第十轮，`?selftest=44` 7.7 s）
+
+**问题**：`Smart Money Concepts (SMC)`、`Structure & Trend Dashboard` 挂在图上什么都不画。
+
+**取证**：给指标模板包一层 draw 计数后重新注册再创建 → `calls = 0`；反查内核 bundle 只有
+`drawIndicator / drawFigure`，没有 `.draw?.()` —— **klinecharts v10 不再调用 indicator.draw**。
+
+**方案**：图形改走 overlay，面板改走 DOM（`app/src/smcRender.js`，1.2 s 同步一次，按 payload 签名增量重建）
+- MST：`horizontalSegment`（BOS/CHoCH/EQH/EQL）+ `rect`（订单块）+ `simpleAnnotation`（标签）
+- DASH：右下角 `#smcPanel` 悬浮面板（HTF/LTF 两列 + 对齐 + 全周期对齐判定）
+- 摘掉指标 → overlay 全删、面板隐藏（`selftest44` 的 cleared 段）
+
+| 判据 | 实测 |
+|---|---|
+| 初始 | overlays 0、面板隐藏 |
+| 挂 SMC_MST | **29 个 overlay**（2 个订单块矩形 + 结构虚线 + 标签） |
+| 挂 SMC_DASH | 面板可见、**3 行** HTF/LTF、含「全周期对齐 / 不同步」 |
+| 都摘掉 | overlays 0、面板重新隐藏 |
+
+**遗留**：`FVG / IFVG`、`ICT 杀区`、`波段 & 中期结构` 三个仍用 `draw`，在当前内核下同样不可见，需按同一路子改造。

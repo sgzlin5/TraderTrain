@@ -156,6 +156,19 @@ INDICATOR LIBRARY                    ✕
 | `ORB` 开盘区间 | 当天开盘后 N 分钟的最高/最低 | 分钟数，默认 30 |
 | `AVWAP` 锚定 VWAP | 日锚定成交量加权均价；无量数据退化均价 | 1=按日，0=按周 |
 
+##### SMC 两个主指标（可视化已重做）
+
+| 指标 | 画什么 | 参数 |
+|---|---|---|
+| `Smart Money Concepts (SMC)` · 聪明钱概念 | BOS/CHoCH 虚线 + 标签、订单块矩形、EQH/EQL | 摆动回看（默认 5） |
+| `Structure & Trend Dashboard` · 结构&趋势面板 | 右下角悬浮面板：三组 HTF/LTF 趋势 + 对齐判定 | 结构周期 / 三组对齐周期 / FVG 上限 / 扫单 / 染色 |
+
+> klinecharts v10 不再调用 indicator 的 `draw` 回调，这两个指标原来"挂在图上但什么都不画"。
+> 现在结构图形改由 overlay 渲染（`smcRender.js`，每 1.2 s 按 payload 同步），面板改由 DOM 渲染；
+> 摘掉指标会自动清场（overlay 全删、面板隐藏）。
+
+![SMC 结构 + 面板](ui-smc.jpg)
+
 ##### 自建均线指标（分类「均线」）
 
 按 LuxAlgo / Pine 口径实现，和 `ta.ema` / `ta.rma` 逐点一致（前 N 根用 SMA 起头，不是“首根就递推”）：

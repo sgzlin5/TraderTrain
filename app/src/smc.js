@@ -258,32 +258,6 @@ const MST = {
     const result = list.map(() => ({ v: null }));
     return stash(list, result, { name: MST.name, events: recent, eq: eq.slice(-6), n: list.length });
   },
-  draw: ({ ctx, bounding, xAxis, yAxis, indicator }) => {
-    const p = payloadOf(indicator);
-    if (!p) return true;
-    const last = p.n - 1;
-    const view = visibleIdx(xAxis, bounding);
-    for (const e of p.events) {
-      if (!inView(view, e.from, e.i)) continue;
-      const color = e.dir === 1 ? BULL : BEAR;
-      const x1 = px(xAxis, e.from), x2 = px(xAxis, e.i), y = py(yAxis, e.price);
-      drawLine(ctx, x1, y, x2, y, color, [5, 3], 1.2);
-      drawTag(ctx, x2 - 2, y - 7, e.kind, color, 'right');
-      if (e.ob) {
-        const ox1 = px(xAxis, e.ob.from), ox2 = px(xAxis, e.ob.to != null ? e.ob.to : last);
-        drawRect(ctx, ox1, py(yAxis, e.ob.top), ox2, py(yAxis, e.ob.bottom),
-          e.ob.dir === 1 ? 'rgba(95,227,192,.14)' : 'rgba(255,111,133,.14)',
-          e.ob.dir === 1 ? 'rgba(95,227,192,.5)' : 'rgba(255,111,133,.5)');
-        drawTag(ctx, ox1 + 3, py(yAxis, e.ob.top) + 8, 'OB', e.ob.dir === 1 ? BULL : BEAR);
-      }
-    }
-    for (const q of p.eq) {
-      const y = py(yAxis, q.price);
-      drawLine(ctx, px(xAxis, q.from), y, px(xAxis, last), y, WARN, [2, 4], 1);
-      drawTag(ctx, px(xAxis, q.from) + 4, y - 7, q.type === 'H' ? 'EQH' : 'EQL', WARN);
-    }
-    return true;
-  }
 };
 
 /* ---------------------------- 3. ICT 杀区工具箱 ---------------------------- */
@@ -516,99 +490,6 @@ const DASH = {
       fvgs
     });
   },
-  draw: ({ ctx, chart, bounding, xAxis, yAxis, indicator }) => {
-    const p = payloadOf(indicator);
-    if (!p) return true;
-    const W = ctx.canvas.width, H = ctx.canvas.height;
-    const view = visibleIdx(xAxis, bounding);
-    const last = p.n - 1;
-
-    // 蜡烛按结构偏色（可选）
-    if (p.colorCandles && view) {
-      const list = chart?.getDataList?.() || [];
-      const from = Math.max(0, view.from), to = Math.min(list.length - 1, view.to);
-      for (let i = from; i <= to; i++) {
-        const b = list[i];
-        const x = px(xAxis, i);
-        const y1 = py(yAxis, b.open), y2 = py(yAxis, b.close);
-        if (x == null || y1 == null || y2 == null) continue;
-        ctx.save();
-        ctx.strokeStyle = p.struct.trend > 0 ? 'rgba(95,227,192,.28)' : p.struct.trend < 0 ? 'rgba(255,111,133,.28)' : 'rgba(255,255,255,.08)';
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.moveTo(x, y1); ctx.lineTo(x, y2); ctx.stroke();
-        ctx.restore();
-      }
-    }
-
-    // 结构事件（BOS / CHoCH）
-    for (const e of p.struct.events) {
-      if (!inView(view, e.from, e.i)) continue;
-      const color = e.dir === 1 ? BULL : BEAR;
-      const y = py(yAxis, e.price);
-      drawLine(ctx, px(xAxis, e.from), y, px(xAxis, e.i), y, color, [5, 3], 1.2);
-      drawTag(ctx, px(xAxis, e.i) - 2, y - 7, e.kind, color, 'right');
-    }
-
-    // 扫单
-    for (const w of p.sweeps) {
-      if (!inView(view, w.i, w.i)) continue;
-      const y = py(yAxis, w.price);
-      if (y == null || y < 0 || y > H) continue;
-      drawTag(ctx, px(xAxis, w.i) + 4, y + (w.dir > 0 ? 10 : -10), 'SWEEP', WARN, 'left');
-    }
-
-    // FVG
-    for (const z of p.fvgs) {
-      if (!inView(view, z.from, last)) continue;
-      const bull = z.dir === 1;
-      drawRect(ctx, px(xAxis, z.from), py(yAxis, z.top), px(xAxis, last), py(yAxis, z.bottom),
-        bull ? 'rgba(95,227,192,.08)' : 'rgba(255,111,133,.08)',
-        bull ? 'rgba(95,227,192,.35)' : 'rgba(255,111,133,.35)');
-    }
-
-    // 面板（右下角）：HIGH / LOW / ALIGNED 三列，多组周期各一行
-    const rows = p.rows || [];
-    const boxW = 236, rowH = 20, padX = 12, padY = 9;
-    const boxH = padY * 2 + 18 + 20 + rows.length * rowH + 6;
-    const x0 = W - 12 - boxW, y0 = H - 12 - boxH;
-    const cw = [78, 78, boxW - 78 - 78 - padX];      // 三列宽度
-
-    ctx.save();
-    ctx.fillStyle = 'rgba(6,12,20,.9)';
-    ctx.fillRect(x0, y0, boxW, boxH);
-    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = 1;
-    ctx.strokeRect(x0 + 0.5, y0 + 0.5, boxW - 1, boxH - 1);
-    ctx.restore();
-
-    drawTag(ctx, x0 + padX, y0 + padY + 6, '结构 · 趋势', 'rgba(205,218,230,.95)', 'left');
-    drawTag(ctx, x0 + boxW - padX, y0 + padY + 6, `${p.struct.name} ${p.struct.trend > 0 ? '▲' : p.struct.trend < 0 ? '▼' : '–'}`,
-      p.struct.trend > 0 ? BULL : p.struct.trend < 0 ? BEAR : 'rgba(190,205,220,.7)', 'right');
-
-    // 表头
-    const hy = y0 + padY + 22;
-    drawTag(ctx, x0 + padX, hy, 'HTF', 'rgba(160,175,190,.8)', 'left');
-    drawTag(ctx, x0 + padX + cw[0], hy, 'LTF', 'rgba(160,175,190,.8)', 'left');
-    drawTag(ctx, x0 + padX + cw[0] + cw[1], hy, '对齐', 'rgba(160,175,190,.8)', 'left');
-    drawLine(ctx, x0 + padX, hy + 9, x0 + boxW - padX, hy + 9, 'rgba(255,255,255,.10)', [], 1);
-
-    rows.forEach((r, k) => {
-      const y = hy + 22 + k * rowH;
-      const hiColor = r.hi.trend > 0 ? BULL : r.hi.trend < 0 ? BEAR : 'rgba(190,205,220,.7)';
-      const loColor = r.lo.trend > 0 ? BULL : r.lo.trend < 0 ? BEAR : 'rgba(190,205,220,.7)';
-      drawTag(ctx, x0 + padX, y, `${r.hi.name} ${r.hi.trend > 0 ? '多' : r.hi.trend < 0 ? '空' : '震'}`, hiColor, 'left');
-      drawTag(ctx, x0 + padX + cw[0], y, `${r.lo.name} ${r.lo.trend > 0 ? '多' : r.lo.trend < 0 ? '空' : '震'}`, loColor, 'left');
-      const same = r.hi.trend !== 0 && r.hi.trend === r.lo.trend;
-      drawTag(ctx, x0 + padX + cw[0] + cw[1], y, same ? '✓' : '·',
-        same ? (r.hi.trend > 0 ? BULL : BEAR) : 'rgba(150,165,180,.6)', 'left');
-    });
-
-    const yAl = y0 + boxH - padY - 3;
-    const alignedAll = rows.length > 0 && rows.every(r => r.hi.trend !== 0 && r.hi.trend === r.lo.trend);
-    drawTag(ctx, x0 + padX, yAl, '全周期对齐', 'rgba(190,205,220,.85)', 'left');
-    drawTag(ctx, x0 + boxW - padX, yAl, alignedAll ? '✓ 一致' : '不同步',
-      alignedAll ? BULL : 'rgba(190,205,220,.6)', 'right');
-    return true;
-  }
 };
 
 export const SMC_INDS = [FVG, MST, ICT, HTF, DASH];

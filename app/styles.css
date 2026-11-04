@@ -1123,3 +1123,16 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .chk-inline{display:inline-flex;align-items:center;gap:6px;font:var(--fs-sm)/1.2 var(--sans);color:var(--muted-fg);cursor:pointer;user-select:none}
 .chk-inline input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
 .chk-inline:hover{color:var(--fg)}
+
+/* SMC 结构/趋势面板（悬浮在图表右下角，随指标显示/隐藏） */
+.smc-panel{position:absolute;right:14px;bottom:16px;z-index:6;padding:8px 10px 6px;min-width:186px;
+  background:rgba(6,12,20,.9);border:1px solid var(--line,rgba(255,255,255,.12));border-radius:6px;
+  font:var(--fs-sm)/1.5 var(--sans);color:var(--fg,#cddae6);pointer-events:none;backdrop-filter:blur(2px)}
+.smc-panel .smc-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:4px;font-weight:600}
+.smc-panel table{width:100%;border-collapse:collapse}
+.smc-panel th{font:500 var(--fs-xs)/1.6 var(--sans);color:var(--muted-fg,#8fa0b0);text-align:left;font-weight:500}
+.smc-panel td{padding:1px 0;white-space:nowrap}
+.smc-panel .smc-foot{display:flex;justify-content:space-between;margin-top:4px;border-top:1px solid rgba(255,255,255,.1);padding-top:4px;color:var(--muted-fg,#8fa0b0)}
+.smc-panel .pos{color:var(--up,#5fe3c0)}
+.smc-panel .neg{color:var(--down,#ff6f85)}
+.smc-panel .flat{color:var(--muted-fg,#8fa0b0)}

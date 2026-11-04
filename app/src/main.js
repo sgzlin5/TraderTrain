@@ -6,6 +6,7 @@ import { fmtPrice, fmtQty } from './instruments.js';
 import { ChartApp } from './chart.js';
 import { importProfile, loadManifest } from './loader.js';
 import { deleteProfile, getProfiles, storageEstimate, MAX_IMPORT_BYTES, kvGet, kvSet } from './db.js';
+import { startSmcRender } from './smcRender.js';
 import { Replay } from './replay.js';
 import { DrawLayer, TOOLS, TOOL_ACTIONS } from './draw.js';
 import {
@@ -4274,6 +4275,7 @@ async function boot() {
   $('closeDrawer').onclick = () => { $('drawer').hidden = true; $('btnData').classList.remove('active'); };
   wireTransfer();
   wireLive();
+  try { startSmcRender(state); } catch (e) { console.warn('[smc] 渲染层启动失败', e?.message); }
 /* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
 function wireTransfer() {
   const msg = $('xferMsg');
@@ -4421,3 +4423,4 @@ if (params.get('selftest') === '40') import('./selftest40.js').then(m => m.run(s
 if (params.get('selftest') === '41') import('./selftest41.js').then(m => m.run(state));
 if (params.get('selftest') === '42') import('./selftest42.js').then(m => m.run(state));
 if (params.get('selftest') === '43') import('./selftest43.js').then(m => m.run(state));
+if (params.get('selftest') === '44') import('./selftest44.js').then(m => m.run(state));
