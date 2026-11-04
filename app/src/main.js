@@ -4067,15 +4067,49 @@ async function applyReplayMode(on, opts = {}) {
   if (!opts.silent) await kvSet('ui:replay', !!on).catch(() => {});
 }
 
+/** 跳到最新 K 线：退出回放、回到实时边缘，并把实时采集拉起来 */
+async function jumpToLatest(opts = {}) {
+  const p = state.profile;
+  if (!p) { updateStatus('还没有行情数据', true); return null; }
+  try {
+    // 回放开着就先关掉（内部会 pause + 把游标/窗口送回最新）
+    if (state.replayMode) await applyReplayMode(false, { silent: !!opts.silent });
+  } catch {}
+  // 兜底再定位一次（已经在最新时这一步几乎零成本）
+  let at = null;
+  try {
+    const newest = Math.max(p.last || 0, p.live?.last || 0);
+    if (newest) {
+      at = Math.min(Date.now(), newest + 60_000);
+      await state.replay?.setStart(at);
+      // 游标对齐到真实的那根 bar（否则会落在分钟中间，回放/步进的起点不干净）
+      const t = state.app?.lastTs?.();
+      if (t && state.replay) { state.replay.cursor = t; state.replay.emit?.(); at = t; }
+    }
+  } catch (e) { console.warn('[latest] 定位失败', e?.message); }
+  // 切回实时：源能取到数据就把采集拉起来
+  try {
+    if (!state.live && (await liveSourceReady(p.symbol))) await startLiveFeed();
+  } catch (e) { console.warn('[latest] 实时启动失败', e?.message); }
+  if (!opts.silent) {
+    updateStatus(state.live
+      ? `已跳到最新 K 线 · 实时中${at ? ' · ' + fmtTs(at) : ''}`
+      : `已跳到最新 K 线${at ? ' · ' + fmtTs(at) : ''}（实时源不可用）`);
+  }
+  return { at, live: !!state.live, replayMode: !!state.replayMode };
+}
+
 function wireLive() {
   liveBtn()?.addEventListener('click', async () => {
     if (state.live) await stopLiveFeed();
     else await startLiveFeed();
   });
+  $('btnLatest')?.addEventListener('click', async () => { await jumpToLatest(); });
   $('btnReplay')?.addEventListener('click', async () => {
     await applyReplayMode(!state.replayMode);
     updateStatus(state.replayMode ? '回放模式：开（起点/播放/步进/速度已就位）' : '回放模式：关（回到实时视图）');
   });
+  window.__TT_JUMP_LATEST__ = (o) => jumpToLatest(o);
   window.__TT_REPLAY_MODE__ = {
     on: () => applyReplayMode(true),
     off: () => applyReplayMode(false),
@@ -4320,3 +4354,4 @@ if (params.get('selftest') === '38') import('./selftest38.js').then(m => m.run(s
 if (params.get('selftest') === '39') import('./selftest39.js').then(m => m.run(state));
 if (params.get('selftest') === '40') import('./selftest40.js').then(m => m.run(state));
 if (params.get('selftest') === '41') import('./selftest41.js').then(m => m.run(state));
+if (params.get('selftest') === '42') import('./selftest42.js').then(m => m.run(state));

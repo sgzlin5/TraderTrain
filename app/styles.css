@@ -1098,6 +1098,10 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
   color:var(--accent-ink);font:600 var(--fs-sm)/1 var(--sans);cursor:pointer}
 
 /* 实时采集按钮 */
+.latest-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
+.latest-btn .lt-txt{font:var(--fs-sm)/1 var(--sans)}
+.latest-btn svg{opacity:.85}
+.latest-btn:hover svg{opacity:1}
 .replay-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
 .replay-btn .rp-txt{font:var(--fs-sm)/1 var(--sans)}
 .replay-btn .rp-ico{font-size:13px;line-height:1;opacity:.85}

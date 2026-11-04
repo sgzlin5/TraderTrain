@@ -1457,3 +1457,16 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | `false` | unchecked ✓ | false | 手动取消后不再自动补 |
 
 无缺口时 `_gapTried` 仍为 true（分支跑过），但不发请求、不写状态栏。
+
+## 跳到最新 K 线（2026-11-04 第六轮，`?selftest=42` 4.2 s）
+
+| 判据 | 实测 |
+|---|---|
+| 按钮 | `#btnLatest` 存在，title=「跳到最新 K 线：退出回放、回到实时边缘」 |
+| 跳前（回放开 + 停在 2024-03-20） | `replayMode=true`、`#replayBar[data-on]='1'`、cursor=chartLast=2024-03-20 |
+| 点一下 | `replayMode=false`、`data-on='0'`（回放条收起）、**live=live**（采集已拉起） |
+| 定位 | cursor = chartLast = `2026-11-04 08:05:00Z`（对齐到真实 bar，不是分钟中间的 ms） |
+| 状态栏 | `已跳到最新 K 线 · 实时中 · 2026-11-04 08:05 UTC` |
+| 实时没开时 | 若 `/api/live` 可取到数据，顺带 `startLiveFeed()`；取不到则提示「实时源不可用」 |
+
+**顺带**：`jumpToLatest()` 里 `setStart()` 之后把 `replay.cursor` 对齐到 `app.lastTs()` —— 否则游标落在分钟中间的毫秒上，接着按「播放」起点不干净。
