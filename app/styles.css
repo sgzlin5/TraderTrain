@@ -1096,3 +1096,14 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 #chartEmpty p{margin:0 0 16px;color:var(--sub);font:var(--fs-sm)/1.7 var(--sans)}
 #chartEmpty .btn-primary{padding:8px 18px;border:0;border-radius:6px;background:var(--accent);
   color:var(--accent-ink);font:600 var(--fs-sm)/1 var(--sans);cursor:pointer}
+
+/* 实时采集按钮 */
+.live-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
+.live-btn .live-txt{font:var(--fs-sm)/1 var(--sans)}
+.live-btn .live-dot{width:7px;height:7px;border-radius:50%;background:var(--dimmer);box-shadow:none}
+.live-btn.on{color:var(--up)}
+.live-btn.on .live-dot{background:var(--up);animation:livePulse 1.8s ease-in-out infinite}
+.live-btn.err{color:var(--down)}
+.live-btn.err .live-dot{background:var(--down)}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.live-btn.on .live-dot{animation:none}}

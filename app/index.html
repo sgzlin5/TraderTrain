@@ -91,6 +91,9 @@
   <span class="tb2-label">图表操作</span>
   <span class="spacer"></span>
   <nav class="nav tb2-acts" aria-label="图表操作">
+    <button aria-label="实时采集（biquote，1 分钟）" id="btnLive" class="icon-btn live-btn" title="实时采集：每 20 s 拉一次 biquote，收盘那根自动入库" aria-pressed="false">
+      <span class="live-dot" aria-hidden="true"></span><span class="live-txt">实时</span>
+    </button>
     <button aria-label="保存配置到本地（Ctrl+S）" id="btnSave" class="icon-btn save-btn" title="保存配置到本地（Ctrl+S）">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
         <path d="M2.6 2.6h8.2l2.6 2.6v8.2H2.6z"/><path d="M5.2 2.6h5v3.6h-5z"/><path d="M4.6 9.4h6.8v3.9H4.6z"/>
@@ -614,6 +617,6 @@
 </aside>
 
 <script src="vendor/klinecharts.min.js"></script>
-<script type="module" src="src/main.js?v=20261105c"></script>
+<script type="module" src="src/main.js?v=20261105p"></script>
 </body>
 </html>

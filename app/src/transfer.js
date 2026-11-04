@@ -7,6 +7,7 @@ import {
   openDB, kvGet, kvSet, getProfiles, saveProfile, chunkKey,
   listChunkKeys, putChunk, getChunk, deleteProfile
 } from './db.js';
+import { decodeBars, encodeBars, liveDays, readLiveRange } from './liveStore.js';
 
 const MAGIC = 'TTDATA1\n';
 const CFG_APP = 'TraderTrain';
@@ -69,44 +70,105 @@ export async function exportData(onProgress = () => {}, opts = {}) {
   const all = await getProfiles();
   const only = Array.isArray(opts.only) && opts.only.length ? new Set(opts.only) : null;
   const profiles = only ? all.filter(p => only.has(p.id)) : all;
-  const items = [];
-  let total = 0;
   await new Promise(r => setTimeout(r, 0));   // 让刚写入的分片事务先提交（冷启动会漏读）
+
+  const items = [];                            // { key, buf }
+  const outProfiles = [];
+  let total = 0;
+  const progress = (pct, chunk, chunks) => onProgress({ done: total * pct / 100, total, pct, chunk, chunks });
+
   for (const p of profiles) {
-    const keys = await listChunkKeys(p.id);
-    for (const key of keys) {
+    const prof = JSON.parse(JSON.stringify(p));          // 包头里的清单会被改写（并入实时段）
+    const byYear = new Map();
+    for (const key of await listChunkKeys(p.id)) {
       const buf = await getChunk(key);
-      const bytes = buf instanceof ArrayBuffer ? buf.byteLength : (buf?.buffer?.byteLength ?? 0);
-      if (!bytes) continue;
-      items.push({ key, bytes, profileId: p.id });
-      total += bytes;
+      if (!buf || !buf.byteLength) continue;
+      const m = String(key).match(/(\d{4})$/);
+      const year = m ? m[1] : String(key);
+      byYear.set(year, { key, buf });
+      items.push({ key, buf });
+      total += buf.byteLength;
     }
+
+    // 实时分片（store 'live'）并进对应年份分片：同 ts 以历史为准
+    const days = await liveDays(p.id);
+    if (days.length) {
+      const liveByYear = new Map();
+      for (const d of days) {
+        const y = d.date.slice(0, 4);
+        const bars = await readLiveRange(p.id, d.first, d.last);
+        if (!bars.length) continue;
+        if (!liveByYear.has(y)) liveByYear.set(y, []);
+        liveByYear.get(y).push(...bars);
+      }
+      for (const [y, liveBars] of liveByYear) {
+        const cur = byYear.get(y);
+        const histBars = cur ? decodeBars(cur.buf) : [];
+        const seen = new Set(histBars.map(b => b.timestamp));
+        const extra = liveBars.filter(b => !seen.has(b.timestamp));
+        if (!extra.length) continue;
+        const merged = histBars.concat(extra).sort((a, b) => a.timestamp - b.timestamp);
+        const nb = encodeBars(merged);
+        if (cur) {
+          const idx = items.findIndex(i => i.key === cur.key);
+          if (idx >= 0) { total += nb.byteLength - items[idx].buf.byteLength; items[idx].buf = nb; }
+          cur.buf = nb;
+        } else {
+          const key = chunkKey(p.id, Number(y));
+          items.push({ key, buf: nb });
+          total += nb.byteLength;
+        }
+        const ch = {
+          year: Number(y), key: cur ? cur.key : chunkKey(p.id, Number(y)),   // 读路径靠 key 取分片
+          bytes: nb.byteLength, bars: merged.length,
+          first: merged[0].timestamp, last: merged[merged.length - 1].timestamp
+        };
+        prof.chunks = (prof.chunks || []).filter(c => String(c.year) !== y)
+          .concat([ch]).sort((a, b) => a.year - b.year);
+      }
+      prof.liveMerged = days.length;
+    }
+
+    if (prof.chunks && prof.chunks.length) {                // 重算汇总，避免“数据截至”停在旧值
+      prof.bytes = prof.chunks.reduce((s2, c) => s2 + (c.bytes || 0), 0);
+      prof.bars = prof.chunks.reduce((s2, c) => s2 + (c.bars || 0), 0);
+      const firsts = prof.chunks.map(c => c.first).filter(v => v != null);
+      const lasts = prof.chunks.map(c => c.last).filter(v => v != null);
+      if (firsts.length) prof.first = Math.min(...firsts);
+      if (lasts.length) prof.last = Math.max(...lasts);
+    }
+    delete prof.live;                                       // 已并入，清单里不再保留实时摘要
+    outProfiles.push(prof);
   }
+
   if (total > MAX_PACK) {
     throw new Error(`行情包 ${(total / 1048576).toFixed(0)} MB 超过单包上限 ${Math.round(MAX_PACK / 1048576)} MB，请分品种导出`);
   }
+
   const header = {
-    app: CFG_APP, type: 'data', version: 1,
+    app: CFG_APP, type: 'data', version: 2,               // v2：实时段已并入年份分片
     exportedAt: new Date().toISOString(),
-    profiles,                 // 含 chunks[] 元信息，导入后直接可用
-    chunks: items
+    profiles: outProfiles,
+    chunks: items.map(i => ({ key: i.key, bytes: i.buf.byteLength }))
   };
   const hbytes = new TextEncoder().encode(JSON.stringify(header));
   const parts = [MAGIC, new Uint8Array(new Uint32Array([hbytes.length]).buffer), hbytes];
+
   let done = 0, i = 0;
   for (const it of items) {
-    const buf = await getChunk(it.key);
-    parts.push(buf instanceof ArrayBuffer ? buf : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-    done += it.bytes;
-    onProgress({ done, total, pct: total ? Math.round(done / total * 100) : 100, chunk: ++i, chunks: items.length });
-    if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));   // 让进度条能画出来
+    const bytes = it.buf.byteLength;
+    parts.push(it.buf instanceof ArrayBuffer ? it.buf : new Uint8Array(it.buf.buffer, it.buf.byteOffset, it.buf.byteLength));
+    done += bytes; i++;
+    progress(total ? Math.round(done / total * 100) : 100, i, items.length);
+    if (i % 8 === 0) await new Promise(r => setTimeout(r, 0));
   }
   const blob = new Blob(parts, { type: 'application/octet-stream' });
   return {
     blob, name: `trader-train-data-${stamp()}.ttdata`,
-    profiles: profiles.length, chunks: items.length, bytes: blob.size,
-    chunkKeys: items.map(i => i.key),                 // 便于自检/排错核对
-    profileIds: profiles.map(p => p.id)
+    profiles: outProfiles.length, chunks: items.length, bytes: blob.size,
+    chunkKeys: items.map(x => x.key),
+    profileIds: outProfiles.map(x => x.id),
+    mergedLiveDays: outProfiles.reduce((s2, x) => s2 + (x.liveMerged || 0), 0)
   };
 }
 

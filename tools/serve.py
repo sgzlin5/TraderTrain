@@ -48,6 +48,47 @@ HEADERS = {
     "Referer": "https://www.dukascopy.com/swiss/english/marketwatch/historical/",
 }
 
+# ---------------------------------------------------------------- 实时源（biquote）
+BIQUOTE_BASE = "https://biquote.io/api"
+BIQUOTE_ALIAS = {                      # 我们的代码 → biquote ticker
+    "BTCUSDT": "BTCUSD", "ETHUSDT": "ETHUSD", "SOLUSDT": "SOLUSD",
+    "BNBUSDT": "BNBUSD", "XRPUSDT": "XRPUSD", "DOGEUSDT": "DOGEUSD",
+}
+
+
+def _biquote_ticker(code):
+    code = (code or "").upper()
+    if code in BIQUOTE_ALIAS:
+        return BIQUOTE_ALIAS[code]
+    if code.endswith("USDT"):
+        return code[:-1]                       # XXXUSDT → XXXUSD
+    return code
+
+
+def _biquote_ohlc(ticker, interval="1m", limit=5, attempts=3, timeout=8):
+    """取最近 N 根（含正在走的那根，isOpen=true）。返回 (bars, error)"""
+    url = f"{BIQUOTE_BASE}/{ticker}/ohlc?interval={interval}&limit={max(1, min(1000, limit))}"
+    last = None
+    for _ in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                obj = json.loads(r.read())
+            out = []
+            for b in obj.get("bars", []):
+                ts = int(datetime.fromisoformat(b["openTime"].replace("Z", "+00:00")).timestamp() * 1000)
+                out.append({
+                    "t": ts, "o": b["open"], "h": b["high"], "l": b["low"], "c": b["close"],
+                    "v": b.get("tickVolume") or 0, "open": bool(b.get("isOpen")),
+                })
+            out.sort(key=lambda x: x["t"])      # biquote 返回是倒序，统一升序
+            return out, None
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+            time.sleep(0.6)
+    return None, last
+
+
 # ---------------------------------------------------------------- 标的表
 INSTRUMENTS = [
     # code, 中文名, 类别, point（价格 = raw / point）, source
@@ -463,6 +504,23 @@ class Handler(SimpleHTTPRequestHandler):
                 if "=" in kv:
                     k, v = kv.split("=", 1)
                     query[k] = urllib.parse.unquote(v)
+
+        if path == "/api/live":
+            code = (query.get("symbol") or "").upper()
+            if not code:
+                return self._json({"error": "缺少 symbol"}, 400)
+            try:
+                limit = int(query.get("limit") or 5)
+            except ValueError:
+                limit = 5
+            ticker = _biquote_ticker(code)
+            bars, err = _biquote_ohlc(ticker, "1m", limit)
+            if bars is None:
+                return self._json({"error": f"上游取数失败：{err}", "symbol": code, "ticker": ticker}, 503)
+            return self._json({
+                "symbol": code, "ticker": ticker, "source": "biquote",
+                "at": int(time.time() * 1000), "bars": bars
+            })
 
         if path == "/api/instruments":
             return self._json([{"code": c, "name": n, "category": cat, "point": p, "source": src}

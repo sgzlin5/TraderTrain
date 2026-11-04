@@ -617,6 +617,22 @@ Pine 编辑器里的「回测」按钮：跑一次脚本 → 读 PineTS 的 `ctx
 
 ![历史数据下载](ui-download.jpg)
 
+
+### 实时（biquote）
+
+顶栏第二行「● 实时」按钮（`#btnLive`）：开着的时候每 20 s 拉一次 biquote 的 1 分钟线，**收盘那根自动入库**。
+
+- 数据源：`biquote.io`（免费、无 key，聚合 MT5 经纪商报价）。服务端经 `GET /api/live?symbol=XAUUSD&limit=N` 代理，避开 CORS。
+- **只落已收盘的 bar**：正在走的那根（`isOpen=true`）只用来更新画面；`isOpen=false` 才写库。
+- 写入节奏：内存攒 30 s 或 20 根，一次事务写进独立 store `live`（键 `<profileId>|<YYYYMMDD>`，一天一个分片）。
+- **不污染历史分片**：`chunks` 的 `<profile>@<importId>/<year>` 命名空间完全不动，读窗口时把 live 段按 ts 并进来。
+- **同 ts 以历史为准**（Dukascopy > biquote）：Dukascopy 补齐后，那天的 live 分片可以删掉。
+- `volume` 字段存的是 biquote 的 `tickVolume`（tick 计数，不是真实成交量），profile 里有 `volumeKind: 'tickCount'` 标记。
+- 启动时会**回补**最近 300 根（biquote 只留 5 小时），断线/关程序造成的短缺口能补回来。
+- 状态栏「数据截至」会自动变成 `… · 含实时`；按钮 hover 显示最近一根时间 / 待写 / 已入库根数。
+
+![实时采集](ui-live.jpg)
+
 ## 19. 从 ZIP / CSV 导入（本地文件）
 
 「04 数据」面板里有一块 **从 ZIP / CSV 导入**：把 `.zip`（可含多个 csv）或单个 `.csv` 拖进去（或点「选择文件」），点「导入」即可，**不需要先跑 Python 工具**。

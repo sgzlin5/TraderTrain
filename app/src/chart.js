@@ -225,6 +225,24 @@ export class ChartApp {
     };
   }
 
+  /** 图表当前最后一根的时间戳（没有就 null） */
+  lastTs() {
+    try { const l = this.chart?.getDataList?.() || []; return l.length ? l[l.length - 1].timestamp : null; } catch { return null; }
+  }
+
+  /** 实时数据落库后刷新「有实时段」的标志，让窗口读取把 live 并进来 */
+  async refreshLive() {
+    try {
+      const { getProfile } = await import('./db.js');
+      const p = await getProfile(this.profile.id);
+      if (p) {
+        this.profile = { ...this.profile, ...p };
+        this.source.hasLive = !!(p.live && (p.live.days || []).length);
+      }
+      return !!this.source.hasLive;
+    } catch { return false; }
+  }
+
   /** 推一根（回放用） */
   pushBar(bar) {
     if (this.subCb) this.subCb(bar);

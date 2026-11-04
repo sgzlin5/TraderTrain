@@ -1296,7 +1296,10 @@ function updateAsOf() {
   const el = $('stAsOf');
   if (!el) return;
   const p = state.profile;
-  el.textContent = p?.last ? `数据截至 ${fmtTs(p.last)}` : '数据截至 -';
+  // 有实时段时“数据截至”要跟着实时走（profile.last 只是导入时的历史截止）
+  const liveLast = state.live?.lastTs || p?.live?.last || null;
+  const last = liveLast && (!p?.last || liveLast > p.last) ? liveLast : p?.last;
+  el.textContent = last ? `数据截至 ${fmtTs(last)}${liveLast ? ' · 含实时' : ''}` : '数据截至 -';
 }
 
 function lastPrice() {
@@ -3093,12 +3096,18 @@ async function copyWindowShot() {
       stamp: last ? `游标 ${fmt(state.replay?.cursor || last)}` : ''
     });
     if (!blob) { updateStatus('截屏失败：图表还没画出来', true); return; }
+    // 剪贴板写入要设超时：窗口没有焦点/权限弹窗挂着时，clipboard.write() 会永不 settle，
+    // 表现就是“点了截屏没反应”。超时或失败一律退回下载，并如实报文案。
+    const withTimeout = (pr, ms) => Promise.race([
+      pr,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('clipboard timeout')), ms))
+    ]);
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      await withTimeout(navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]), 3000);
       updateStatus(`窗口截图已复制到剪贴板（${MB(blob.size)} MB）`);
     } catch (e) {
       saveBlob(`window-${p?.symbol || 'shot'}-${Date.now()}.png`, blob);
-      updateStatus('剪贴板不可用，已下载 PNG');
+      updateStatus(`剪贴板不可用（${e.message}），已下载 PNG`);
     }
   } catch (e) {
     updateStatus(`截屏失败：${e.message}`, true);
@@ -3783,6 +3792,7 @@ function resetTabs() {
 }
 
 async function loadProfile(profile) {
+  try { if (state.live) { await state.live.stop(); state.live = null; paintLive({ state: 'idle' }); } } catch {}
   window.__BOOT_STAGE__ = 'loadProfile:start';
   // 自检/外部脚本的等待点：loadProfile 全部装完才 resolve
   window.__APP_READY__ = new Promise((res) => { state._appReady = res; });
@@ -3862,6 +3872,11 @@ async function loadProfile(profile) {
   updateStatus(`已加载 ${profile.symbol}（${fmtDay(profile.first)} → ${fmtDay(profile.last)}）`);
   await renderProfiles();
   await restorePineIndicators();
+  // 上次开着实时就自动恢复（没有行情时不启）
+  try {
+    if (await kvGet('ui:live') && state.profile) { await startLiveFeed(); }
+  } catch (e) { console.warn('[live] 恢复失败', e?.message); }
+
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
 }
@@ -3976,6 +3991,87 @@ async function boot() {
   };
   $('closeDrawer').onclick = () => { $('drawer').hidden = true; $('btnData').classList.remove('active'); };
   wireTransfer();
+/* ---------------- 实时采集（biquote → live store） ---------------- */
+function liveBtn() { return $('btnLive'); }
+
+function paintLive(s = {}) {
+  const b = liveBtn(); if (!b) return;
+  const on = s.state === 'live';
+  b.classList.toggle('on', on);
+  b.classList.toggle('err', !!s.err);
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const t = b.querySelector('.live-txt');
+  if (t) t.textContent = on ? '实时中' : '实时';
+  const bits = [];
+  if (s.symbol) bits.push(s.symbol);
+  if (s.last) bits.push(`最近 ${new Date(s.last).toISOString().slice(11, 16)}Z`);
+  if (s.pending) bits.push(`待写 ${s.pending}`);
+  if (s.written) bits.push(`已入库 ${s.written} 根`);
+  if (s.backfilled) bits.push(`回补 ${s.backfilled} 根`);
+  if (s.err) bits.push(`错误 ${String(s.err).slice(0, 60)}`);
+  b.title = on ? `实时采集中：${bits.join(' · ')}` : '实时采集：每 20 s 拉一次 biquote，收盘那根自动入库';
+  if (on || s.err) updateStatus(`实时 · ${bits.join(' · ')}`);
+  try { updateAsOf(); } catch {}
+}
+
+async function startLiveFeed() {
+  const p = state.profile;
+  if (!p) { updateStatus('实时：还没有行情数据'); return; }
+  // 单实例：同一品种已经在采就不要再起一个（两个 feed 会互相覆盖 live 分片）
+  if (state.live && state.live.running && state.live.profile?.id === p.id) {
+    paintLive(state.live.status());
+    return;
+  }
+  if (state.live) await state.live.stop();
+  const { LiveFeed } = await import('./live.js');
+  state.live = new LiveFeed({
+    profile: p,
+    onForming: (bar) => {
+      // 只更新画面：图表最后一根离这根不超过 2 个周期时才推，避免把回放窗口拽到末尾
+      const ch = state.app;
+      const last = ch?.lastTs?.();
+      if (last && bar.timestamp >= last && bar.timestamp - last <= 2 * 60_000 && !state.replay?.playing) {
+        try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume }); } catch {}
+      }
+    },
+    onClosed: async (bars) => {
+      const ch = state.app;
+      if (!ch) return;
+      const had = await ch.refreshLive();
+      const last = bars[bars.length - 1];
+      const tail = ch.lastTs?.();
+      try { updateAsOf(); } catch {}
+      if (had && last && tail && last.timestamp > tail) {
+        try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: last.volume }); } catch {}
+      }
+    },
+    onStatus: (s) => paintLive(s)
+  });
+  await state.live.start();
+  await kvSet('ui:live', true).catch(() => {});
+  paintLive(state.live.status());
+}
+
+async function stopLiveFeed() {
+  if (state.live) { await state.live.stop(); state.live = null; }
+  await kvSet('ui:live', false).catch(() => {});
+  paintLive({ state: 'idle' });
+  updateStatus('实时已停止');
+}
+
+function wireLive() {
+  liveBtn()?.addEventListener('click', async () => {
+    if (state.live) await stopLiveFeed();
+    else await startLiveFeed();
+  });
+  window.__TT_LIVE__ = {
+    start: () => startLiveFeed(),
+    stop: () => stopLiveFeed(),
+    status: () => state.live?.status() || { state: 'idle' },
+    feed: () => state.live
+  };
+}
+  wireLive();
 /* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
 function wireTransfer() {
   const msg = $('xferMsg');
@@ -4075,6 +4171,7 @@ function wireTransfer() {
 boot().catch(showBootError);
 
 // 启动阶段的异步异常（例如 IndexedDB 被另一个窗口占用）也要看得见，而不是白屏转圈
+window.addEventListener('beforeunload', () => { try { state.live?.stop(); } catch {} });
 window.addEventListener('unhandledrejection', (e) => { if (!window.__UI_READY__) showBootError(e.reason); });
 window.addEventListener('error', (e) => { if (!window.__UI_READY__) showBootError(e.message); });
 
@@ -4118,3 +4215,4 @@ if (params.get('selftest') === '36') import('./selftest36.js').then(m => m.run(s
 if (params.get('selftest') === '37') import('./selftest37.js').then(m => m.run(state));
 if (params.get('selftest') === '38') import('./selftest38.js').then(m => m.run(state));
 if (params.get('selftest') === '39') import('./selftest39.js').then(m => m.run(state));
+if (params.get('selftest') === '40') import('./selftest40.js').then(m => m.run(state));

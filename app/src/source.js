@@ -2,11 +2,25 @@
 import { getChunk } from './db.js';
 import { createDecoder } from './binread.js';
 import { aggregate, aggregateBuffer } from './aggregate.js';
+import { readLiveRange } from './liveStore.js';
+
+const MIN = 60_000;
+
+/** 合并历史与实时：同一时间戳以历史为准（Dukascopy > biquote） */
+function mergePreferHist(hist, live) {
+  if (!live || !live.length) return hist;
+  if (!hist || !hist.length) return live;
+  const seen = new Set(hist.map(b => b.timestamp));
+  const extra = live.filter(b => !seen.has(b.timestamp));
+  if (!extra.length) return hist;
+  return hist.concat(extra).sort((a, b) => a.timestamp - b.timestamp);
+}
 
 export class BarSource {
   constructor(profile) {
     this.profile = profile;
-    this.chunks = [...profile.chunks].sort((a, b) => a.year - b.year);
+    this.chunks = [...(profile.chunks || [])].sort((a, b) => a.year - b.year);
+    this.hasLive = !!(profile.live && (profile.live.days || []).length);
     this.scale = profile.priceScale || 1000;
     this.bufCache = new Map();       // year -> ArrayBuffer
     this.decCache = new Map();       // year -> decoder
@@ -76,8 +90,20 @@ export class BarSource {
     }
     let out = [];
     for (const s of segs) out = out.concat(s);
+    // 实时段：覆盖同一时间范围，同 ts 以历史为准
+    if (this.hasLive) {
+      const from = out.length ? out[0].timestamp : anchorTs - count * MIN;
+      const live = await this._liveRange(from, anchorTs);
+      out = mergePreferHist(out, live);
+      if (out.length > count) out = out.slice(out.length - count);
+    }
     this.lastReadMs = performance.now() - t0;
     return out;
+  }
+
+  async _liveRange(from, to) {
+    try { return await readLiveRange(this.profile.id, from, to, this.scale); }
+    catch (e) { console.warn('[live] 读取失败', e?.message); return []; }
   }
 
   /** 取以 anchorTs 结尾的聚合窗口（升序）；聚合按年块缓存，切周期后是二分+切片 */
@@ -102,6 +128,15 @@ export class BarSource {
     }
     let out = [];
     for (const s of segs) out = out.concat(s);   // 段间按年升序，段内本身升序
+    if (this.hasLive) {
+      const from = out.length ? out[0].timestamp : anchorTs - page * spanMs;
+      const live1m = await this._liveRange(from, anchorTs);
+      if (live1m.length) {
+        const liveAgg = aggregate(live1m, spanMs);
+        out = mergePreferHist(out, liveAgg);
+        if (out.length > page) out = out.slice(out.length - page);
+      }
+    }
     this.lastReadMs = performance.now() - t0;
     return out;
   }
@@ -132,19 +167,34 @@ export class BarSource {
       }
       ci++;
     }
+    if (out.length < count && this.hasLive) {
+      const from = (out.length ? out[out.length - 1].timestamp : ts) + 1;
+      const live = await this._liveRange(from, from + count * MIN * 4);
+      const seen = new Set(out.map(b => b.timestamp));
+      for (const b of live) {
+        if (out.length >= count) break;
+        if (!seen.has(b.timestamp)) out.push(b);
+      }
+    }
     return out;
   }
 
   /** ts 之前（不含）的最后一根 1m */
   async prevBar(ts) {
+    let hist = null;
     let ci = this.chunkIndexFor(ts);
     let guard = 0;
     while (ci >= 0 && guard++ < 64) {
       const dec = await this.decoder(this.chunks[ci].year);
-      let idx = dec.lowerBound(ts) - 1;           // 第一个 >= ts 的位置 -1
-      if (idx >= 0) return dec.at(idx);
+      const idx = dec.lowerBound(ts) - 1;         // 第一个 >= ts 的位置 -1
+      if (idx >= 0) { hist = dec.at(idx); break; }
       ci--;
     }
-    return null;
+    if (!this.hasLive) return hist;
+    const live = await this._liveRange(ts - 8 * 86400000, ts - 1);
+    const cand = live.length ? live[live.length - 1] : null;
+    if (!cand) return hist;
+    if (!hist) return cand;
+    return cand.timestamp > hist.timestamp ? cand : hist;
   }
 }
