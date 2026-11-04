@@ -57,7 +57,7 @@ export async function run(state) {
     R.pass = s.button.exists === true
       && s.jump.before.mode === true && s.jump.before.barOn === '1'
       && s.jump.after.mode === false && s.jump.after.barOn === '0'
-      && s.jump.after.chartLast === s.jump.after.cursor
+      && s.jump.after.chartLast >= s.jump.after.cursor && s.jump.after.chartLast - s.jump.after.cursor <= 2 * 60000  // 跳完实时还会继续走到下一根
       && s.jump.after.cursorAtNewest === true
       && s.jump.after.liveState === 'live'
       && /跳到最新/.test(s.jump.after.stMsg);

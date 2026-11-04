@@ -258,17 +258,30 @@ export class ChartApp {
   /** 把窗口右端定到 ts 并重载（回放起点 / 跳转 / 回退共用） */
   async seek(ts) {
     this.anchor = ts;
-    this.chart.resetData();
+    // 丢掉上一次没被消费的 init 回调：否则残留的 _onInit 会被这次 resetData 立即兑现，
+    // seek 秒回但图表数据没换（表现：游标/锚点已经到最新，图还是旧窗口，且再也不会追）。
+    this._onInit = null;
     const wait = this.waitInit();
+    this.chart.resetData();
     this.chart.setSymbol({ ticker: this.profile.symbol, pricePrecision: decimalsFor(this.profile.symbol, this.profile.lastClose ?? null), volumePrecision: 0 });
-    return wait;
+    const got = await wait.catch(() => this.lastTs());
+    // 校验：窗口末尾没变（说明 init 没真正落数据）就强刷一次
+    const tail = this.lastTs();
+    if (tail == null || tail < ts - 90 * 60_000) {
+      this._onInit = null;
+      const again = this.waitInit();
+      this.chart.setDataLoader(this.buildLoader());
+      this.chart.setSymbol({ ticker: this.profile.symbol, pricePrecision: decimalsFor(this.profile.symbol, this.profile.lastClose ?? null), volumePrecision: 0 });
+      await again.catch(() => {});
+    }
+    return got;
   }
 
   /** 等一次由 setSymbol/setPeriod 触发的 init 回调真正落地 */
   waitInit(timeout = 8000) {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('加载超时')), timeout);
-      this._onInit = (n) => { clearTimeout(timer); resolve(n); };
+      const timer = setTimeout(() => { this._onInit = null; reject(new Error('加载超时')); }, timeout);
+      this._onInit = (n) => { clearTimeout(timer); this._onInit = null; resolve(n); };
     });
   }
 

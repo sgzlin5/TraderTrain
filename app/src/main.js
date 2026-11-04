@@ -3962,6 +3962,9 @@ function paintLive(s = {}) {
   try { updateAsOf(); } catch {}
 }
 
+/** 窗口末根离实时多远还算“贴着实时”（超过就当用户停在历史，不自动拽） */
+const NEAR_LIVE_MS = 10 * 60_000;
+
 async function startLiveFeed() {
   const p = state.profile;
   if (!p) { updateStatus('实时：还没有行情数据'); return; }
@@ -3975,12 +3978,20 @@ async function startLiveFeed() {
   state.live = new LiveFeed({
     profile: p,
     onForming: (bar) => {
-      // 只更新画面：图表最后一根离这根不超过 2 个周期时才推，避免把回放窗口拽到末尾
+      // 贴边就原地更新；落后超过 2 分钟说明窗口已经掉队（休眠/断线/我方的假 bar 等），
+      // 直接整窗重载到最新——否则原来的「距离 ≤2 根」判断会让它永远追不上，表现就是“图表不动但数据在写”
       const ch = state.app;
+      if (!ch || state.replayMode) return;
       const last = ch?.lastTs?.();
-      if (last && bar.timestamp >= last && bar.timestamp - last <= 2 * 60_000 && !state.replay?.playing) {
-        try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}
+      const behind = last ? bar.timestamp - last : Infinity;
+      if (behind <= 2 * 60_000) {
+        if (bar.timestamp >= (last || 0)) {
+          try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}
+        }
+      } else if (behind <= NEAR_LIVE_MS) {
+        catchUpLive(bar.timestamp);          // 窗口还贴着实时（≤10 分钟），补齐掉队的几根
       }
+      // 更远说明用户主动停/跳到历史，等「最新」或回放开关把他带回来，别去拽窗口
     },
     onClosed: async (bars) => {
       const ch = state.app;
@@ -3989,11 +4000,14 @@ async function startLiveFeed() {
       const last = bars[bars.length - 1];
       const tail = ch.lastTs?.();
       try { updateAsOf(); } catch {}
-      // 和 onForming 同一判据：窗口必须就在实时边缘才推。
-      // 回放停在 2024 时，实时 bar 的时间戳远大于窗口末尾，原来会把它塞进回放窗口（bars +N、右端跳到今天）
-      const nearEdge = !!(last && tail && last.timestamp > tail && last.timestamp - tail <= 2 * 60_000);
-      if (had && nearEdge && !state.replay?.playing) {
-        try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}
+      if (!had || !last || state.replayMode) return;
+      const behind = tail ? last.timestamp - tail : Infinity;
+      if (behind <= 2 * 60_000) {
+        if (last.timestamp > (tail || 0)) {
+          try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}
+        }
+      } else if (behind <= NEAR_LIVE_MS) {
+        catchUpLive(last.timestamp);
       }
     },
     onStatus: (s) => paintLive(s)
@@ -4069,6 +4083,37 @@ async function applyReplayMode(on, opts = {}) {
     } catch {}
   }
   if (!opts.silent) await kvSet('ui:replay', !!on).catch(() => {});
+}
+
+/**
+ * 实时窗口掉队时追赶：优先「把缺的 bar 一根根补进去」（增量，可靠），
+ * 落后太多（>120 根）才退化成整窗重载。3 s 内只追一次，避免抖动。
+ */
+async function catchUpLive(newestTs) {
+  const now = Date.now();
+  if (state._catchupAt && now - state._catchupAt < 3_000) return;
+  state._catchupAt = now;
+  const ch = state.app;
+  if (!ch || state.replayMode) return;
+  const tail = ch.lastTs();
+  if (!tail) return;
+  const behindBars = Math.ceil(((newestTs || now) - tail) / 60_000);
+  try {
+    if (behindBars > 120) {
+      const at = Math.min(Date.now(), (newestTs || now) + 60_000);
+      await state.replay?.setStart(at);
+      console.info('[live] 落后太多，整窗重载到', new Date(at).toISOString());
+      return;
+    }
+    const bars = await ch.source.frame((newestTs || now), 60_000, behindBars + 2);
+    let pushed = 0;
+    for (const b of bars) {
+      if (b.timestamp <= tail) continue;
+      ch.pushBar({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
+      pushed++;
+    }
+    if (pushed) console.info('[live] 窗口落后 %d 根，已增量补齐 %d 根', behindBars, pushed);
+  } catch (e) { console.warn('[live] 追赶失败', e?.message); }
 }
 
 /** 跳到最新 K 线：退出回放、回到实时边缘，并把实时采集拉起来 */

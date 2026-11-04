@@ -7,7 +7,7 @@ import { appendLiveBars, getLiveMeta, liveLastTs } from './liveStore.js';
 
 const MIN = 60_000;
 // biquote 限流 15,000 次/分钟/IP，3 s 一轮（20 次/分钟）完全吃得下；实测单次 0.8–1.3 s
-const POLL_MS = 3_000;
+const POLL_MS = 1_000;
 const FLUSH_MS = 5_000;
 const FLUSH_BARS = 20;
 const BACKFILL_LIMIT = 1000;      // biquote 的 1m 上限（约 5 小时）
@@ -75,8 +75,11 @@ export class LiveFeed {
     // 2) 轮询
     const tick = async () => {
       if (!this.running) return;
+      const t0 = Date.now();
       await this._poll();
-      if (this.running) this.timer = setTimeout(tick, POLL_MS);
+      // 固定节拍：扣掉本次请求耗时，否则真实周期 = POLL_MS + 请求耗时（实测 1 s 变成 ~1.9 s）
+      const wait = Math.max(150, POLL_MS - (Date.now() - t0));
+      if (this.running) this.timer = setTimeout(tick, wait);
     };
     this.timer = setTimeout(tick, 300);
     this.flushTimer = setInterval(() => { this._flush().catch(() => {}); }, FLUSH_MS);
