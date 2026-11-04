@@ -3887,7 +3887,7 @@ async function loadProfile(profile) {
 
   // 启动自动补缺口（默认关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
   try {
-    if (state.profile && !state._gapTried && (await kvGet('ui:autogap')) === true) {
+    if (state.profile && !state._gapTried && (await kvGet('ui:autogap')) !== false) {
       state._gapTried = true;
       const { autoGapFill } = await import('./download.js');
       const sym = state.profile.symbol;

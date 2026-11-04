@@ -1445,3 +1445,15 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | 打开回放开关瞬间 | 游标自动贴到最右一根（07:36 → 07:38 = `lastTs`），`播放` 不会从几分钟前跳回 |
 
 **修的问题**：`onClosed` 只看 `last.timestamp > tail` 就 `pushBar`，回放停在历史时会把实时 bar 塞进回放窗口（实测 `bars` 1200→1202→1203、右端跳到今天）。现在与 `onForming` 同判据：距离 ≤2 根且非播放中才推。
+
+## 启动自动补缺口：默认开（2026-11-04 第五轮）
+
+判据：`ui:autogap` 为 `null`（从未点过）→ 视为**开**；显式 `false` → 关。
+
+| kv 值 | 勾选框 | 启动分支 `_gapTried` | 说明 |
+|---|---|---|---|
+| `null` | checked ✓ | true | 新装/从没点过就是开 |
+| `true` | checked ✓ | true | 手动勾过 |
+| `false` | unchecked ✓ | false | 手动取消后不再自动补 |
+
+无缺口时 `_gapTried` 仍为 true（分支跑过），但不发请求、不写状态栏。

@@ -291,7 +291,7 @@ export function wireDownload() {
       import('./db.js').then(({ kvSet }) => kvSet('ui:autogap', !!autoGap.checked)).catch(() => {});
     };
     import('./db.js')
-      .then(async ({ kvGet }) => { autoGap.checked = (await kvGet('ui:autogap')) === true; })
+      .then(async ({ kvGet }) => { autoGap.checked = (await kvGet('ui:autogap')) !== false; })   // 默认开，用户手动取消才是关
       .catch(() => {});
   }
   document.getElementById('dlStart').onclick = () => dlStart();

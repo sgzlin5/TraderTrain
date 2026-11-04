@@ -341,7 +341,7 @@
       <button id="dlStart" class="btn">下载并导入</button>
       <button aria-label="把已有档案续到今天之前（UTC 昨天），只补缺失部分" id="dlAppend" class="btn ghost" title="把已有档案续到今天之前（UTC 昨天），只补缺失部分">补到昨天</button>
       <label class="chk-inline" title="启动时若“历史尾部 → UTC 昨天”之间有缺口，自动跑一次 Dukascopy 补齐（默认关；biquote 只留 5 小时，停机造成的空洞只能这么补）">
-        <input type="checkbox" id="dlAutoGap"> 启动自动补缺口
+        <input type="checkbox" id="dlAutoGap" checked> 启动自动补缺口
       </label>
       <button id="dlCancel" class="btn ghost" hidden>取消</button>
     </div>
@@ -623,6 +623,6 @@
 </aside>
 
 <script src="vendor/klinecharts.min.js"></script>
-<script type="module" src="src/main.js?v=20261106p"></script>
+<script type="module" src="src/main.js?v=20261106q"></script>
 </body>
 </html>
