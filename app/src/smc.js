@@ -203,23 +203,6 @@ const FVG = {
     const result = list.map(() => ({ v: null }));
     return stash(list, result, { name: FVG.name, zones, n: list.length });
   },
-  draw: ({ ctx, bounding, xAxis, yAxis, indicator }) => {
-    const p = payloadOf(indicator);
-    if (!p) return true;
-    const last = p.n - 1;
-    const view = visibleIdx(xAxis, bounding);
-    for (const z of p.zones) {
-      if (!inView(view, z.from, z.closed != null ? z.closed : last)) continue;
-      const bull = z.inverse ? z.dir === -1 : z.dir === 1;
-      const color = bull ? BULL : BEAR;
-      const x1 = px(xAxis, z.from);
-      const x2 = px(xAxis, z.closed != null ? z.closed : last);
-      const y1 = py(yAxis, z.top), y2 = py(yAxis, z.bottom);
-      drawRect(ctx, x1, y1, x2, y2, bull ? 'rgba(95,227,192,.10)' : 'rgba(255,111,133,.10)', bull ? 'rgba(95,227,192,.45)' : 'rgba(255,111,133,.45)');
-      if (x1 != null && y1 != null) drawTag(ctx, x1 + 4, Math.min(y1, y2) + 8, z.inverse ? 'IFVG' : 'FVG', color);
-    }
-    return true;
-  }
 };
 
 /* --------------------------- 2. 聪明钱概念 SMC --------------------------- */
@@ -301,30 +284,6 @@ const ICT = {
     const result = list.map(() => ({ v: null }));
     return stash(list, result, { name: ICT.name, zones: zones.slice(-12), fvgs, n });
   },
-  draw: ({ ctx, bounding, xAxis, yAxis, indicator }) => {
-    const p = payloadOf(indicator);
-    if (!p) return true;
-    const view = visibleIdx(xAxis, bounding);
-    for (const z of p.zones) {
-      if (!inView(view, z.from, z.to)) continue;
-      const x1 = px(xAxis, z.from), x2 = px(xAxis, z.to + 1);
-      if (x1 == null || x2 == null) continue;
-      ctx.save();
-      ctx.fillStyle = z.color;
-      ctx.fillRect(x1, 0, Math.max(2, x2 - x1), ctx.canvas.height);
-      ctx.restore();
-      if (x2 - x1 > 26) drawTag(ctx, x1 + 4, 12, z.label, 'rgba(205,218,230,.9)');
-    }
-    const last = p.n - 1;
-    for (const z of p.fvgs) {
-      if (!inView(view, z.from, last)) continue;
-      const bull = z.dir === 1;
-      drawRect(ctx, px(xAxis, z.from), py(yAxis, z.top), px(xAxis, last), py(yAxis, z.bottom),
-        bull ? 'rgba(95,227,192,.12)' : 'rgba(255,111,133,.12)',
-        bull ? 'rgba(95,227,192,.5)' : 'rgba(255,111,133,.5)');
-    }
-    return true;
-  }
 };
 
 /* -------------------------- 4. 波段与中期结构（HTF） -------------------------- */
@@ -366,32 +325,6 @@ const HTF = {
     const result = list.map(() => ({ v: null }));
     return stash(list, result, { name: HTF.name, hours, swings, events: lastEv, n: list.length });
   },
-  draw: ({ ctx, bounding, xAxis, yAxis, indicator }) => {
-    const p = payloadOf(indicator);
-    if (!p) return true;
-    const last = p.n - 1;
-    const view = visibleIdx(xAxis, bounding);
-    for (const s of p.swings) {
-      if (!inView(view, s.i, last)) continue;
-      const y = py(yAxis, s.price);
-      const color = s.type === 'H' ? 'rgba(255,111,133,.55)' : 'rgba(95,227,192,.55)';
-      drawLine(ctx, px(xAxis, s.i), y, px(xAxis, last), y, color, [1, 3], 1);
-      drawTag(ctx, px(xAxis, s.i) + 3, y - 6, `${p.hours}H ${s.type === 'H' ? 'SH' : 'SL'}`, color);
-    }
-    for (const e of p.events) {
-      if (!inView(view, e.from, last)) continue;
-      const color = e.dir === 1 ? BULL : BEAR;
-      const y = py(yAxis, e.price);
-      drawLine(ctx, px(xAxis, e.from), y, px(xAxis, e.i), y, color, [6, 3], 1.4);
-      drawTag(ctx, px(xAxis, e.i) - 2, y - 7, `${p.hours}H ${e.kind}`, color, 'right');
-      if (e.ob) {
-        drawRect(ctx, px(xAxis, e.ob.from), py(yAxis, e.ob.top), px(xAxis, e.ob.to != null ? e.ob.to : last), py(yAxis, e.ob.bottom),
-          e.ob.dir === 1 ? 'rgba(95,227,192,.10)' : 'rgba(255,111,133,.10)',
-          e.ob.dir === 1 ? 'rgba(95,227,192,.4)' : 'rgba(255,111,133,.4)');
-      }
-    }
-    return true;
-  }
 };
 
 /* ---------------- 5. 结构 & 趋势面板（参考 LuxAlgo Structure & Trend Dashboard） ---------------- */

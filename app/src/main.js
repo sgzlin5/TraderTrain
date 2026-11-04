@@ -4424,3 +4424,4 @@ if (params.get('selftest') === '41') import('./selftest41.js').then(m => m.run(s
 if (params.get('selftest') === '42') import('./selftest42.js').then(m => m.run(state));
 if (params.get('selftest') === '43') import('./selftest43.js').then(m => m.run(state));
 if (params.get('selftest') === '44') import('./selftest44.js').then(m => m.run(state));
+if (params.get('selftest') === '45') import('./selftest45.js').then(m => m.run(state));

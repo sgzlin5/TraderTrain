@@ -1556,3 +1556,18 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | 都摘掉 | overlays 0、面板重新隐藏 |
 
 **遗留**：`FVG / IFVG`、`ICT 杀区`、`波段 & 中期结构` 三个仍用 `draw`，在当前内核下同样不可见，需按同一路子改造。
+
+## SMC 三个遗留指标改造（2026-11-04 第十一轮，`?selftest=45` 12.9 s）
+
+`FVG / IFVG`、`ICT 杀区工具箱`、`波段 & 中期结构` 与 MST/DASH 同因：v10 不调 `draw`。
+现在全部改走 overlay（`smcRender.js` 的 PAINTERS 表，按 payload 签名增量重建）：
+
+| 指标 | overlay 组成 | 单挂实测 |
+|---|---|---|
+| SMC_FVG | `rect` 缺口 + `simpleAnnotation`（FVG/IFVG） | **16 个** |
+| SMC_ICT | 四大杀区竖带（用可见价格范围撑满）+ 未填补 FVG | **10 个** |
+| SMC_HTF | 摆动线（SH/SL）+ BOS/CHoCH + 订单块 | **7 个** |
+| 五个全挂 | 结构 + 面板 | **69 个 overlay**，面板 3 行 |
+| 全摘 | — | overlay 0、面板隐藏 |
+
+`smc.js` 里 5 个指标的 `draw` 全部删除（不再有死代码），`check_js` 84 文件通过。

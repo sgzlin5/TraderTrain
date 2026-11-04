@@ -160,10 +160,13 @@ INDICATOR LIBRARY                    ✕
 
 | 指标 | 画什么 | 参数 |
 |---|---|---|
+| `FVG / IFVG` | 缺口矩形（填补后转 IFVG，反向着色）+ 标签 | 显示个数（默认 8） |
 | `Smart Money Concepts (SMC)` · 聪明钱概念 | BOS/CHoCH 虚线 + 标签、订单块矩形、EQH/EQL | 摆动回看（默认 5） |
+| `ICT 杀区工具箱` | 四大 Killzone 竖带（ASIA/LONDON/NY AM/NY PM）+ 未填补 FVG | 小时跨度（默认 1） |
+| `波段 & 中期结构` | 摆动线（SH/SL）+ BOS/CHoCH + 订单块 | 高周期小时数（默认 1） |
 | `Structure & Trend Dashboard` · 结构&趋势面板 | 右下角悬浮面板：三组 HTF/LTF 趋势 + 对齐判定 | 结构周期 / 三组对齐周期 / FVG 上限 / 扫单 / 染色 |
 
-> klinecharts v10 不再调用 indicator 的 `draw` 回调，这两个指标原来"挂在图上但什么都不画"。
+> klinecharts v10 不再调用 indicator 的 `draw` 回调，SMC 这几个指标原来"挂在图上但什么都不画"。
 > 现在结构图形改由 overlay 渲染（`smcRender.js`，每 1.2 s 按 payload 同步），面板改由 DOM 渲染；
 > 摘掉指标会自动清场（overlay 全删、面板隐藏）。
 
