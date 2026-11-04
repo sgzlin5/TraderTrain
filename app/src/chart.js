@@ -155,7 +155,9 @@ export class ChartApp {
     this.profile = profile;
     this.source = new BarSource(profile);
     this.periodKey = '1m';
-    this.anchor = profile.last;
+    // 有实时段时默认锚在实时边缘，否则锚在历史末尾（开盘即最新）
+    const liveEnd = profile.live?.last || 0;
+    this.anchor = liveEnd > (profile.last || 0) ? liveEnd : profile.last;
     this.earliest = null;
     this.chart = null;
     this.stats = { loads: 0, lastMs: 0, lastCount: 0 };

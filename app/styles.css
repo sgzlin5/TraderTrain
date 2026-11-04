@@ -1098,6 +1098,13 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
   color:var(--accent-ink);font:600 var(--fs-sm)/1 var(--sans);cursor:pointer}
 
 /* 实时采集按钮 */
+.replay-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
+.replay-btn .rp-txt{font:var(--fs-sm)/1 var(--sans)}
+.replay-btn .rp-ico{font-size:13px;line-height:1;opacity:.85}
+.replay-btn.on{color:var(--accent)}
+.replay-btn.on .rp-ico{opacity:1}
+/* 回放关闭时，回放相关的所有控件都不出现（data-on 由 JS 维护） */
+#replayBar[data-on="0"]{display:none}
 .live-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
 .live-btn .live-txt{font:var(--fs-sm)/1 var(--sans)}
 .live-btn .live-dot{width:7px;height:7px;border-radius:50%;background:var(--dimmer);box-shadow:none}

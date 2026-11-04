@@ -102,8 +102,13 @@ export class BarSource {
   }
 
   async _liveRange(from, to) {
-    try { return await readLiveRange(this.profile.id, from, to, this.scale); }
+    let bars = [];
+    try { bars = await readLiveRange(this.profile.id, from, to, this.scale); }
     catch (e) { console.warn('[live] 读取失败', e?.message); return []; }
+    // biquote 给的是 tick 计数，不是成交量：整条成交量维度（VP/订单墙/无成交量标签）都不该被它污染
+    const kind = this.profile.live?.volumeKind || 'tickCount';
+    if (kind === 'tickCount' && bars.length) bars = bars.map(b => ({ ...b, volume: 0 }));
+    return bars;
   }
 
   /** 取以 anchorTs 结尾的聚合窗口（升序）；聚合按年块缓存，切周期后是二分+切片 */

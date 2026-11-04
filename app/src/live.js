@@ -6,10 +6,14 @@
 import { appendLiveBars, getLiveMeta, liveLastTs } from './liveStore.js';
 
 const MIN = 60_000;
-const POLL_MS = 20_000;
-const FLUSH_MS = 30_000;
+// biquote 限流 15,000 次/分钟/IP，3 s 一轮（20 次/分钟）完全吃得下；实测单次 0.8–1.3 s
+const POLL_MS = 3_000;
+const FLUSH_MS = 5_000;
 const FLUSH_BARS = 20;
-const BACKFILL_LIMIT = 300;
+const BACKFILL_LIMIT = 1000;      // biquote 的 1m 上限（约 5 小时）
+const POLL_LIMIT = 15;            // 每轮多取 15 根：短暂断线能自愈
+const GAP_MIN = 2;                // 落后超过 N 分钟就触发补洞
+const GAP_FETCH_LIMIT = 120;
 
 export class LiveFeed {
   /**
@@ -34,10 +38,12 @@ export class LiveFeed {
   }
 
   status(extra = {}) {
+    const lagSec = this.lastTs ? Math.max(0, Math.round((Date.now() - this.lastTs - MIN) / 1000)) : null;
     return {
       state: this.running ? 'live' : 'idle',
       symbol: this.profile?.symbol,
       last: this.lastTs,
+      lagSec,
       pending: this.buffer.length,
       ...this.stats,
       ...extra
@@ -106,13 +112,23 @@ export class LiveFeed {
     this.stats.polls++;
     this.stats.lastPollAt = Date.now();
     try {
-      const bars = await this._fetch(3);
+      let bars = await this._fetch(POLL_LIMIT);
       const forming = bars.filter(b => b.forming);
       const closed = bars.filter(b => !b.forming);
       if (forming.length) this.onForming(forming[forming.length - 1]);
       if (closed.length) {
-        const known = this.lastTs ?? (await liveLastTs(this.profile.id)) ?? this._histLast();
-        const fresh = closed.filter(b => known == null || b.timestamp > known);
+        let known = this.lastTs ?? (await liveLastTs(this.profile.id)) ?? this._histLast();
+        // 补洞：本地最新那根落后超过 GAP_MIN 分钟（断线/休眠/关过页面），多拉一批一次补齐
+        const newest = closed[closed.length - 1].timestamp;
+        if (known != null && newest - known > GAP_MIN * MIN) {
+          try {
+            const more = await this._fetch(GAP_FETCH_LIMIT);
+            bars = more;
+            this.stats.healed = (this.stats.healed || 0) + 1;
+          } catch { /* 补洞失败不影响本轮 */ }
+        }
+        const closed2 = bars.filter(b => !b.forming);
+        const fresh = closed2.filter(b => known == null || b.timestamp > known);
         if (fresh.length) {
           this.buffer.push(...fresh);
           this.pendingFlush = this.buffer.length >= FLUSH_BARS;
@@ -156,4 +172,4 @@ export function startLive(profile, handlers = {}) {
   return feed;
 }
 
-export const LIVE_CONFIG = { POLL_MS, FLUSH_MS, FLUSH_BARS, BACKFILL_LIMIT, MIN };
+export const LIVE_CONFIG = { POLL_MS, FLUSH_MS, FLUSH_BARS, BACKFILL_LIMIT, POLL_LIMIT, GAP_MIN, GAP_FETCH_LIMIT, MIN };

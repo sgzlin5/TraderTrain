@@ -3872,10 +3872,21 @@ async function loadProfile(profile) {
   updateStatus(`已加载 ${profile.symbol}（${fmtDay(profile.first)} → ${fmtDay(profile.last)}）`);
   await renderProfiles();
   await restorePineIndicators();
-  // 上次开着实时就自动恢复（没有行情时不启）
+  // 回放开关：默认关（只留一个入口，打开才出回放控件）
+  let replayPref = false;
+  try { replayPref = (await kvGet('ui:replay')) === true; } catch {}
+
+  // 实时：用户没明确关过、且源能取到数据，就默认开着
   try {
-    if (await kvGet('ui:live') && state.profile) { await startLiveFeed(); }
+    const pref = await kvGet('ui:live');          // null=没选过 / true / false
+    if (state.profile && pref !== false) {
+      if (await liveSourceReady(state.profile.symbol)) await startLiveFeed();
+      else console.warn('[live] 源不可用，跳过自动开启');
+    }
   } catch (e) { console.warn('[live] 恢复失败', e?.message); }
+
+  // 图表/回放对象就绪后再落实回放开关状态（这时 seek 才有意义）
+  try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { console.warn('[replay] 恢复模式失败', e?.message); }
 
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
@@ -3904,6 +3915,151 @@ function showBootError(err) {
     box.textContent = '启动失败：' + msg + '\n\n按 Ctrl+R 重试；若反复出现，把这段发给维护者。';
   } catch {}
   try { const sb = document.getElementById('stMsg'); if (sb) sb.textContent = '启动失败：' + msg.slice(0, 120); } catch {}
+}
+
+/* ---------------- 实时采集（biquote → live store） ---------------- */
+function liveBtn() { return $('btnLive'); }
+
+function paintLive(s = {}) {
+  const b = liveBtn(); if (!b) return;
+  const on = s.state === 'live';
+  b.classList.toggle('on', on);
+  b.classList.toggle('err', !!s.err);
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const t = b.querySelector('.live-txt');
+  if (t) t.textContent = on ? '实时中' : '实时';
+  const bits = [];
+  if (s.symbol) bits.push(s.symbol);
+  if (s.last) bits.push(`最近 ${new Date(s.last).toISOString().slice(11, 16)}Z`);
+  if (s.lagSec != null) bits.push(`延迟 ${s.lagSec}s`);
+  if (s.pending) bits.push(`待写 ${s.pending}`);
+  if (s.written) bits.push(`已入库 ${s.written} 根`);
+  if (s.backfilled) bits.push(`回补 ${s.backfilled} 根`);
+  if (s.err) bits.push(`错误 ${String(s.err).slice(0, 60)}`);
+  b.title = on ? `实时采集中：${bits.join(' · ')}` : '实时采集（biquote）：每 3 s 拉一次，收盘那根自动入库';
+  // 状态栏只在“状态/错误”变化时写一行；每轮轮询都写会把用户的提示（随机起点/截屏…）冲掉
+  const sig = `${on}|${s.err ? 1 : 0}`;
+  if (sig !== state._liveSig) {
+    state._liveSig = sig;
+    if (on || s.err) updateStatus(`实时 · ${bits.join(' · ')}`);
+  }
+  try { updateAsOf(); } catch {}
+}
+
+async function startLiveFeed() {
+  const p = state.profile;
+  if (!p) { updateStatus('实时：还没有行情数据'); return; }
+  // 单实例：同一品种已经在采就不要再起一个（两个 feed 会互相覆盖 live 分片）
+  if (state.live && state.live.running && state.live.profile?.id === p.id) {
+    paintLive(state.live.status());
+    return;
+  }
+  if (state.live) await state.live.stop();
+  const { LiveFeed } = await import('./live.js');
+  state.live = new LiveFeed({
+    profile: p,
+    onForming: (bar) => {
+      // 只更新画面：图表最后一根离这根不超过 2 个周期时才推，避免把回放窗口拽到末尾
+      const ch = state.app;
+      const last = ch?.lastTs?.();
+      if (last && bar.timestamp >= last && bar.timestamp - last <= 2 * 60_000 && !state.replay?.playing) {
+        try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}
+      }
+    },
+    onClosed: async (bars) => {
+      const ch = state.app;
+      if (!ch) return;
+      const had = await ch.refreshLive();
+      const last = bars[bars.length - 1];
+      const tail = ch.lastTs?.();
+      try { updateAsOf(); } catch {}
+      if (had && last && tail && last.timestamp > tail) {
+        try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}
+      }
+    },
+    onStatus: (s) => paintLive(s)
+  });
+  await state.live.start();
+  await kvSet('ui:live', true).catch(() => {});
+  paintLive(state.live.status());
+
+  // 历史与实时之间的空洞要明说（不自欺：图上那一大段空白不是渲染问题）
+  try {
+    const LS = await import('./liveStore.js');
+    const meta = await LS.getLiveMeta(p.id);
+    const firstLive = meta.days?.[0]?.first;
+    if (p.last && firstLive && firstLive - p.last > 86400000) {
+      const days = Math.round((firstLive - p.last) / 86400000);
+      updateStatus(`实时已开 · 历史止于 ${fmtTs(p.last)}，与实时之间缺 ${days} 天 · 用「补到昨天」补齐`, true);
+    }
+  } catch {}
+}
+
+async function stopLiveFeed() {
+  if (state.live) { await state.live.stop(); state.live = null; }
+  await kvSet('ui:live', false).catch(() => {});
+  paintLive({ state: 'idle' });
+  updateStatus('实时已停止');
+}
+
+/** 源探活：能取到 1 根已收盘 bar 就算“源可用”（3 s 超时） */
+async function liveSourceReady(symbol) {
+  try {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 3500);
+    const res = await fetch(`/api/live?symbol=${encodeURIComponent(symbol)}&limit=2`, { cache: 'no-store', signal: ctl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return false;
+    const j = await res.json();
+    return Array.isArray(j.bars) && j.bars.length > 0;
+  } catch { return false; }
+}
+
+/** 回放模式开关：关着的时候回放相关控件全部不出现 */
+async function applyReplayMode(on, opts = {}) {
+  state.replayMode = !!on;
+  const bar = $('replayBar');
+  if (bar) bar.dataset.on = on ? '1' : '0';
+  const btn = $('btnReplay');
+  if (btn) {
+    btn.classList.toggle('on', !!on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.title = on ? '回放模式：开（点一下收起回放控件）' : '回放模式：打开后显示起点 / 播放 / 步进 / 速度';
+  }
+  document.body.classList.toggle('replay-on', !!on);
+  if (!on) {
+    try { state.replay?.pause?.(); } catch {}
+    if (opts.noSeek) { if (!opts.silent) await kvSet('ui:replay', false).catch(() => {}); return; }
+    // 收起回放后回到最新一根（历史与实时取更晚者），避免画面停在半路
+    try {
+      const p = state.profile;
+      const newest = Math.max(p?.last || 0, p?.live?.last || 0);
+      if (state.replay && newest) await state.replay.setStart(Math.min(Date.now(), newest + 60000));
+    } catch {}
+  }
+  if (!opts.silent) await kvSet('ui:replay', !!on).catch(() => {});
+}
+
+function wireLive() {
+  liveBtn()?.addEventListener('click', async () => {
+    if (state.live) await stopLiveFeed();
+    else await startLiveFeed();
+  });
+  $('btnReplay')?.addEventListener('click', async () => {
+    await applyReplayMode(!state.replayMode);
+    updateStatus(state.replayMode ? '回放模式：开（起点/播放/步进/速度已就位）' : '回放模式：关（回到实时视图）');
+  });
+  window.__TT_REPLAY_MODE__ = {
+    on: () => applyReplayMode(true),
+    off: () => applyReplayMode(false),
+    state: () => !!state.replayMode
+  };
+  window.__TT_LIVE__ = {
+    start: () => startLiveFeed(),
+    stop: () => stopLiveFeed(),
+    status: () => state.live?.status() || { state: 'idle' },
+    feed: () => state.live
+  };
 }
 
 async function boot() {
@@ -3991,86 +4147,6 @@ async function boot() {
   };
   $('closeDrawer').onclick = () => { $('drawer').hidden = true; $('btnData').classList.remove('active'); };
   wireTransfer();
-/* ---------------- 实时采集（biquote → live store） ---------------- */
-function liveBtn() { return $('btnLive'); }
-
-function paintLive(s = {}) {
-  const b = liveBtn(); if (!b) return;
-  const on = s.state === 'live';
-  b.classList.toggle('on', on);
-  b.classList.toggle('err', !!s.err);
-  b.setAttribute('aria-pressed', on ? 'true' : 'false');
-  const t = b.querySelector('.live-txt');
-  if (t) t.textContent = on ? '实时中' : '实时';
-  const bits = [];
-  if (s.symbol) bits.push(s.symbol);
-  if (s.last) bits.push(`最近 ${new Date(s.last).toISOString().slice(11, 16)}Z`);
-  if (s.pending) bits.push(`待写 ${s.pending}`);
-  if (s.written) bits.push(`已入库 ${s.written} 根`);
-  if (s.backfilled) bits.push(`回补 ${s.backfilled} 根`);
-  if (s.err) bits.push(`错误 ${String(s.err).slice(0, 60)}`);
-  b.title = on ? `实时采集中：${bits.join(' · ')}` : '实时采集：每 20 s 拉一次 biquote，收盘那根自动入库';
-  if (on || s.err) updateStatus(`实时 · ${bits.join(' · ')}`);
-  try { updateAsOf(); } catch {}
-}
-
-async function startLiveFeed() {
-  const p = state.profile;
-  if (!p) { updateStatus('实时：还没有行情数据'); return; }
-  // 单实例：同一品种已经在采就不要再起一个（两个 feed 会互相覆盖 live 分片）
-  if (state.live && state.live.running && state.live.profile?.id === p.id) {
-    paintLive(state.live.status());
-    return;
-  }
-  if (state.live) await state.live.stop();
-  const { LiveFeed } = await import('./live.js');
-  state.live = new LiveFeed({
-    profile: p,
-    onForming: (bar) => {
-      // 只更新画面：图表最后一根离这根不超过 2 个周期时才推，避免把回放窗口拽到末尾
-      const ch = state.app;
-      const last = ch?.lastTs?.();
-      if (last && bar.timestamp >= last && bar.timestamp - last <= 2 * 60_000 && !state.replay?.playing) {
-        try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: bar.volume }); } catch {}
-      }
-    },
-    onClosed: async (bars) => {
-      const ch = state.app;
-      if (!ch) return;
-      const had = await ch.refreshLive();
-      const last = bars[bars.length - 1];
-      const tail = ch.lastTs?.();
-      try { updateAsOf(); } catch {}
-      if (had && last && tail && last.timestamp > tail) {
-        try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: last.volume }); } catch {}
-      }
-    },
-    onStatus: (s) => paintLive(s)
-  });
-  await state.live.start();
-  await kvSet('ui:live', true).catch(() => {});
-  paintLive(state.live.status());
-}
-
-async function stopLiveFeed() {
-  if (state.live) { await state.live.stop(); state.live = null; }
-  await kvSet('ui:live', false).catch(() => {});
-  paintLive({ state: 'idle' });
-  updateStatus('实时已停止');
-}
-
-function wireLive() {
-  liveBtn()?.addEventListener('click', async () => {
-    if (state.live) await stopLiveFeed();
-    else await startLiveFeed();
-  });
-  window.__TT_LIVE__ = {
-    start: () => startLiveFeed(),
-    stop: () => stopLiveFeed(),
-    status: () => state.live?.status() || { state: 'idle' },
-    feed: () => state.live
-  };
-}
   wireLive();
 /* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
 function wireTransfer() {

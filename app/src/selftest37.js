@@ -89,8 +89,9 @@ export async function run(state) {
     window.__T37__ = 'd2';
     // ---------- D2 提醒 ----------
     const pine = await import('./pine.js');
-    const bars = state.app.chart.getDataList();
-    const ra = await pine.compilePine('//@version=6\nindicator("a")\nif close > open\n    alert("阳线", alert.freq_once_per_bar_close)\nplot(close, "c")', bars, null, state.profile?.symbol);
+    // 掉最后一根（实时里正在走的那根），freq_once_per_bar_close 只在已收盘 bar 上触发
+    const bars = state.app.chart.getDataList().slice(0, -1);
+    const ra = await pine.compilePine('//@version=6\nindicator("a")\nif close > open\n    alert("阳线")\nplot(close, "c")', bars, null, state.profile?.symbol);
     window.__TT_RENDER_ALERTS__?.(ra.alerts || [], 'selftest');
     await wait(150);
     log('d2', { alerts: (ra.alerts || []).length, badge: document.getElementById('alertBadge')?.textContent, badgeHidden: document.getElementById('alertBadge')?.hidden, rows: document.querySelectorAll('#alertList .a').length });
