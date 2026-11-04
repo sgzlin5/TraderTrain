@@ -1470,3 +1470,31 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | 实时没开时 | 若 `/api/live` 可取到数据，顺带 `startLiveFeed()`；取不到则提示「实时源不可用」 |
 
 **顺带**：`jumpToLatest()` 里 `setStart()` 之后把 `replay.cursor` 对齐到 `app.lastTs()` —— 否则游标落在分钟中间的毫秒上，接着按「播放」起点不干净。
+
+## 实时“静默停采”根因与修复（2026-11-04 第七轮）
+
+**现象**：`ui:live=true`、状态正常，但实时不再写入；图表停在旧位置。
+
+**取证**：
+- 直连服务端 `GET /api/live?symbol=XAUUSD&limit=2` → 200，0.82 s，返回最新 bar（上游正常）
+- `%LOCALAPPDATA%\TraderTrain\server.log` 出现 `ConnectionAbortedError: [WinError 10053] 你的主机中的软件中止了一个已建立的连接` —— 客户端在 3.5 s 主动 abort
+- 用 WebView2 远程调试（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`）读真实窗口：
+  `kvLive=true`、`state.live === null`（`__TT_LIVE__.status()` 只剩 `{state:'idle'}`）、`profile.live.last` 停在启动那一刻
+
+**根因**：启动时的探活 `liveSourceReady()` 超时 3.5 s，冷启动第一次连 biquote（含 TLS 握手）可能超过该值 → 探不通 → 直接 `console.warn('[live] 源不可用，跳过自动开启')`，**而 `ui:live` 仍是 true，界面没有任何提示**；此后没有任何重试。第二次 `loadProfile`（快照恢复/切档案后）同样走这条路径，于是 feed 永远没起来。
+
+**修复**：
+1. 启动不再预探活：`pref !== false && !state.live` 就直接 `startLiveFeed()`，上游慢由 feed 每 3 s 重试并体现在状态栏
+2. `liveSourceReady()` 放宽到 8 s × 2 次（`jumpToLatest` 等显式场景仍会用它判断）
+3. 30 s 看门狗：`!feed || !feed.running || now - lastPollAt > 60 s` → 停掉重建并 `console.warn('[live] 看门狗重启…')`
+
+**修复后实测（exe 实例，WebView2 窗口）**：
+
+| 项 | 值 |
+|---|---|
+| 启动后 | `state=live`、`kvLive=true`、`profile.live.last` 跟随当前分钟 |
+| 轮询 | `polls` 5 → 9（20 s 内），间隔 ≈3 s |
+| 写入 | `written=4`、`lagSec=0`、`errors=0` |
+| 回归 | 2 / 11 / 12 / 31 / 41 / 42 全绿（跑在 exe 自带服务上） |
+
+**环境副作用（已消除）**：此前我用 `tools/serve.py` 占着 8731，exe 启动时只能“端口已在服务中，直接开窗”，窗口连的是我的开发服务器；现已停掉开发服务器，exe 自己绑 8731（PID 变更、`server.log` 记录 `server ready on 8731`）。另外 16:12 曾有两个 exe 实例并存，也已清理。

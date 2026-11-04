@@ -3879,10 +3879,9 @@ async function loadProfile(profile) {
   // 实时：用户没明确关过、且源能取到数据，就默认开着
   try {
     const pref = await kvGet('ui:live');          // null=没选过 / true / false
-    if (state.profile && pref !== false) {
-      if (await liveSourceReady(state.profile.symbol)) await startLiveFeed();
-      else console.warn('[live] 源不可用，跳过自动开启');
-    }
+    // 不预探活：冷启动第一次连上游可能要好几秒，探不通就直接放弃会把“实时”永久关掉。
+    // 交给 feed 自己每 3 s 重试，出错会体现在状态栏（延迟/错误）。
+    if (state.profile && pref !== false && !state.live) await startLiveFeed();
   } catch (e) { console.warn('[live] 恢复失败', e?.message); }
 
   // 启动自动补缺口（默认关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
@@ -4023,16 +4022,21 @@ async function stopLiveFeed() {
 }
 
 /** 源探活：能取到 1 根已收盘 bar 就算“源可用”（3 s 超时） */
-async function liveSourceReady(symbol) {
-  try {
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 3500);
-    const res = await fetch(`/api/live?symbol=${encodeURIComponent(symbol)}&limit=2`, { cache: 'no-store', signal: ctl.signal });
-    clearTimeout(timer);
-    if (!res.ok) return false;
-    const j = await res.json();
-    return Array.isArray(j.bars) && j.bars.length > 0;
-  } catch { return false; }
+async function liveSourceReady(symbol, { timeout = 8000, tries = 2 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), timeout);
+      const res = await fetch(`/api/live?symbol=${encodeURIComponent(symbol)}&limit=2`, { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const j = await res.json();
+        if (Array.isArray(j.bars) && j.bars.length > 0) return true;
+      }
+    } catch (e) { /* 冷启动上游慢，再来一次 */ }
+    if (i + 1 < tries) await new Promise(r => setTimeout(r, 800));
+  }
+  return false;
 }
 
 /** 回放模式开关：关着的时候回放相关控件全部不出现 */
@@ -4115,6 +4119,22 @@ function wireLive() {
     off: () => applyReplayMode(false),
     state: () => !!state.replayMode
   };
+  // 看门狗：设置是“开”但没在采集（feed 丢了 / 轮询卡住 / 睡醒后 timer 停了）→ 重启
+  setInterval(async () => {
+    try {
+      if (!state.profile) return;
+      const pref = await kvGet('ui:live');
+      if (pref === false) return;
+      const f = state.live;
+      const stalled = !f || !f.running || !f.stats?.lastPollAt || (Date.now() - f.stats.lastPollAt > 60_000);
+      if (stalled) {
+        console.warn('[live] 看门狗重启：', f ? (f.running ? '轮询停滞' : 'feed 已停') : '无 feed');
+        if (state.live) { try { await state.live.stop(); } catch {} state.live = null; }
+        await startLiveFeed();
+      }
+    } catch (e) { console.warn('[live] 看门狗异常', e?.message); }
+  }, 30_000);
+
   window.__TT_LIVE__ = {
     start: () => startLiveFeed(),
     stop: () => stopLiveFeed(),
