@@ -21,6 +21,8 @@ export async function run(state) {
     // ---------- B2 空状态 ----------
     state.session = state.session || null;
     if (state.session) state.session.trades = [];
+    // state.trade 是面板真正渲染的那份副本，一并清掉（否则上一个用例的成交会残留）
+    if (state.trade) { state.trade.trades = []; state.trade.realized = 0; state.trade.orders?.forEach?.(o => (o.done = true)); }
     if (window.__TT_RENDER_SESSION__) window.__TT_RENDER_SESSION__();
     await wait(150);
     const tradeEmpty = !!document.querySelector('#tradeList .empty-card');
@@ -133,7 +135,7 @@ export async function run(state) {
       s.b1.ariaCount >= 20 && s.b1.unnamed === 0 && s.b1.focusRule === true
       && s.b2.tradeEmpty === true && s.b2.drawEmpty === true
       && s.b3.asOfHasUTC === true && s.b3.asOfHasDate === true && s.b3.cursorHasUTC === true
-      && s.c2.tagVisible === true && /无成交量/.test(s.c2.tagText || '')
+      && s.c2.tagVisible === !s.c2.hasVolume && (s.c2.hasVolume || /无成交量/.test(s.c2.tagText || ''))
       && s.c1.cells >= 2 && s.c1.after && s.c1.after === s.c1.other && s.c1.tagsHaveSymbol === true
       && s.c3.csvs === 2 && s.c3.sizes.every(x => x > 0) && /datetime/.test(s.c3.firstLine || '')
       && s.d2.alerts >= 1 && s.d2.badgeHidden === false && s.d2.rows === s.d2.alerts

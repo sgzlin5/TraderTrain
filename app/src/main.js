@@ -3885,6 +3885,23 @@ async function loadProfile(profile) {
     }
   } catch (e) { console.warn('[live] 恢复失败', e?.message); }
 
+  // 启动自动补缺口（默认关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
+  try {
+    if (state.profile && !state._gapTried && (await kvGet('ui:autogap')) === true) {
+      state._gapTried = true;
+      const { autoGapFill } = await import('./download.js');
+      const sym = state.profile.symbol;
+      const r = await autoGapFill(sym, {
+        onStatus: (t, err) => {
+          if (err || /已续传|导入失败|下载失败|已取消/.test(t)) updateStatus(`自动补缺口：${t}`, !!err);
+        }
+      });
+      if (r.started) updateStatus(`自动补缺口：${r.from} → ${r.to} 开始下载（图表可先用，完成后自动刷新）`);
+      else if (r.reason === 'up-to-date') console.info('[gap] 无缺口');
+      else console.warn('[gap] 跳过：', r.reason);
+    }
+  } catch (e) { console.warn('[gap] 失败', e?.message); }
+
   // 图表/回放对象就绪后再落实回放开关状态（这时 seek 才有意义）
   try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { console.warn('[replay] 恢复模式失败', e?.message); }
 
@@ -4128,7 +4145,7 @@ async function boot() {
   window.__TT_RENDER_ALERTS__ = (list, name) => renderAlerts(list, name);
   window.__TT_EXPORT_REPORT__ = (sess) => exportSessionReport(sess);
   window.__TT_RENDER_DRAWMGR__ = () => renderDrawMgr();
-  window.__TT_RENDER_SESSION__ = () => { try { renderTrades(); } catch {} };
+  window.__TT_RENDER_SESSION__ = () => { try { renderTrade(state.trade.snapshot()); } catch {} };
   wireOverlayBar();
   wireThemeMenu();
   wireSaveButton();
@@ -4292,3 +4309,4 @@ if (params.get('selftest') === '37') import('./selftest37.js').then(m => m.run(s
 if (params.get('selftest') === '38') import('./selftest38.js').then(m => m.run(state));
 if (params.get('selftest') === '39') import('./selftest39.js').then(m => m.run(state));
 if (params.get('selftest') === '40') import('./selftest40.js').then(m => m.run(state));
+if (params.get('selftest') === '41') import('./selftest41.js').then(m => m.run(state));

@@ -17,7 +17,7 @@ export async function run(state) {
     // 这些用例的时间戳是按 XAUUSD 数据写的：档案不对就先切过去
     if (state.profile?.id !== 'XAUUSD-1m' && window.__TT_LOAD_PROFILE__) {
       const target = (state.profiles || []).find(p => p.id === 'XAUUSD-1m');
-      if (target) { await window.__TT_LOAD_PROFILE__(target); await wait(300); }
+      if (target) { await window.__TT_LOAD_PROFILE__(target); if (window.__APP_READY__) await window.__APP_READY__; await wait(300); }
     }
     if (state.profile?.id !== 'XAUUSD-1m') throw new Error(`用例需要 XAUUSD 档案，当前是 ${state.profile?.id || '无'}`);
     const app = state.app, rp = state.replay, draw = state.draw, trade = state.trade;
@@ -28,6 +28,8 @@ export async function run(state) {
     let t = performance.now();
     await rp.setStart(startTs);
     const setStartMs = performance.now() - t;
+    // 实时开着时首屏是实时边缘：等一次真正落到游标，别读到上一帧的窗口
+    await until(() => app.lastBar()?.timestamp === rp.cursor, 3000);
     log('replay_setstart', {
       ms: +setStartMs.toFixed(1), cursor: rp.cursor,
       lastBarTs: app.lastBar()?.timestamp, cursorIsLast: app.lastBar()?.timestamp === rp.cursor,

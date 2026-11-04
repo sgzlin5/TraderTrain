@@ -1412,3 +1412,25 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 3. tick 计数被当成成交量注入图表 → `无成交量` 标签与 VP/订单墙退化路径自相矛盾（`?selftest=25/37` 直接红）。现在 `volumeKind==='tickCount'` 时读路径与 push 都归零。
 
 回归：`?selftest=1..40`（39 项）**全绿**。
+
+## 启动自动补缺口（2026-11-04 第三轮，`?selftest=41` 14.5 s）
+
+| 判据 | 实测 |
+|---|---|
+| 勾选框 | `#dlAutoGap` 存在；勾选 → `ui:autogap=true`；取消 → `false` |
+| 无缺口 | `autoGapFill()` → `{started:false, reason:'up-to-date'}`，不发请求 |
+| 有缺口（指定 2026-10-31 → 11-03） | `started:true`，下载 2,762 根，入库 **新增 0 根**（重叠去重） |
+| 幂等 | 补完 `profile.bars` 不变（4,140,534），再问 → `up-to-date` |
+| 启动分支 | `ui:autogap=true` 时 `state._gapTried === true`（分支执行过）；一次生命周期只试一次 |
+
+**顺带修掉的数据写入 bug（重要）**：`ingest.appendCsvSources` 原来 `putChunk(key, buf.buffer)`，而 `buf` 常是 `subarray` 视图 —— 写进库的是**整块 backing buffer**，尾部未使用容量变成 `ts=0` 的假记录。实测 2026 分片：307,553 条记录里有 **11,048 条 ts=0**，`chunkMeta` 读到 `last=0`，按时间二分读不到 10-31 之后的数据；续传每次还会再加 2,762 条。
+
+- 修复：新增 `exactBuffer()`（`byteOffset/byteLength` 不一致时 `slice()`），两处 `putChunk` 都走它；`mergeYearBuffers` 合并时丢弃 `ts<=0`。
+- 数据修复：按 `ts>0` 过滤 + 按 ts 去重 + 排序重写 2026 分片 → **307,553 → 296,505 条**（丢弃 11,048 条），`profile.bars` 回到 **4,140,534**，`last = 2026-11-03 23:59`，10-31/11-02/11-03 连续可读。
+
+**自检适配（不削弱断言）**：
+- `selftest2/3/23`：`__TT_LOAD_PROFILE__` 后等一次新的 `__APP_READY__`（否则会跟启动的“回到实时边缘”抢窗口）；`selftest2` 的起点断言改为等帧后再比。
+- `selftest37`：b2 同时清 `state.trade.trades`（面板渲染的那份），c2 的成交量标签断言改成与 `hasVolume` 一致（`tagVisible === !hasVolume`）。
+- `selftest41`：开头把档案切回 XAUUSD（顺序无关）。
+
+回归：`?selftest=1..41`（40 项）逐条单独跑全绿；批次连跑时 29/41 曾因上一个用例的重活出现一次抖动，加断言前置条件后 37→41、29→41 均通过。

@@ -1114,3 +1114,8 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .live-btn.err .live-dot{background:var(--down)}
 @keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
 @media (prefers-reduced-motion:reduce){.live-btn.on .live-dot{animation:none}}
+
+/* 下载区：行内勾选项（启动自动补缺口） */
+.chk-inline{display:inline-flex;align-items:center;gap:6px;font:var(--fs-sm)/1.2 var(--sans);color:var(--muted-fg);cursor:pointer;user-select:none}
+.chk-inline input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.chk-inline:hover{color:var(--fg)}
