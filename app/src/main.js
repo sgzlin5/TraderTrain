@@ -3990,7 +3990,10 @@ async function startLiveFeed() {
       const last = bars[bars.length - 1];
       const tail = ch.lastTs?.();
       try { updateAsOf(); } catch {}
-      if (had && last && tail && last.timestamp > tail) {
+      // 和 onForming 同一判据：窗口必须就在实时边缘才推。
+      // 回放停在 2024 时，实时 bar 的时间戳远大于窗口末尾，原来会把它塞进回放窗口（bars +N、右端跳到今天）
+      const nearEdge = !!(last && tail && last.timestamp > tail && last.timestamp - tail <= 2 * 60_000);
+      if (had && nearEdge && !state.replay?.playing) {
         try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}
       }
     },
@@ -4044,6 +4047,13 @@ async function applyReplayMode(on, opts = {}) {
     btn.title = on ? '回放模式：开（点一下收起回放控件）' : '回放模式：打开后显示起点 / 播放 / 步进 / 速度';
   }
   document.body.classList.toggle('replay-on', !!on);
+  // 打开回放时把游标贴到当前最右一根，免得“播放”从几分钟前跳回去
+  if (on) {
+    try {
+      const t = state.app?.lastTs?.();
+      if (t && state.replay) { state.replay.cursor = t; state.replay.emit?.(); }
+    } catch {}
+  }
   if (!on) {
     try { state.replay?.pause?.(); } catch {}
     if (opts.noSeek) { if (!opts.silent) await kvSet('ui:replay', false).catch(() => {}); return; }
