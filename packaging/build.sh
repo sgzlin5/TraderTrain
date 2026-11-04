@@ -28,6 +28,7 @@ rm -rf build dist
   --add-data "../app;app" \
   --add-data "../data/manifest.json;data" \
   --add-data "../tools/serve.py;tools" \
+  --add-data "../tools/fixtures;tools/fixtures" \
   trader_train.py 2>&1 | tail -6
 
 echo "== 4) 附带说明 =="

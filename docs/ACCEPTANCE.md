@@ -1518,3 +1518,20 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 2. `waitInit()` 超时不清 `_onInit`，后续 init 会兑现到早已超时的 Promise 上。
 
 **自检**：`selftest=2/11/42` 全绿（42 的断言放宽为 `chartLast ≥ cursor`，因为跳完实时还会继续走到下一根）。
+
+## 均线三件套 EMA / RMA / ZLEMA（2026-11-04 第九轮，`?selftest=43` 5.5 s）
+
+按 LuxAlgo / Pine 口径实现（`ta.ema`、`ta.rma` 都是「前 N 根 SMA 起头 + 递推」，和多数库不同），并在指标库新增「均线」分类。
+
+| 判据 | 实测 |
+|---|---|
+| 注册 | `getSupportedIndicators()` 含 `EMA` / `RMA` / `ZLEMA`（`EMA` 覆盖内核同名指标，入口不变） |
+| 分类 | 元数据 `cat=均线` → 库分类 `ma`；`IND_CATS` 新增 `{ key:'ma', label:'均线' }` |
+| 不重复 | 库列表中三者各出现 1 次（共 3 条），内核 EMA 被元数据过滤掉 |
+| 数值 | 与参考实现逐点比对：`EMA 4043.876583` / `RMA 4043.665334` / `ZLEMA 4044.351822`，**diff = 0**（20 周期，末根） |
+| 上图 | 三个都能 `createIndicator(name, true)` 并出现在 `getIndicators()`；移除正常 |
+| 面板 | 打开指标库 → 点「均线」→ 3 行（指数均线 EMA / 怀尔德平滑 RMA / 零延迟均线 ZLEMA），星级 4.5/4/4.5 |
+
+**顺带修**：
+- `selftest38`（ZLEMA）原先断言分类为 `general`、面板点 `data-cat="general"` —— ZLEMA 迁到「均线」后同步改为 `ma`（保留 `general` 回退）
+- 打包漏了 `tools/fixtures`，导致 `selftest37` 的 ZIP64 段在 exe 里取不到 `TTZ64.zip` → `build.sh` 增加 `--add-data "../tools/fixtures;tools/fixtures"`

@@ -85,7 +85,9 @@ export async function run(state) {
     // 7) 指标库面板「通用」分类里能找到、且显示已添加
     document.getElementById('btnIndicator').click();
     await wait(500);
-    const catBtn = document.querySelector('#indCats .ind-cat[data-cat="general"]');
+    // ZLEMA 现在归到「均线」分类（和 EMA/RMA 一起），优先点它，老版本回退 general
+    const catBtn = document.querySelector('#indCats .ind-cat[data-cat="ma"]')
+      || document.querySelector('#indCats .ind-cat[data-cat="general"]');
     if (catBtn) { catBtn.click(); await wait(300); }
     const rows = [...document.querySelectorAll('#indList .ind-item')];
     const row = rows.find(r => r.querySelector('[data-add="ZLEMA"]'));
@@ -105,7 +107,7 @@ export async function run(state) {
 
     R.pass = (
       R.checks.registered === true
-      && R.checks.library && R.checks.library.cat === 'general' && R.checks.library.overlay === true
+      && R.checks.library && (R.checks.library.cat === 'ma' || R.checks.library.cat === 'general') && R.checks.library.overlay === true
       && R.checks.added && R.checks.added.paneId === 'candle_pane'
       && R.checks.added.resultLen === R.checks.added.bars
       && R.checks.values20.mismatched === false && R.checks.values20.maxDiff < 1e-6
