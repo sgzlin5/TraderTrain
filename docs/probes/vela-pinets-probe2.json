@@ -1,0 +1,65 @@
+[
+ {
+  "id": "luxalgo-dashboard",
+  "ok": true,
+  "err": null,
+  "prepMs": 37,
+  "runMs": 677,
+  "counts": {
+   "series": 0,
+   "tables": 1,
+   "labels": 20,
+   "lines": 47,
+   "boxes": 5,
+   "trades": 0,
+   "priceLines": 0,
+   "backgrounds": 0
+  },
+  "warnings": [],
+  "fetchCalls": 5,
+  "modelWarnings": [],
+  "title": "Structure & Trend Dashboard"
+ },
+ {
+  "id": "security-mtf",
+  "ok": true,
+  "err": null,
+  "prepMs": 3,
+  "runMs": 65,
+  "counts": {
+   "series": 3,
+   "tables": 0,
+   "labels": 0,
+   "lines": 0,
+   "boxes": 0,
+   "trades": 0,
+   "priceLines": 0,
+   "backgrounds": 0
+  },
+  "warnings": [],
+  "fetchCalls": 2,
+  "modelWarnings": [],
+  "title": "SEC"
+ },
+ {
+  "id": "luxalgo-dashboard-2nd",
+  "ok": true,
+  "err": null,
+  "prepMs": 15,
+  "runMs": 573,
+  "counts": {
+   "series": 0,
+   "tables": 1,
+   "labels": 20,
+   "lines": 47,
+   "boxes": 5,
+   "trades": 0,
+   "priceLines": 0,
+   "backgrounds": 0
+  },
+  "warnings": [],
+  "fetchCalls": 5,
+  "modelWarnings": [],
+  "title": "Structure & Trend Dashboard"
+ }
+]

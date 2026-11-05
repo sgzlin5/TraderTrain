@@ -55,7 +55,7 @@ const r1 = await chart.runScript('//@version=6\nindicator("p0","p0",overlay=true
 - 还是引擎不支持同图多脚本；
 - 还是需要在 `market:changed` / `bars` 就绪后再跑。
 
-→ 记为 **P4 前置实验 #1**。
+→ 记为 **P4 前置实验 #1**。（**2026-11-05 已关闭**：`PineEngine` 连续两次 `execute` 实测均 `ok`，问题在 `chart.runScript` 的用法，不是引擎限制 —— 见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md) 表 #2）
 
 ## 4. D · 工作区
 

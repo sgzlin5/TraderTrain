@@ -1,6 +1,6 @@
 # K 线库迁移方案：klinecharts 10.1.0 → Vela 0.9.3
 
-> **状态：搁置（2026-11-04）** —— 方案与 P0 实测已完备，等重启再按 §6 的 P1 继续。实测结论见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
+> **状态：已解除搁置，P1 起可开工（2026-11-05）** —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
 >
 > 分支：`vela`（从 `main@7356dc2` 拉出）。本文只写**可执行方案**，不含营销。目标库 API 全部取自本机实测的 `@luxalgo/vela@0.9.3` 类型声明（`node_modules/@luxalgo/vela/dist/*.d.ts`），标 **[待实测]** 的是声明存在但行为未验证的部分。
 
@@ -124,10 +124,16 @@ barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 | **P1 数据与回放** | **写 `vela-data.js` 自定义 `DataProvider`**（`getBars` 按 `{from,to,limit}` 从 IndexedDB 分块切片，**永不返回整段**）；**回放深度 = `bars` 参数 8k–20k**；设定起点/随机起点 → `setMarket({bars, visibleRange})` 重建（实测 40 ms 级）；`replay.start/step/play`；速度映射；离线数组仅留给 selftest/DEMO | `vela-data.js`，`replay.js` 删除 | 5,000 根首屏 ≤150 ms / 堆 ≤60 MB；20,000 根堆 ≤120 MB；任意日期跳转 ≤300 ms；回放组自检（3/9/18/29）全绿 | 3.5 |
 | **P2 工作区与同步** | `VelaWorkspace` + `setLayout('2h'/'4'/'8')`；每格 `setSymbol/setTimeframe`；`sync.set()` 跨图同步；**TAB = `getState/applyState` 的工作区快照**（D3）；`volTag` 等状态栏接 `onCrosshairMove` | `vela-ws.js`，删 `workspace.js`/`crosshairSync.js` | 分屏 1–4 格可切；多品种同屏；十字光标同步；TAB 切换后布局/品种/游标全还原 | 4 |
 | **P3 绘图** | 按 §5 映射表逐个接 `chart.drawings`；`drawStyles.js` 模板 → `SerializedDrawing.style`；绘图管理面板 → `removeMany/lock/show`；砍掉艾略特组（D2）；新建「撤销/重做」按钮（Vela 白给） | `vela-draw.js` | 每个工具：画出来 → 拖动 → 刷新后还在；绘图管理全选/删除可用；`Esc` 取消绘制 | 4 |
-| **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC 5 / flow / 自定义；图例 + 设置抽屉接 `chart.indicators()`；**Pine 换 `vela-pinets`**（D1）：`registerEngine('pine', new PineEngine())`、`addIndicator(src,{inputs,pane})`、删 `pineDraw/pineCore` 坐标层；`alert()` 接 `EngineAlert` | `vela-ind.js` | 每个指标给出「值/画法」截图；Pine 仪表盘、表格、`alert()` 面板仍工作；参数面板 `options` 仍出下拉 | 5 |
-| **P5 收尾** | 5 套主题 → `VelaTheme`（含色盲）；截图 → `screenshotCanvas()`；`Esc`/右键/快捷键接 Vela keymap；`setLocale('zh-Hans')` 让 Vela 自带控件中文化；全量回归 + 文档 | 可交付的 vela 分支 | `?selftest=1..37`（改造后）全绿；包体与首屏对比记录；`main` 是否切换的结论 | 3 |
+| **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC 5 / flow / 自定义；图例 + 设置抽屉接 `chart.indicators()`；**Pine 换 `vela-pinets`**（D1）：`registerEngine('pine', new PineEngine())`、`addIndicator(src,{inputs,pane})`、删 `pineDraw/pineCore` 坐标层；`alert()` 接 `EngineAlert` | `vela-ind.js` | 每个指标给出「值/画法」截图；Pine 仪表盘、表格、`alert()` 面板仍工作；参数面板 `options` 仍出下拉 | 4.5 |
+| **P5 收尾** | 5 套主题 → `VelaTheme`（含色盲）；截图 → `screenshotCanvas()`；`Esc`/右键/快捷键接 Vela keymap；`setLocale('zh-Hans')` 让 Vela 自带控件中文化；全量回归 + 文档 | 可交付的 vela 分支 | `?selftest=1..45`（改造后，main 已从 37 增至 45）全绿；包体与首屏对比记录；`main` 是否切换的结论 | 3 |
 
-**合计 ≈ 21.5 人日**。比 D4 之前少 1 人日（省掉 port），但**分叉成本不计在内**（见 §8.2）。
+**合计 ≈ 21.5 人日**（2026-11-04 估算，基于 `main@7356dc2` 的代码面）。比 D4 之前少 1 人日（省掉 port），但**分叉成本不计在内**（见 §8.2）。
+
+### 6.1 2026-11-05 修订：合计 24~25 人日
+
+- main 此后又长出 **13 个提交**（实时行情 `live.js`/`liveStore.js`、SMC 改 overlay 渲染、换机迁移、exe 打包），其中 **6 个动图表层**，带来 **+5~6 人日**的计划外增量。
+- P4 因 `vela-pinets` 实测可用（LuxAlgo Dashboard 全量脚本 ok、UDT/array/boxes ok、`strategy()` 出 trades）由 5 回落为 **4.5**。
+- 逐项拆分、验收判据、执行顺序、风险编号（R11~R13）见 **[VELA-REMAINING.md](VELA-REMAINING.md)**；覆盖度实测矩阵见 **[VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)**。
 
 ## 7. 风险与对策
 
@@ -171,6 +177,8 @@ barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 | D2 | 艾略特波浪怎么办 | **砍掉**（6 个工具不给） | 2026-11-04 |
 | D3 | TAB 与 workspace 关系 | **一个 `VelaWorkspace` + `setLayout()`**；TAB 变成工作区快照 | 2026-11-04 |
 | D4 | 是否与 klinecharts 并存 | **不并存**，两分支各用一套，不做运行时开关 | 2026-11-04 |
+| D5 | `vela-pinets` 能否覆盖 LuxAlgo 指标 | **能**：实测 Dashboard 全量脚本 ok（1 表/47 线/20 标签/5 框）、UDT+array 画框 ok、`strategy()` 出 21 笔 trades、`var table=na` 无需预处理补丁。带 `import LuxAlgo/...` 的脚本需要 `importResolver`，**暂按不支持记账** | 2026-11-05 |
+| D6 | 与 `main` 落后的 13 个提交怎么处理 | **先整包 merge 进 `vela`**（实测零冲突），再在 P1–P5 里按 Vela 重做图表层；`main` 的图表层 WIP 处置完才真正冻结 | 2026-11-05 |
 
 剩余待确认（不阻塞 P0）：裁掉艾略特后工具栏是否补别的形态（如「测量/持仓」上升为主按钮）；`zh-Hans` 内置文案与本项目自写中文是否统一口径。
 
