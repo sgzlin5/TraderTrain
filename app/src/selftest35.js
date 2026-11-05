@@ -57,7 +57,7 @@ plot(double(v) + map.get(m, "a") + matrix.get(mt, 0, 1) + p.price * 0, "v")`);
     const st = await P('//@version=6\nstrategy("s", overlay=true)\nif ta.crossover(close, ta.sma(close,20))\n    strategy.entry("L", strategy.long)');
     log('strategy', { ok: st.ok, names: st.names, hasCtxStrategy: !!st.ctx?.strategy });
 
-    // 8) barstate 语义（历史数据全部 confirmed）
+    // 8) barstate 语义（最后一根是正在走的那根 → isconfirmed=false；历史根 true）
     const bs = await P('//@version=6\nindicator("t")\nplot(barstate.islast ? 1 : 0, "last")\nplot(barstate.isconfirmed ? 1 : 0, "conf")');
     log('barstate', { last: last(bs.series?.last), confirmed: last(bs.series?.conf) });
 
@@ -75,7 +75,7 @@ plot(double(v) + map.get(m, "a") + matrix.get(mt, 0, 1) + p.price * 0, "v")`);
       && s.table.tables === 1 && s.table.cells === 2
       && s.lang.ok === true && s.lang.v != null
       && s.strategy.ok === true && s.strategy.names.length === 0 && s.strategy.hasCtxStrategy === true
-      && s.barstate.last === 1 && s.barstate.confirmed === 1
+      && s.barstate.last === 1 && s.barstate.confirmed === 0
       && s.perf.lightMs < 100
     );
   } catch (err) {

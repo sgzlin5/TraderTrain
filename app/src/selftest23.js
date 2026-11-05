@@ -103,7 +103,7 @@ export async function run(state) {
       R.checks.panelClosedDisplay === 'none'
       && R.checks.panelOpenDisplay !== 'none'
       && R.checks.panelAfterClose.hidden === true && R.checks.panelAfterClose.display === 'none'
-      && custom.length === 3 && chips.join() === 'fav,combos,flow,key,smc,general,pine'
+      && custom.length === 3 && chips.join() === 'fav,combos,flow,key,smc,ma,general,pine'
       && keyNames.length >= 3 && keyNames.includes('PDHL') && keyNames.includes('ORB') && keyNames.includes('AVWAP')
       && searchHit.includes('AVWAP')
       && ['PDHL', 'ORB', 'AVWAP'].every(n => afterApply.includes(n))

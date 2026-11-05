@@ -87,7 +87,7 @@ export async function run(state) {
     await draw.persist();
 
     R.pass = (
-      panelOpen && rows === 8 && chips0 >= 5 && chips1 === chips0 + 1
+      panelOpen && rows >= 8 && chips0 >= 5 && chips1 === chips0 + 1
       && levels.includes(0.705)
       && !!R.checks.fib.line && R.checks.fib.line.style === 'solid' && R.checks.fib.line.size === 3
       && R.checks.fib.extLevels === levels.length

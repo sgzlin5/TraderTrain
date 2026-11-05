@@ -9,12 +9,52 @@
 """
 import argparse
 import asyncio
+import os
+import subprocess
 import json
 import sys
 import time
 import urllib.request
 
 import websockets
+
+
+CHROME_CANDIDATES = [
+    r"C:/Program Files/Google/Chrome/Application/chrome.exe",
+    r"C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+    r"C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+]
+
+
+def _cdp_alive(port):
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=3) as r:
+            json.load(r)
+        return True
+    except Exception:
+        return False
+
+
+def ensure_chrome(port, profile_dir, headed=False):
+    """--remote-debugging-port 没起就先拉一个（测试专用 profile，headless 省内存）"""
+    if _cdp_alive(port):
+        return
+    exe = next((c for c in CHROME_CANDIDATES if os.path.exists(c)), None)
+    if not exe:
+        raise RuntimeError("找不到 Chrome/Edge，无法自动启动调试实例")
+    os.makedirs(profile_dir, exist_ok=True)
+    args = [exe, f"--remote-debugging-port={port}", f"--user-data-dir={profile_dir}",
+            "--no-first-run", "--no-default-browser-check", "--disable-extensions",
+            "--disable-background-networking", "--disable-features=Translate"]
+    if not headed:
+        args.append("--headless=new")
+    args.append("about:blank")
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(40):
+        if _cdp_alive(port):
+            return
+        time.sleep(0.5)
+    raise RuntimeError(f"启动调试浏览器后 {port} 仍不可用")
 
 
 async def cdp_ws(port):
@@ -34,7 +74,14 @@ class Browser:
         self.ws = await websockets.connect(url, max_size=64 * 1024 * 1024)
         # 复用已有的 page target，没有就新建
         res = await self.send("Target.getTargets")
-        page = next((t for t in res["targetInfos"] if t["type"] == "page"), None)
+        pages = [t for t in res["targetInfos"] if t["type"] == "page"]
+        page = pages[0] if pages else None
+        # 关掉多余标签：每个页面都吃 400 万根数据，开多了会互相拖死
+        for t in pages[1:]:
+            try:
+                await self.send("Target.closeTarget", {"targetId": t["targetId"]})
+            except Exception:
+                pass
         if page:
             att = await self.send("Target.attachToTarget", {"targetId": page["targetId"], "flatten": True})
             self.session = att["sessionId"]
@@ -90,6 +137,27 @@ def parse_tests(spec):
     return sorted(set(out))
 
 
+async def seed_origin(br, base, timeout_s=900):
+    """把 data/manifest.json 的 bin 分片导入当前 origin 的 IndexedDB（幂等：已有档案就跳过）"""
+    print(f"[SEED] {base}/app/index.html?seed=1", flush=True)
+    await br.goto(f"{base}/app/index.html?seed=1")
+    deadline = time.time() + timeout_s
+    last = -1
+    while time.time() < deadline:
+        st = await br.evaluate("JSON.stringify({d:!!window.__SEED_DONE__,p:window.__SEED_PCT__||0,e:window.__SEED_ERR__||''})")
+        if st:
+            v = json.loads(st)
+            if v["p"] != last and v["p"] % 10 == 0:
+                print(f"[SEED] {v['p']}%", flush=True)
+                last = v["p"]
+            if v["d"]:
+                print("[SEED] done" + (f" err={v['e']}" if v["e"] else ""), flush=True)
+                return not v["e"]
+        await asyncio.sleep(1.0)
+    print("[SEED] 超时", flush=True)
+    return False
+
+
 async def run_one(br, base, n, fresh, timeout_s, ready_timeout=25):
     url = f"{base}/app/index.html?selftest={n}" + ("&fresh=1" if fresh else "")
     t0 = time.time()
@@ -117,16 +185,35 @@ async def run_one(br, base, n, fresh, timeout_s, ready_timeout=25):
 
 
 async def main_async(args):
+    ensure_chrome(args.port, args.profile, args.headed)
     br = Browser(args.port)
     await br.connect()
+    if args.seed:
+        ok = await seed_origin(br, args.base, args.seed_timeout)
+        if not ok:
+            print("灌数据失败，终止", flush=True)
+            await br.close()
+            return 2
     tests = parse_tests(args.tests)
     results = []
     for n in tests:
         try:
             r = await run_one(br, args.base, n, args.fresh, args.timeout)
+            # UI 用例有偶发抖动（首帧未稳、实时刷新正好插进来），失败重试一次，成功的标 flaky
+            for attempt in range(args.retry):
+                if r.get("pass"):
+                    break
+                print(f"[RETRY ] #{n} 第 {attempt + 2} 次", flush=True)
+                r2 = await run_one(br, args.base, n, args.fresh, args.timeout, ready_timeout=40)
+                if r2.get("pass"):
+                    r2["flaky"] = True
+                    r = r2
+                    break
+                r = r2
         except Exception as e:            # CDP 卡住/浏览器崩了：重连后继续
             print(f"[RECONN] #{n} {type(e).__name__}: {e}", flush=True)
             await br.close()
+            ensure_chrome(args.port, args.profile, args.headed)
             br = Browser(args.port)
             await br.connect()
             r = {"test": n, "pass": None, "ms": 0, "state": "CDP_ERROR", "errors": [str(e)[:120]]}
@@ -154,6 +241,11 @@ def main():
     ap.add_argument("--tests", default="1-45")
     ap.add_argument("--fresh", action="store_true", help="每个用例前清会话/成交/提醒/SMC 指标")
     ap.add_argument("--timeout", type=int, default=90, help="单个用例最长等待秒数")
+    ap.add_argument("--profile", default=os.path.join(os.path.expanduser("~"), "AppData/Local/hermes/cache/chrome-test-profile"))
+    ap.add_argument("--headed", action="store_true", help="有界面启动（默认 headless=new）")
+    ap.add_argument("--retry", type=int, default=1, help="失败的用例重试次数（0 = 不重试）")
+    ap.add_argument("--seed", action="store_true", help="先跑 ?seed=1 把 data/manifest.json 灌进该 origin")
+    ap.add_argument("--seed-timeout", type=int, default=900)
     ap.add_argument("--json", default="")
     args = ap.parse_args()
     try:

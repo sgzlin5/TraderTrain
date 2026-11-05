@@ -3841,7 +3841,7 @@ function resetTabs() {
 
 async function loadProfile(profile) {
   try { if (state.live) { await state.live.stop(); state.live = null; paintLive({ state: 'idle' }); } } catch {}
-  window.__BOOT_STAGE__ = 'loadProfile:start';
+  window.__BOOT_STAGE__ = 'loadProfile:start'; window.__BOOT_TICK__ = Date.now();
   // 自检/外部脚本的等待点：loadProfile 全部装完才 resolve
   window.__APP_READY__ = new Promise((res) => { state._appReady = res; });
   try { state.pine?.clear(); } catch {}
@@ -3867,12 +3867,12 @@ async function loadProfile(profile) {
   }
   activateTab(state.tabs[0].id);
   state.app = state.workspace.app;
-  window.__BOOT_STAGE__ = 'mounted';
+  window.__BOOT_STAGE__ = 'mounted'; window.__BOOT_TICK__ = Date.now();
   await state.app.waitLoaded();
   state.app.applyPrecisionFromData();
   updateAsOf();
   detectVolume();
-  window.__BOOT_STAGE__ = 'loaded';
+  window.__BOOT_STAGE__ = 'loaded'; window.__BOOT_TICK__ = Date.now();
 
   // 十字光标跨图同步（默认开，开关在布局菜单里）
   try {
@@ -3916,7 +3916,7 @@ async function loadProfile(profile) {
   updateIndBadge();
   syncLayoutMenu();
   placeTools();
-  window.__BOOT_STAGE__ = 'periods';
+  window.__BOOT_STAGE__ = 'periods'; window.__BOOT_TICK__ = Date.now();
   updateStatus(`已加载 ${profile.symbol}（${fmtDay(profile.first)} → ${fmtDay(profile.last)}）`);
   await renderProfiles();
   await restorePineIndicators();
@@ -3952,7 +3952,7 @@ async function loadProfile(profile) {
   // 图表/回放对象就绪后再落实回放开关状态（这时 seek 才有意义）
   try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { logErr('replay:恢复', e); }
 
-  window.__BOOT_STAGE__ = 'ready';
+  window.__BOOT_STAGE__ = 'ready'; window.__BOOT_TICK__ = Date.now();
   state._appReady?.(true);
 }
 
@@ -4238,11 +4238,18 @@ function wireLive() {
 }
 
 async function boot() {
-  window.__BOOT_STAGE__ = 'boot:start';
-  // 看门狗：20 秒还没 ready 就把当前阶段报出来，避免"白屏转圈、点啥都没反应"
-  setTimeout(() => {
-    if (!window.__UI_READY__) showBootError('启动超时，卡在阶段：' + (window.__BOOT_STAGE__ || 'boot:start'));
-  }, 20000);
+  window.__BOOT_STAGE__ = 'boot:start'; window.__BOOT_TICK__ = Date.now();
+  // 看门狗：30 秒还没 ready 先判断“还在不在动”——阶段还在推进就继续等（冷启动读 400 万根要几十秒），
+  // 连续 20 秒没推进才报阶段，避免把慢启动误判成白屏
+  setTimeout(function checkBoot() {
+    if (window.__UI_READY__) return;
+    const idle = Date.now() - (window.__BOOT_TICK__ || 0);
+    if (idle < 20000 && (window.__BOOT_TRIES__ = (window.__BOOT_TRIES__ || 0) + 1) < 15) {
+      setTimeout(checkBoot, 10000);
+      return;
+    }
+    showBootError('启动超时，卡在阶段：' + (window.__BOOT_STAGE__ || 'boot:start'));
+  }, 30000);
   state.tools = (await kvGet('ui:tools')) || { mode: 'float', x: null, y: null };
   state.drawStyles = await loadDrawStyles();
   state.drawTemplates = await loadTemplateStore();
@@ -4426,9 +4433,35 @@ function wireTransfer() {
     updateStatus(`定位 ${v}（UTC）· ${Math.round(performance.now() - t0)} ms`);
     schedulePineRefresh();
   };
-  window.__BOOT_STAGE__ = 'ready';
+  window.__BOOT_STAGE__ = 'ready'; window.__BOOT_TICK__ = Date.now();
 }
 
+
+/** 测试用：在“独立 origin”上把 data/manifest.json 的 bin 分片灌进 IndexedDB（?seed=1） */
+async function seedForTest() {
+  const { loadManifest, importProfile } = await import('./loader.js');
+  const { getProfile } = await import('./db.js');
+  window.__SEED_PCT__ = 0;
+  try {
+    const mf = await loadManifest();
+    for (const p of mf.profiles) {
+      if (await getProfile(p.id)) { window.__SEED_PCT__ = 100; continue; }
+      await importProfile(p, {
+        verify: false,   // 本地测试环境，跳过 sha256 省时间
+        onProgress: (pr) => { window.__SEED_PCT__ = pr.totalBytes ? Math.round((pr.doneBytes / pr.totalBytes) * 100) : 0; }
+      });
+      window.__SEED_PCT__ = 100;
+    }
+  } catch (e) {
+    window.__SEED_ERR__ = String(e.message || e);
+    logErr('seed', e);
+  } finally {
+    window.__SEED_DONE__ = true;
+    document.title = window.__SEED_ERR__ ? 'SEED ERR' : 'SEED OK';
+  }
+}
+
+if (new URLSearchParams(location.search).get('seed') === '1') await seedForTest();
 boot().catch(showBootError);
 
 // 启动阶段的异步异常（例如 IndexedDB 被另一个窗口占用）也要看得见，而不是白屏转圈

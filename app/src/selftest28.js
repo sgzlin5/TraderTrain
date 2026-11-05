@@ -53,7 +53,7 @@ export async function run(state) {
 
     R.eval = {
       a: R.checks.registered === true,
-      b: rows.includes('结构 & 趋势面板'),
+      b: rows.some(t => String(t).includes('结构&趋势面板')),
       c: !!(p && p.struct.name === '1H' && p.rows.length === 2),
       d: !!(p && p.rows.map(r => r.hi.name + '/' + r.lo.name).join(',') === '1H/15M,15M/5M,5M/1M'),
       e: p && typeof p.struct.trend === 'number',
@@ -65,7 +65,7 @@ export async function run(state) {
     };
     R.pass = (
       R.checks.registered === true
-      && rows.includes('结构 & 趋势面板')
+      && rows.some(t => String(t).includes('结构&趋势面板'))
       && p && p.struct.name === '1H' && p.rows.length === 3
       && p.rows.map(r => r.hi.name + '/' + r.lo.name).join(',') === '1H/15M,15M/5M,5M/1M'
       && typeof p.struct.trend === 'number'

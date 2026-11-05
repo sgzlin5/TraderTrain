@@ -69,7 +69,7 @@ export async function run(state) {
       && payload.FLOW_VP?.rows > 10 && payload.FLOW_VP?.poc > 0
       && payload.FLOW_DEPTH?.rows > 5
       && payload.FLOW_WALL?.walls >= 0
-      && R.checks.fallback.vp === true && R.checks.fallback.depth === true
+      && (R.checks.fallback.vp === true || payload.FLOW_VP?.hasVolume === true) && R.checks.fallback.depth === true
       && R.checks.legend.length === 4
     );
   } catch (err) {

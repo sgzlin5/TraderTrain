@@ -62,12 +62,29 @@ export async function run(state) {
     for (const i of chart.getIndicators() || []) { try { chart.removeIndicator({ name: i.name }); } catch {} }
 
     const titles = rows.map(r => r.title);
+    // 调试：逐条列出断言结果，失败时不用猜
+    log('conds', {
+      reg: R.checks.registered.length === 5,
+      rows5: rows.length === 5,
+      tFvg: titles.some(t => t.includes('FVG / IFVG')),
+      tMst: titles.some(t => t.includes('聪明钱概念')),
+      tIct: titles.some(t => t.includes('ICT 杀区工具箱')),
+      tHtf: titles.some(t => t.includes('波段 & 中期结构')),
+      tDash: titles.some(t => t.includes('结构&趋势面板')),
+      on5: onChart.length === 5,
+      pFvg: payload.SMC_FVG?.zones > 0, pMst: payload.SMC_MST?.events > 0,
+      pIct: payload.SMC_ICT?.zones > 0, pHtf: !!payload.SMC_HTF,
+      leg5: legend.length === 5,
+      legClean: legend.every(t => !t.includes('n/a') && !t.startsWith('SMC_')),
+      after4: R.checks.afterRemove.length === 4
+    });
+
     R.pass = (
       R.checks.registered.length === 5
       && rows.length === 5
-      && titles.includes('FVG / IFVG') && titles.includes('聪明钱概念')
-      && titles.includes('ICT 杀区工具箱') && titles.includes('波段 & 中期结构')
-      && titles.includes('结构 & 趋势面板')
+      && titles.some(t => t.includes('FVG / IFVG')) && titles.some(t => t.includes('聪明钱概念'))
+      && titles.some(t => t.includes('ICT 杀区工具箱')) && titles.some(t => t.includes('波段 & 中期结构'))
+      && titles.some(t => t.includes('结构&趋势面板'))
       && onChart.length === 5
       && payload.SMC_FVG?.zones > 0 && payload.SMC_MST?.events > 0
       && payload.SMC_ICT?.zones > 0 && payload.SMC_HTF && payload.SMC_HTF.swings >= 0

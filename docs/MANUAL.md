@@ -871,19 +871,38 @@ uv run --with pillow python tools/icon_sheet.py
 
 ### 自检怎么跑
 
+**推荐：独立 origin（不动你的数据）**
+
 ```bash
-# 单个用例：浏览器开 http://127.0.0.1:8731/app/index.html?selftest=45
-# 全部用例（需要 Chrome 带 --remote-debugging-port=9222）
-python tools/run_selftests.py --port 9222 --tests 1-45 --fresh --json report.json
+# 1) 起第二个实例（8732 = 另一个 origin，IndexedDB 与 8731 完全隔离）
+python tools/serve.py --port 8732 --root .
+
+# 2) 首次跑：--seed 会把 data/manifest.json 里的 bin 分片灌进该 origin（幂等，已有档案就跳过）
+python tools/run_selftests.py --port 9222 --base http://127.0.0.1:8732 --seed --tests 1-45 --fresh
+
+# 3) 之后可直接跑（数据已在该 origin 里）
+python tools/run_selftests.py --port 9222 --base http://127.0.0.1:8732 --tests 1-45 --fresh --json report.json
 ```
 
-`--fresh` 会在每个用例前执行 `resetForTest()`：清成交、提醒、图上绘图与落盘绘图、SMC 指标、
-绘图样式/模板（`ui:drawStyles`/`ui:drawTemplates`）、Pine 库与映射、回放开关。
+为什么换 origin：IndexedDB 按 `host:port` 隔离，8732 上是一套干净库，
+不会覆盖你在 8731 上攒的绘图样式、指标偏好、Pine 库；`?seed=1` 负责把行情灌进去（`loader.js` 走的就是
+“从 data/manifest.json 导入 bin 分片”的正规路径，`verify:false` 跳过 sha256 省时间）。
 
-**已知边界**：这是“运行态”清理，不是“干净库”。依赖**默认设置**的用例（5 绘图样式、18/19 指标配置、
-23 指标库、24 SMC、28 结构面板、35 Pine 矩阵）要求 IndexedDB 里没有旧偏好；连续跑它们时仍可能因为
-上一个用例写入的偏好而失败 —— 单独跑或先清站点数据即可。真正的隔离做法是换 origin
-（`python tools/serve.py --port 8732`，IndexedDB 按 host:port 隔离）再导入 fixtures。`window.__UI_READY__` 是页面就绪标志，`window.__RESULT__` 是用例结果。
+单跑一个用例：`http://127.0.0.1:8732/app/index.html?selftest=45&fresh=1`。
+
+**`--fresh` 做什么**：每个用例前 `resetForTest()` —— 清成交、提醒、图上与落盘绘图、SMC 指标、
+绘图样式/模板、Pine 库与映射、回放开关；主题/页签/布局等用户偏好不动。
+
+**跑之前要知道的**：
+
+| 事项 | 说明 |
+|---|---|
+| 标签页 | 运行器会自动关掉多余标签（每个页面都吃 400 万根数据，多开会互相拖死） |
+| 冷启动 | 新 origin 首次加载要解 400 万根，启动看门狗现在是“30 s 起判 + 阶段 20 s 无推进才报错” |
+| `--seed` 耗时 | 首次约 1–3 分钟（108 MB 走 localhost + IndexedDB 写入） |
+| CDP 卡住 | 运行器自动重连并记 `CDP_ERROR`，不会整轮中断 |
+
+`window.__UI_READY__` 是页面就绪标志，`window.__RESULT__` 是用例结果（`pass / checks / errors / elapsedMs`）。
 
 ### 快捷键表
 

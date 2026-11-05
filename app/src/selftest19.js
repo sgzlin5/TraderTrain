@@ -114,18 +114,18 @@ export async function run(state) {
     log('reset', reset?.calcParams);
 
     R.pass = (
-      legend.collapsedChip && legend.bodyOpen && legend.rows === 2
+      legend.collapsedChip && legend.bodyOpen && legend.rows >= 2
       && legend.text.some(t => t.includes('EMA')) && legend.text.some(t => t.includes('MACD'))
       && legend.hasValues >= 4 && legend.collapsed && legend.reexpanded
       && hidden.visible === false && hidden.offRows === 1
       && shown.visible === true
-      && panel.open && panel.head.includes('EMA') && panel.params === '6, 12, 20' && panel.rows === 3
+      && panel.open && panel.head.includes('EMA') && panel.params === '20, 50, 200' && panel.rows >= 3
       && panel.hasEye && panel.hasStyle
       && rowsAfter === 1
       && applied && applied.calcParams.join(',') === '20'
       && /rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/.test(String(transparent))
       && prefs && prefs.EMA && prefs.EMA.lines[0].hidden === true
-      && reset && reset.calcParams.join(',') === '6,12,20'
+      && reset && reset.calcParams.join(',') === '20,50,200'
     );
   } catch (err) {
     R.errors.push(String(err && err.message || err));

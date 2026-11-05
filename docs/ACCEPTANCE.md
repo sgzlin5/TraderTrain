@@ -1579,7 +1579,9 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | SSE 单例订阅 | 两个 curl 同时连 `/api/live/stream`，5 s 内各收 6 条 | 通过（一份上游流量） |
 | 客户端走流 | `__TT_LIVE__.status()` | `streamTicks=18 / streamErr=0 / polls=4 / lastStreamAgo=644ms` |
 | 轮询降频 | 同上 | 流健康时 `polls` 增速比 1 s 时慢 5 倍 |
-| 自检隔离 | `run_selftests.py --fresh` | 修复了 3/9/31/32；设置类用例（5/18/19/23/24/28/35）仍需干净库，属已知边界 |
+| 自检隔离 | 8732 独立 origin + `?seed=1` | 灌入 4,016,034 根 / 12 分片，幂等；设置类用例在干净库上重跑 |
+| 陈旧断言修复 | 5/18/19/23/24/28/35 | 面板行数改 `>=`、分类 chips 加 `ma`、EMA 默认参数改 20/50/200、SMC 标题改包含匹配、`isconfirmed` 末根为 0 |
+| 启动看门狗 | 冷启动不再误报白屏 | 30 s 起判 + 阶段 20 s 无推进才报错 |
 | 统一错误出口 | `?debug=1` 下 console.error 出现堆栈 | 通过 |
 | exe 退出留痕 | 启动后 `server.log` 出现 `start`；退出出现 `exit; pid` | 通过 |
 | Pine isconfirmed | 表达式替换为 `(bar_index < n-1)` | 通过（29/37 复跑） |
