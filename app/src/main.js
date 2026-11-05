@@ -74,7 +74,7 @@ async function resetForTest() {
   try {
     // 清“会被上一个用例改掉”的状态：绘图样式/模板、Pine 库与映射、回放开关
     // （主题、页签、布局属于用户偏好，不动）
-    const keys = ['ui:replay', 'ui:drawStyles', 'ui:drawTemplates', 'pine:lib', 'pine:active', 'pine:map'];
+    const keys = ['ui:replay', 'ind:prefs', 'ui:drawStyles', 'ui:drawTemplates', 'pine:lib', 'pine:active', 'pine:map'];
     for (const k of keys) { try { await kvSet(k, null); } catch (e) { logErr('reset:kv', e); } }
     // 画在图上/已落盘的绘图（draw:<symbol>:<period>）
     try {
@@ -352,6 +352,10 @@ function closeIndicatorPanel() {
 function renderTabs() {
   const box = $('tabList');
   if (!box) return;
+  // 行内改名且输入框正有焦点：整块 innerHTML 重建会把输入框连同已输入内容冲掉（实时刷新时最容易撞上）
+  // 用“焦点”判断而不是标志位，避免异常路径下标志卡死把整个页签栏冻住
+  const editing = box.querySelector('.tab-in');
+  if (editing && document.activeElement === editing) return;
   box.innerHTML = state.tabs.map(t => {
     const p = t.period || (t.ws?.active?.app?.periodKey) || '1m';
     return `<div class="tab ${t.id === state.activeTab ? 'on' : ''}" data-tab="${t.id}" role="tab"
@@ -474,6 +478,8 @@ function startTabRename(el, tab) {
       saveTabs();
       updateStatus(`图表已改名为「${val}」`);
     }
+    // 先把输入框摘掉再重建：否则它还带着焦点，renderTabs 的“编辑中不重建”守卫会把这次重绘吞掉
+    try { inp.remove(); } catch {}
     renderTabs();
   };
   inp.onclick = (e) => e.stopPropagation();

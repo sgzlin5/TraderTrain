@@ -124,7 +124,7 @@ plot(ta.ema(close, 20)`, bars);
     R.pass = (
       R.checks.pine_compile.ok && R.checks.pine_compile.names.length === 2
       && R.checks.pine_apply.ok && R.checks.pine_apply.onChart
-      && R.checks.pine_apply.onChart.resultLen === R.checks.pine_compile.bars
+      && Math.abs(R.checks.pine_apply.onChart.resultLen - R.checks.pine_compile.bars) <= 2   // 实时可能在这一瞬插进一两根
       && R.checks.pine_params.okOverride && R.checks.pine_params.different
       && R.checks.pine_error.ok === false && R.checks.pine_error.hasError
       && R.checks.pine_remove.remaining === 0

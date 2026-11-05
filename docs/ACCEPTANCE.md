@@ -1589,3 +1589,12 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | SMC 面板可拖 | `pointer-events` 由 none 改 auto | `auto` |
 | 快捷键表 | 按 `?` | `#helpPanel` 显示 |
 | exe 瘦身 | `--exclude-module` + 锁 6.22.3 | 17,343,282 → 17,133,295 B |
+
+## 2026-11-08 独立 origin 全量回归
+
+| 项 | 结果 |
+|---|---|
+| 8732 干净 origin + `--fresh --retry 1` 跑 1–45 | **45 / 45 通过**（#41 重试一次后通过，标 flaky） |
+| 页签行内改名 vs 实时重渲染 | 修复后连跑 4 次全绿 |
+| `renderTabs()` 守卫 | 输入框有焦点时跳过重建；`finish()` 先摘输入框再重绘 |
+| 报告内容 | 失败用例带 `falseChecks`（逐条断言路径）+ 4 KB checks 快照 |

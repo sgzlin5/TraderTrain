@@ -123,6 +123,20 @@ class Browser:
             pass
 
 
+def false_paths(obj, prefix=""):
+    """把 checks 里值为 false / null 的路径列出来，失败时一眼看出卡在哪条断言"""
+    out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            out += false_paths(v, f"{prefix}.{k}" if prefix else k)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            out += false_paths(v, f"{prefix}[{i}]")
+    elif obj is False or obj is None:
+        out.append(prefix)
+    return out[:12]
+
+
 def parse_tests(spec):
     out = []
     for part in spec.split(","):
@@ -180,8 +194,12 @@ async def run_one(br, base, n, fresh, timeout_s, ready_timeout=25):
     ms = round((time.time() - t0) * 1000)
     if not res:
         return {"test": n, "pass": None, "ms": ms, "state": "TIMEOUT"}
-    return {"test": n, "pass": bool(res.get("pass")), "ms": res.get("elapsedMs", ms),
-            "errors": (res.get("errors") or [])[:1], "state": "done"}
+    out = {"test": n, "pass": bool(res.get("pass")), "ms": res.get("elapsedMs", ms),
+           "errors": (res.get("errors") or [])[:1], "state": "done"}
+    if not out["pass"]:
+        out["falseChecks"] = false_paths(res.get("checks"))
+        out["checks"] = json.dumps(res.get("checks"), ensure_ascii=False)[:4000]
+    return out
 
 
 async def main_async(args):
@@ -219,7 +237,8 @@ async def main_async(args):
             r = {"test": n, "pass": None, "ms": 0, "state": "CDP_ERROR", "errors": [str(e)[:120]]}
         results.append(r)
         mark = "PASS" if r["pass"] else ("FAIL" if r["pass"] is False else "TIMEOUT")
-        print(f"[{mark:7}] #{n:<3} {r.get('ms')} ms {r.get('errors') or ''}", flush=True)
+        extra = r.get("falseChecks") or r.get("errors") or ""
+        print(f"[{mark:7}] #{n:<3} {r.get('ms')} ms {extra}"[:240], flush=True)
     await br.close()
 
     ok = [r for r in results if r["pass"]]

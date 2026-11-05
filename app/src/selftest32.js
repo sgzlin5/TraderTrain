@@ -73,13 +73,35 @@ export async function run(state) {
     log('renameEntries', { byClickName, byF2, menuItems, chartMenu });
 
     // 5) 点击 tab 本身仍能激活，不会被输入框吞掉
-    dbl(); await wait(250);
+    document.querySelector('.tab-in')?.blur();      // 先收掉上一步可能残留的输入框
+    await wait(150);
+    dbl(); await wait(350);
     const inp4 = document.querySelector('.tab-in');
+    // blur 只在元素有焦点时才触发：先 focus 再 blur，别指望上一个动作留下的焦点
+    inp4.focus(); await wait(60);
     inp4.value = '日内复盘 B';
-    inp4.blur(); await wait(400);
+    inp4.blur();
+    for (let i = 0; i < 20 && nameOf() !== '日内复盘 B'; i++) await wait(100);
     log('afterBlur', nameOf());
 
     const stored = ((await kv.kvGet('ui:tabs')) || []).map(t => t.name);
+    log('conds', {
+      edit: R.checks.editMode === true,
+      inputVal: R.checks.inputValue === orig,
+      afterEnter: R.checks.afterEnter === '日内复盘 A',
+      storedB: stored[0] === '日内复盘 B',
+      afterEsc: R.checks.afterEsc === '日内复盘 A',
+      inputGone: R.checks.inputGone === true,
+      afterEmpty: R.checks.afterEmpty === '日内复盘 A',
+      sub: /XAUUSD/.test(R.checks.sub),
+      afterBlur: R.checks.afterBlur === '日内复盘 B',
+      byClick: R.checks.renameEntries.byClickName === true,
+      byF2: R.checks.renameEntries.byF2 === true,
+      menu3: R.checks.renameEntries.menuItems.length === 3,
+      chartMenu: R.checks.renameEntries.chartMenu === true,
+      orig
+    });
+
     R.pass = (
       R.checks.editMode === true
       && R.checks.inputValue === orig

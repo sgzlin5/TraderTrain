@@ -68,7 +68,9 @@ export async function run(state) {
     document.getElementById('btnLayout').click(); await wait(400);
     const lmByToggle = lmHidden();
     document.getElementById('btnLayout').click(); await wait(400);
-    esc(); await wait(400);
+    esc();
+    // Esc 关闭菜单是异步的（还要走一次 pointer 事件），给到 1.5 s
+    for (let i = 0; i < 15 && !lmHidden(); i++) await wait(100);
     const lmByEsc = lmHidden();
     log('layoutMenu', { opened: lmOpen, byX: lmByX, byOutside: lmByOutside, byToggle: lmByToggle, byEsc: lmByEsc });
 
