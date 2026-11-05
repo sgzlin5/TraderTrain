@@ -3976,8 +3976,11 @@ async function loadProfile(profile) {
   try { const m = await import('./vela-ind.js'); m.updateSmcLayers?.(state.app); } catch {}
   try {
     const fm = await import('./vela-float-ui.js');
-    for (const cell of state.workspace?.cells || []) fm.wireDrawingFloatingUI(cell.app);
-  } catch (e) { logErr('float-ui', e); }   // [P5] 悬浮属性框 + 收藏工具框
+    for (const cell of state.workspace?.cells || []) {
+      fm.wireDrawingFloatingUI(cell.app);
+      await fm.restoreToolTemplates(cell.app.chart);
+    }
+  } catch (e) { logErr('float-ui', e); }   // [P5] 悬浮属性框 + 收藏工具框 + 模板恢复
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
 }

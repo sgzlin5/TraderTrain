@@ -14,14 +14,14 @@ function buildStyleFloat() {
   el.hidden = true;
   el.innerHTML = `
     <div class="tt-float-head"><b id="ttStyleTitle">绘图</b><button class="tt-x" title="关闭">✕</button></div>
+    <div class="tt-float-row"><span class="tt-lb">模板</span><span id="ttTplChips" class="tt-swatches"></span>
+      <button class="tt-act" id="ttTplSave" title="把当前样式存为模板">存</button></div>
     <div class="tt-float-row"><span class="tt-lb">颜色</span><span class="tt-swatches" id="ttSwatches"></span>
       <input type="color" id="ttColorPick" title="自定义颜色" style="width:22px;height:22px;padding:0;border:1px solid rgba(255,255,255,.2);background:none"></div>
     <div class="tt-float-row"><span class="tt-lb">线宽</span><span id="ttWidths"></span></div>
     <div class="tt-float-row"><span class="tt-lb">线型</span><span id="ttStyles"></span>
       <button class="tt-act" id="ttFillBtn" title="填充开关" hidden>填充</button></div>
-    <div class="tt-float-row"><span class="tt-lb">操作</span>
-      <button class="tt-act" id="ttDup">副本</button><button class="tt-act" id="ttLock">锁定</button>
-      <button class="tt-act tt-danger" id="ttDel">删除</button></div>`;
+    <div class="tt-float-row"><span class="tt-lb">操作</span><button class="tt-act tt-danger" id="ttDel">删除</button></div>`;
   document.getElementById('chart').appendChild(el);
   const meta = (el.__meta = { chart: null, id: null, style: null, locked: false, fillable: false });
   el.querySelector('.tt-x').onclick = () => { el.hidden = true; };
@@ -60,14 +60,55 @@ function buildStyleFloat() {
     const cur = meta.style?.fillColor;
     upd({ style: { ...meta.style, fillColor: cur ? undefined : 'rgba(95,227,192,.14)' } });
   };
-  el.querySelector('#ttDup').onclick = () => { try { meta.chart.drawings.clone(meta.id); } catch {} };
-  el.querySelector('#ttLock').onclick = () => {
-    try { meta.chart.drawings.lock(meta.id, !meta.locked); } catch {}
-  };
   el.querySelector('#ttDel').onclick = () => {
     try { meta.chart.drawings.remove(meta.id); } catch {}
     el.hidden = true;
   };
+  // —— 模板区（TradingView 式：存当前样式为命名模板 / 点击应用 / × 删） ——
+  const TKEY = 'vela:toolTemplates';
+  const persist = () => {
+    try {
+      const all = meta.chart.drawings.toolTemplates() || {};
+      import('./db.js').then(({ kvSet }) => kvSet(TKEY, all)).catch(() => {});
+    } catch {}
+  };
+  const renderTpls = () => {
+    const box = el.querySelector('#ttTplChips');
+    box.innerHTML = '';
+    let tpls = [];
+    try { tpls = meta.chart.drawings.toolTemplates()[meta.type] || []; } catch {}
+    for (const t of tpls) {
+      const b = document.createElement('button');
+      b.className = 'tt-tpl'; b.textContent = t.name; b.title = '点击应用到当前绘图，Shift+点击删除';
+      b.onclick = (e) => {
+        if (e.shiftKey) {
+          try {
+            const all = meta.chart.drawings.toolTemplates() || {};
+            all[meta.type] = (all[meta.type] || []).filter(x => x.name !== t.name);
+            meta.chart.drawings.setToolTemplates(all);
+            renderTpls(); persist();
+          } catch {}
+          return;
+        }
+        try { meta.chart.drawings.update(meta.id, JSON.parse(JSON.stringify(t.settings))); } catch (err) { console.warn('[tt-float:tpl]', err?.message); }
+      };
+      box.appendChild(b);
+    }
+  };
+  el.querySelector('#ttTplSave').onclick = () => {
+    const name = prompt('模板名称：');
+    if (!name) return;
+    try {
+      // 公开层无 saveToolTemplate——读 toolTemplates() 改后整灌 setToolTemplates
+      const all = meta.chart.drawings.toolTemplates() || {};
+      const arr = (all[meta.type] || []).filter(t => t.name !== name);
+      all[meta.type] = [...arr, { name, settings: { style: JSON.parse(JSON.stringify(meta.style || {})) } }];
+      meta.chart.drawings.setToolTemplates(all);
+      renderTpls(); persist();
+    } catch (e) { console.warn('[tt-float:save]', e?.message); }
+  };
+  meta.renderTpls = renderTpls;
+  meta.persist = persist;
   return { el, meta };
 }
 
@@ -88,6 +129,17 @@ function buildFavoritesFloat() {
     row.style.display = row.style.display === 'none' ? '' : 'none';
   };
   return el;
+}
+
+/** 模板持久化恢复（每格图表 mount 后调）：kv 里的 toolTemplates JSON 整体回灌 */
+export async function restoreToolTemplates(chart) {
+  try {
+    const { kvGet } = await import('./db.js');
+    const saved = await kvGet('vela:toolTemplates');
+    if (saved && typeof saved === 'object' && Object.keys(saved).length) {
+      chart.drawings.setToolTemplates(saved);
+    }
+  } catch (e) { console.warn('[tt-float:restore]', e?.message); }
 }
 
 /** 接线悬浮框（每格图表调一次；框是全局单例，事件按来源图表路由） */
@@ -112,6 +164,8 @@ export function wireDrawingFloatingUI(app) {
     styleBox.el.querySelector('#ttFillBtn').hidden = !styleBox.meta.fillable;
     const nm = styleBox.el.querySelector('#ttStyleTitle');
     if (nm) nm.textContent = labelOf(dw.type);
+    styleBox.meta.type = dw.type;
+    if (styleBox.meta.renderTpls) styleBox.meta.renderTpls();
     styleBox.el.hidden = false;
   };
 

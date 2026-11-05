@@ -1180,3 +1180,7 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
   font:11px ui-monospace,monospace;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tt-pick:hover{background:rgba(138,175,202,.16)}
 .tt-pick.on{color:#ffc36b}
+
+.tt-tpl{background:rgba(255,195,107,.14);border:1px solid rgba(255,195,107,.4);color:#ffc36b;
+  border-radius:3px;padding:0 7px;cursor:pointer;font:11px ui-monospace,monospace;line-height:20px}
+.tt-tpl:hover{background:rgba(255,195,107,.3)}
