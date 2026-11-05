@@ -3939,7 +3939,9 @@ async function loadProfile(profile) {
   window.__BOOT_STAGE__ = 'periods';
   updateStatus(`已加载 ${profile.symbol}（${fmtDay(profile.first)} → ${fmtDay(profile.last)}）`);
   await renderProfiles();
-  await restorePineIndicators();
+  // Pine 恢复不阻塞 boot：重型脚本（LuxAlgo 等）单次可达分钟级，恢复在后台进行，
+  // 图表先可用；完成时各脚本经自身 apply 流程上图（[R15] 相关：live 期节流另见）
+  restorePineIndicators().catch((e) => logErr('pine:恢复', e));
   // 回放开关：默认关（只留一个入口，打开才出回放控件）
   let replayPref = false;
   try { replayPref = (await kvGet('ui:replay')) === true; } catch {}
