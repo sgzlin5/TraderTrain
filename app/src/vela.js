@@ -4,6 +4,7 @@ import { PERIODS, periodSpanMs } from './aggregate.js';
 import { BarSource } from './source.js';
 import { TTFeed } from './vela-data.js';
 import { decimalsFor } from './instruments.js';
+import { registerVelaZhHans } from './vela-locale-zh.js';
 
 const VELA = () => window.VelaSDK;
 export const SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16];
@@ -77,6 +78,7 @@ export class VelaChartApp {
 
   async mount() {
     const { Vela } = VELA();
+    registerVelaZhHans(VELA());       // [P5] zh-Hans 语言包（绘图工作流可见文本，未覆盖键回退英文）
     this.feed = new TTFeed(this, this.source);
     this.chart = new Vela(this.container, {
       theme: velaTheme(),
