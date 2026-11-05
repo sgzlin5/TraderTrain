@@ -18,7 +18,7 @@ export async function run(state) {
     log('scriptChars', src.length);
 
     const pine = await import('./pine.js');
-    const bars = chart.getDataList();
+    const bars = state.app.bars.allBars();
     const r = await pine.compilePine(src, bars);
     log('compile', { ok: r.ok, err: (r.error || '').slice(0, 120), names: r.names });
 

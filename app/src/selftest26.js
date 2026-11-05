@@ -32,7 +32,7 @@ export async function run(state) {
     const entry = { id: 'T26' + Date.now().toString(36), name: '参数面板测试', src: SRC, inputs: {}, lineStyles: [] };
     await libSave(entry);
 
-    const bars = chart.getDataList();
+    const bars = state.app.bars.allBars();
     const r0 = await state.pine.apply({ ...entry }, bars);
     log('applied', { ok: r0.ok, names: r0.names });
     await wait(700);

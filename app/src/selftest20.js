@@ -95,7 +95,7 @@ export async function run(state) {
     log('uiProfile', !!(await getProfile('TTZIP-1m')));
     // 导入后必须真的上图（曾经因为 tabs 没清空，加载完是 0 根）
     await wait(1500);
-    log('chartBarsAfterImport', state.app?.chart.getDataList().length ?? 0);
+    log('chartBarsAfterImport', state.app?.state.app.bars.allBars().length ?? 0);
     log('tabCount', document.querySelectorAll('.tab').length);
 
     // 6) 清理
@@ -110,7 +110,7 @@ export async function run(state) {
       && /导入完成/.test(uiMsg) && /420/.test(uiMsg)
       && dkSaved.bars === 120 && new Date(dkSaved.first).toISOString() === '2024-06-03T00:00:00.000Z'
       && dkv.getInt32(8, true) / 1000 === 2320
-      && (state.app?.chart.getDataList().length || 0) > 0
+      && (state.app?.state.app.bars.allBars().length || 0) > 0
       && document.querySelectorAll('.tab').length === 1
     );
   } catch (err) {

@@ -29,7 +29,7 @@ export async function run(state) {
     const { libSave, libList, loadPineMap } = await import('./pine.js');
     const entry = { id: 'T27' + Date.now().toString(36), name: NAME, src: SRC, inputs: {}, lineStyles: [] };
     await libSave(entry);
-    const r = await state.pine.apply({ ...entry }, chart.getDataList());
+    const r = await state.pine.apply({ ...entry }, state.app.bars.allBars());
     log('applied', { ok: r.ok, names: r.names });
     await wait(900);
 

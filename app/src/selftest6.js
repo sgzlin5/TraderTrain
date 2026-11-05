@@ -11,7 +11,7 @@ export async function run(state) {
     if (!app) throw new Error('应用未就绪（先导入数据）');
     const chart = app.chart;
     const draw = state.draw;
-    const l = chart.getDataList();
+    const l = state.app.bars.allBars();
 
     // 1. 造一条绘图
     chart.removeOverlay();
@@ -27,7 +27,7 @@ export async function run(state) {
     await wait(200);
 
     // 2. 点击线中点 → 弹出操作条
-    const o = chart.getOverlays()[0];
+    const o = state.app.overlayList()[0];
     const px = chart.convertToPixel(o.points.map(p => ({ timestamp: p.timestamp, value: p.value })), { paneId: 'candle_pane' });
     const rect = document.getElementById('chart').getBoundingClientRect();
     const cx = rect.left + (px[0].x + px[1].x) / 2;
@@ -47,7 +47,7 @@ export async function run(state) {
     widthEl.value = '2';
     widthEl.dispatchEvent(new Event('change', { bubbles: true }));
     await wait(300);
-    const line = chart.getOverlays()[0].styles.line;
+    const line = state.app.overlayList()[0].styles.line;
 
     // 4. ⋯ → 虚线
     document.getElementById('ovMore').click();
@@ -55,7 +55,7 @@ export async function run(state) {
     const menuOpen = !document.getElementById('ovMenu').hidden;
     document.querySelector('#ovLs .ov-chip[data-ls="dashed"]').click();
     await wait(300);
-    const line2 = chart.getOverlays()[0].styles.line;
+    const line2 = state.app.overlayList()[0].styles.line;
     const itemStyle = draw.items[0]?.lineStyle || null;
 
     // 5. 持久化往返
@@ -66,7 +66,7 @@ export async function run(state) {
     // 6. 删除
     document.getElementById('ovDel').click();
     await wait(350);
-    const afterDel = chart.getOverlays().length;
+    const afterDel = state.app.overlayList().length;
     const barHidden = document.getElementById('ovBar').hidden;
 
     log('ovbar', {

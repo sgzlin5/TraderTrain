@@ -33,7 +33,7 @@ export async function run(state) {
     })));
   };
   const lastOverlay = () => {
-    const list = (chart.isVela ? state.app.overlayList() : chart.getOverlays());
+    const list = (chart.isVela ? state.app.overlayList() : state.app.overlayList());
     return list[list.length - 1] || null;
   };
   const ohcHit = (p) => {

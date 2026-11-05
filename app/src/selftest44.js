@@ -25,12 +25,12 @@ export async function run(state) {
     // 清干净
     for (const n of ['SMC_MST', 'SMC_DASH']) { try { chart.removeIndicator({ name: n }); } catch {} }
     await wait(1600);
-    const clean = { overlays: chart.getOverlays().length, panelHidden: document.getElementById('smcPanel')?.hidden ?? true };
+    const clean = { overlays: state.app.overlayList().length, panelHidden: document.getElementById('smcPanel')?.hidden ?? true };
 
     // 1) SMC_MST：应有 overlay（线段 + 矩形 + 标注）
     chart.createIndicator('SMC_MST', true);
-    const okOverlays = await until(() => chart.getOverlays().length >= 5, 9000);
-    const ovCount = chart.getOverlays().length;
+    const okOverlays = await until(() => state.app.overlayList().length >= 5, 9000);
+    const ovCount = state.app.overlayList().length;
 
     // 2) SMC_DASH：应出现 DOM 面板，且有 HTF/LTF 行
     chart.createIndicator('SMC_DASH', true);
@@ -51,8 +51,8 @@ export async function run(state) {
 
     // 3) 摘掉后应清场
     for (const n of ['SMC_MST', 'SMC_DASH']) { try { chart.removeIndicator({ name: n }); } catch {} }
-    const cleared = await until(() => chart.getOverlays().length === 0 && document.getElementById('smcPanel')?.hidden !== false, 9000);
-    log('cleared', { ok: cleared, overlays: chart.getOverlays().length, panelHidden: document.getElementById('smcPanel')?.hidden });
+    const cleared = await until(() => state.app.overlayList().length === 0 && document.getElementById('smcPanel')?.hidden !== false, 9000);
+    log('cleared', { ok: cleared, overlays: state.app.overlayList().length, panelHidden: document.getElementById('smcPanel')?.hidden });
 
     const s = R.checks;
     R.pass = s.clean.overlays === 0

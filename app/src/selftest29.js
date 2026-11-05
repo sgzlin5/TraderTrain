@@ -9,7 +9,7 @@ export async function run(state) {
     const chart = state.app?.chart;
     if (!chart) throw new Error('应用未就绪');
     const { compilePine, scanCompat } = await import('./pine.js');
-    const bars = chart.getDataList();
+    const bars = state.app.bars.allBars();
 
     // 1) v6 真的被识别
     const v6 = '//@version=6\nindicator("v6", overlay=true)\nlen = input.int(20, "L")\nplot(ta.ema(close, len), "ema")';

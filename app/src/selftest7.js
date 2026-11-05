@@ -12,7 +12,7 @@ export async function run(state) {
     const chart = app.chart;
     const draw = state.draw;
     const ds = await import('./drawStyles.js');
-    const l = chart.getDataList();
+    const l = state.app.bars.allBars();
 
     // 0. 清空模板，保证本测试可重复
     state.drawTemplates = ds.emptyTemplateStore();
@@ -32,7 +32,7 @@ export async function run(state) {
     await draw.persist();
     await wait(200);
 
-    const o = chart.getOverlays()[0];
+    const o = state.app.overlayList()[0];
     const px = chart.convertToPixel(o.points.map(p => ({ timestamp: p.timestamp, value: p.value })), { paneId: 'candle_pane' });
     const rect = document.getElementById('chart').getBoundingClientRect();
     const cx = rect.left + (px[0].x + px[1].x) / 2;
@@ -65,7 +65,7 @@ export async function run(state) {
     draw.capture();
     await draw.persist();
     await wait(250);
-    const ov2 = chart.getOverlays().find(x => x.id === id2) || chart.getOverlays()[chart.getOverlays().length - 1];
+    const ov2 = state.app.overlayList().find(x => x.id === id2) || state.app.overlayList()[state.app.overlayList().length - 1];
     const newLine = ov2.styles.line;
 
     // 4. 把第二条改成绿点线，再点模板 T1 → 应用回来
@@ -76,7 +76,7 @@ export async function run(state) {
     const tplRow = document.querySelector('#ovTplList .tpl');
     if (tplRow) tplRow.click();
     await wait(400);
-    const applied = chart.getOverlays().find(x => x.id === ov2.id).styles.line;
+    const applied = state.app.overlayList().find(x => x.id === ov2.id).styles.line;
 
     // 5. 持久化 + 删除模板
     const stored = await ds.loadTemplateStore();

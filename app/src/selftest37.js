@@ -27,7 +27,7 @@ export async function run(state) {
     await wait(150);
     const tradeEmpty = !!document.querySelector('#tradeList .empty-card');
     const drawEmpty = (() => {
-      try { (chart.isVela ? state.app.overlayList() : chart.getOverlays()).forEach(o => state.app.chart.removeOverlay({ id: o.id })); } catch {}
+      try { (chart.isVela ? state.app.overlayList() : state.app.overlayList()).forEach(o => state.app.chart.removeOverlay({ id: o.id })); } catch {}
       window.__TT_RENDER_DRAWMGR__();
       return !!document.querySelector('#drawMgrList .empty-card');
     })();
@@ -111,7 +111,7 @@ export async function run(state) {
     const mgrChecked = document.querySelectorAll('#drawMgrList input:checked').length;
     document.getElementById('drawMgrDel').click();
     await wait(400);
-    log('d3', { rows: mgrRows, emptyCard: mgrEmpty, checked: mgrChecked, overlaysAfter: (chart.isVela ? state.app.overlayList() : chart.getOverlays()).length });
+    log('d3', { rows: mgrRows, emptyCard: mgrEmpty, checked: mgrChecked, overlaysAfter: (chart.isVela ? state.app.overlayList() : state.app.overlayList()).length });
 
     // ---------- D1 报告 ----------
     const store = state.store;

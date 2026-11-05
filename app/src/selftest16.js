@@ -44,7 +44,7 @@ export async function run(state) {
     const pop3 = await pickExt('fibonacciExtension');
     clickAt(0.30, 0.30); await wait(300); clickAt(0.45, 0.20); await wait(300); clickAt(0.60, 0.35); await wait(600);
 
-    const drawn = chart.getOverlays().map(o => ({ n: o.name, pts: (o.points || []).length }));
+    const drawn = state.app.overlayList().map(o => ({ n: o.name, pts: (o.points || []).length }));
     await state.draw.persist();
     const kept = JSON.parse(JSON.stringify(state.draw.items));
 
@@ -54,7 +54,7 @@ export async function run(state) {
     state.draw.items = kept;
     const restored = state.draw.restore();
     await wait(600);
-    const afterLoad = chart.getOverlays().map(o => o.name);
+    const afterLoad = state.app.overlayList().map(o => o.name);
 
     // 关掉弹层 + 清图，避免污染后续
     try { document.querySelector('#tools button[data-act=more]').click(); } catch {}

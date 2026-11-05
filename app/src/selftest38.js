@@ -23,7 +23,7 @@ export async function run(state) {
     for (let i = 0; i < 100 && !window.__UI_READY__; i++) await wait(100);
     const K = window.klinecharts;
     const chart = state.app?.chart;
-    const bars = chart.getDataList();
+    const bars = state.app.bars.allBars();
 
     // 1) 是否注册进内核
     log('registered', (K.getSupportedIndicators?.() || []).includes('ZLEMA'));

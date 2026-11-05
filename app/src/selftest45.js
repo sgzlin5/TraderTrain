@@ -21,36 +21,36 @@ export async function run(state) {
 
     const ALL = ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF', 'SMC_DASH'];
     for (const n of ALL) { try { chart.removeIndicator({ name: n }); } catch {} }
-    await until(() => chart.getOverlays().length === 0, 9000);
+    await until(() => state.app.overlayList().length === 0, 9000);
 
     // 逐个挂 → 每个都要产生 overlay
     const each = {};
     for (const n of ['SMC_FVG', 'SMC_ICT', 'SMC_HTF']) {
       chart.createIndicator(n, true);
-      const ok = await until(() => chart.getOverlays().length > 0, 9000);
-      each[n] = { ok, overlays: chart.getOverlays().length };
+      const ok = await until(() => state.app.overlayList().length > 0, 9000);
+      each[n] = { ok, overlays: state.app.overlayList().length };
       try { chart.removeIndicator({ name: n }); } catch {}
-      await until(() => chart.getOverlays().length === 0, 9000);
+      await until(() => state.app.overlayList().length === 0, 9000);
     }
 
     // 五个一起挂 → overlay 累加 + 面板出现
     for (const n of ALL) { try { chart.createIndicator(n, true); } catch {} }
-    const okAll = await until(() => chart.getOverlays().length >= 20
+    const okAll = await until(() => state.app.overlayList().length >= 20
       && document.getElementById('smcPanel')?.hidden === false, 12000);
     const all = {
       ok: okAll,
-      overlays: chart.getOverlays().length,
+      overlays: state.app.overlayList().length,
       panelRows: document.querySelectorAll('#smcPanel tbody tr').length
     };
 
     // 全摘 → 清场
     for (const n of ALL) { try { chart.removeIndicator({ name: n }); } catch {} }
-    const cleared = await until(() => chart.getOverlays().length === 0
+    const cleared = await until(() => state.app.overlayList().length === 0
       && document.getElementById('smcPanel')?.hidden !== false, 12000);
 
     log('each', each);
     log('all', all);
-    log('cleared', { ok: cleared, overlays: chart.getOverlays().length });
+    log('cleared', { ok: cleared, overlays: state.app.overlayList().length });
 
     const s = R.checks;
     R.pass = s.each.SMC_FVG.ok && s.each.SMC_ICT.ok && s.each.SMC_HTF.ok

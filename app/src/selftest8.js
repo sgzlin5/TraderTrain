@@ -22,7 +22,7 @@ export async function run(state) {
     for (let i = 0; i < 4; i++) {
       clickAt(fx, fy);
       await wait(300);
-      const o = document.getElementById('chart') && (chart.isVela ? state.app.overlayList() : chart.getOverlays()).slice(-1)[0];
+      const o = document.getElementById('chart') && (chart.isVela ? state.app.overlayList() : state.app.overlayList()).slice(-1)[0];
       const pts = (o?.points || []).filter(p => Number.isFinite(p.value)).length;
       if (pts >= expectMinPts) return pts;
     }
@@ -49,7 +49,7 @@ export async function run(state) {
     const p3 = await clickUntil(0.56, 0.40, 3);
     const step1 = { p1, p2, p3 };
     await wait(500);
-    const ovs = chart.getOverlays();
+    const ovs = state.app.overlayList();
     const longOv = ovs.find(o => o.name === 'longPosition');
     const longPts = longOv ? longOv.points.filter(p => Number.isFinite(p.value)).length : 0;
     const afterLong = { n: ovs.length, pts: longPts, active: draw.activeTool, items: draw.items.length };
@@ -62,7 +62,7 @@ export async function run(state) {
     const q3 = await clickUntil(0.70, 0.66, 3);
     const step2 = { q1, q2, q3 };
     await wait(500);
-    const ovs2 = chart.getOverlays();
+    const ovs2 = state.app.overlayList();
     const shortOv = ovs2.find(o => o.name === 'shortPosition');
     const shortPts = shortOv ? shortOv.points.filter(p => Number.isFinite(p.value)).length : 0;
     const afterShort = { n: ovs2.length, pts: shortPts, active: draw.activeTool, items: draw.items.length };
@@ -74,9 +74,9 @@ export async function run(state) {
     const keep = JSON.parse(JSON.stringify(draw.items));
     await draw.load();
     await wait(500);
-    const restored = chart.getOverlays().map(o => o.name);
+    const restored = state.app.overlayList().map(o => o.name);
     const shown = restored.length;
-    const l2 = chart.getDataList();
+    const l2 = state.app.bars.allBars();
     const inRange = keep.map(it => ({
       name: it.name,
       ok: it.points.every(p => p.timestamp >= l2[0].timestamp && p.timestamp <= l2[l2.length - 1].timestamp)
@@ -84,7 +84,7 @@ export async function run(state) {
     // 再直接 restore 一次（items 原样），验证重建路径
     const shown2 = draw.restore();
     await wait(300);
-    const restored2 = chart.getOverlays().map(o => o.name);
+    const restored2 = state.app.overlayList().map(o => o.name);
 
     log('position', {
       supported, step1, step2, afterLong, afterShort, saved,

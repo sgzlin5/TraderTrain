@@ -41,7 +41,7 @@ export async function run(state) {
     const chips1 = document.querySelectorAll('#fibLevels .ds-chip').length;
 
     // 画一条斐波那契，检查交给内核的样式与层级
-    const l = chart.getDataList();
+    const l = state.app.bars.allBars();
     chart.removeOverlay();
     draw.items = [];
     let lo = 0, hi = 0;
@@ -57,7 +57,7 @@ export async function run(state) {
     draw.capture();
     await draw.persist();
     await wait(300);
-    const ov = chart.getOverlays()[0];
+    const ov = state.app.overlayList()[0];
     log('fib', {
       panelOpen, rows, chips0, chips1, levels,
       line: ov ? { style: ov.styles.line.style, size: ov.styles.line.size } : null,
