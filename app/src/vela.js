@@ -83,7 +83,7 @@ export class VelaChartApp {
       locale: 'zh-Hans',
       animations: false,
       drawings: { toolbar: false },
-      live: false                       // P1.5 打开：feed.subscribe 已留口
+      live: true                        // [vela P1.5] 实时 forming bar：走 TTFeed.subscribe
     }, { dataFeed: this.feed });
     await this.reloadWindow(this.anchor);
     // 容器尺寸变化兜底（Vela 自带观察，这里只防面板开合的极端情况）

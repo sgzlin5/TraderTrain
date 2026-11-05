@@ -4041,7 +4041,7 @@ async function startLiveFeed() {
       const behind = last ? bar.timestamp - last : Infinity;
       if (behind <= 2 * 60_000) {
         if (bar.timestamp >= (last || 0)) {
-          try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}
+          try { ch.feed?.pushLiveBar?.({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}   // [vela P1.5]
         }
       } else if (behind <= NEAR_LIVE_MS) {
         catchUpLive(bar.timestamp);          // 窗口还贴着实时（≤10 分钟），补齐掉队的几根
@@ -4059,7 +4059,7 @@ async function startLiveFeed() {
       const behind = tail ? last.timestamp - tail : Infinity;
       if (behind <= 2 * 60_000) {
         if (last.timestamp > (tail || 0)) {
-          try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}
+          try { ch.feed?.pushLiveBar?.({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}   // [vela P1.5]
         }
       } else if (behind <= NEAR_LIVE_MS) {
         catchUpLive(last.timestamp);
@@ -4164,7 +4164,7 @@ async function catchUpLive(newestTs) {
     let pushed = 0;
     for (const b of bars) {
       if (b.timestamp <= tail) continue;
-      ch.pushBar({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
+      ch.feed?.pushLiveBar?.({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });   // [vela P1.5]
       pushed++;
     }
     if (pushed) console.info('[live] 窗口落后 %d 根，已增量补齐 %d 根', behindBars, pushed);
