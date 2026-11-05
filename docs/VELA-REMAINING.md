@@ -85,7 +85,13 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 2. P1 数据与回放 ✅（2026-11-05 完成：selftest2/11 全绿，seek 43ms/堆 40MB，见 §9）
 3. P2 工作区与同步 ✅（2026-11-05：selftest14/15 全绿，跨图同步换原生接缝）
 3'. P3 vela-draw.js ✅（2026-11-05：建档→落盘→读档往返全绿，截图 docs/vela-p3-draw.png）
-4. P4 vela-ind.js — 第一批 ✅（Pine 桥+纯calc适配器）；第二批（SMC/flow/面板/性能）进行中
+4. P4 vela-ind.js — 面板接线 ✅（指标库添加/移除走 addNativeIndicator，TT_ 前缀）
+   P4 剩余：①**R14（新风险）**：native/Pine 输出的非 series 原语（boxes/lines/labels/tables）
+   在 0.9.3 NativeRenderer 上模型可 mount（inspect 可见，capabilities.drawings=true）但不渲染
+   —— 红盒探针决定性证实。SMC×4 可视化改走 registerRendererLayer 自绘（P0-E 验证过通路，
+   smcRender 的 canvas 绘制可原样移植；calc 适配器代码已留在 vela-ind.js 待复用）；
+   ②FLOW_VP/WALL/DEPTH 同走 renderer 层；③Pine 大脚本性能：Dashboard 经 chart.runScript
+   ~60s+/次（引擎直跑 300 根 677ms），反复跑可压垮页面——需剖析 fetchSeries/重跑策略
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）
 5. P1.5 实时接 feed（2）      ← 可与 P2/P3 并行，但必须在 P5 回归前完成
 6. P5 收尾 + selftest 1..45 重写（3+1）

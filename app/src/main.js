@@ -2457,7 +2457,14 @@ async function renderIndicatorPanel() {
     : '<div class="muted">还没有指标</div>';
   $('indActive').querySelectorAll('button[data-rm]').forEach(b => {
     b.onclick = () => {
-      try { chart.removeIndicator({ name: b.dataset.rm }); } catch {}
+      // [vela P4] Vela：按 nativeType 找 handle 移除
+      if (chart.isVela || !chart.removeIndicator) {
+        const nm = b.dataset.rm;
+        const h = (chart.indicators?.() || []).find(x => x.nativeType === 'TT_' + nm || x.nativeType === nm || x.title === nm);
+        try { h?.remove?.(); } catch {}
+      } else {
+        try { chart.removeIndicator({ name: b.dataset.rm }); } catch {}
+      }
       updateIndBadge();
       renderIndicatorPanel();
     };
@@ -4247,7 +4254,11 @@ async function boot() {
   state.drawStyles = await loadDrawStyles();
   state.drawTemplates = await loadTemplateStore();
   state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
-  try { const { registerNativeVelaIndicators } = await import('./vela-ind.js'); registerNativeVelaIndicators(); } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc 指标 → native
+  try {
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators } = await import('./vela-ind.js');
+    registerNativeVelaIndicators();
+    registerSmcVelaIndicators();
+  } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
     registerFibOverlay(window.klinecharts);
     registerPositionOverlays(window.klinecharts);

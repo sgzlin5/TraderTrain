@@ -154,6 +154,10 @@ export async function removeCombo(id) {
 }
 
 export function activeNames(chart) {
+  // [vela P4] Vela：handle.nativeType = 'TT_<name>'
+  if (chart?.isVela || !chart?.getIndicators) {
+    return (chart?.indicators?.() || []).map(h => String(h.nativeType || h.id || '').replace(/^TT_/, '')).filter(Boolean);
+  }
   return (chart?.getIndicators() || []).map(i => i.name);
 }
 
@@ -182,6 +186,22 @@ export function applyIndPrefs(chart, name, prefs) {
 
 /** 开关一个内置指标（叠加指标挂主图，其余自动新建副图）；带上已保存的参数/颜色 */
 export function toggleBuiltin(chart, name, overlay, prefs = null) {
+  // [vela P4] Vela 路径：自建指标以 TT_<name> 注册为 native，params 走 inputs
+  if (chart.isVela || !chart.createIndicator) {
+    const type = 'TT_' + name;
+    const has = (chart.indicators?.() || []).some(i => i.nativeType === type || i.id === type);
+    if (has) {
+      const h = (chart.indicators?.() || []).find(i => i.nativeType === type || i.id === type);
+      try { h?.remove?.(); } catch {}
+      return false;
+    }
+    const inputs = {};
+    if (prefs && Array.isArray(prefs.calcParams) && prefs.calcParams.length) {
+      prefs.calcParams.forEach((v, i) => { inputs['p' + i] = v; });
+    }
+    try { chart.addNativeIndicator(type, Object.keys(inputs).length ? { inputs } : undefined); return true; }
+    catch (e) { console.warn('[vela-ind:add]', name, e?.message); return false; }
+  }
   const has = (chart.getIndicators?.() || []).some(i => i.name === name);
   if (has) { chart.removeIndicator({ name }); return false; }
   const create = { name };
