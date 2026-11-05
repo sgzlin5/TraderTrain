@@ -117,11 +117,8 @@ function buildFavoritesFloat() {
   if (el) return el;
   el = document.createElement('div');
   el.id = 'ttFavFloat';
-  el.className = 'tt-float tt-fav';
-  el.innerHTML = `<div class="tt-float-head"><b>★ 收藏工具</b>
-    <button class="tt-act" id="ttFavAdd" title="添加/取消收藏">＋</button>
-    <button class="tt-x" title="收起">—</button></div>
-    <div class="tt-fav-row" id="ttFavRow"></div>
+  el.className = 'tt-favbar';
+  el.innerHTML = `<div class="tt-fav-row" id="ttFavRow"></div>
     <div class="tt-fav-picker" id="ttFavPick" hidden></div>`;
   document.getElementById('chart').appendChild(el);
   el.querySelector('.tt-x').onclick = () => {
@@ -208,26 +205,33 @@ export function wireDrawingFloatingUI(app) {
   chart.on('drawing:edited', ({ id }) => { if (id && id === styleBox.meta.id) showStyle(id); });
   chart.on('drawing:created', () => window.__TT_SMC_KICK?.());
 
+  const iconOf = (type) => {
+    try { return V.getDrawingType?.(type)?.icon || ''; } catch { return ''; }
+  };
   const renderFavs = () => {
     const row = favBox.querySelector('#ttFavRow');
     let favs = [];
     try { favs = chart.drawings.favorites() || []; } catch {}
     row.innerHTML = '';
     if (!favs.length) {
-      row.innerHTML = '<span class="tt-hint">在官方工具栏点 ★ 收藏后，工具会显示在这里</span>';
+      row.innerHTML = '<span class="tt-hint">点 ＋ 添加收藏工具</span>';
       return;
     }
+    let cur = null;
+    try { cur = chart.drawings.getTool?.(); } catch {}
     for (const type of favs) {
       const b = document.createElement('button');
-      b.className = 'tt-fav-btn';
-      b.textContent = labelOf(type);
-      b.title = type;
-      b.onclick = () => { try { chart.drawings.setTool(type); } catch {} };
+      b.className = 'tt-fav-icon' + (cur === type ? ' active' : '');
+      b.title = labelOf(type) + '（右键取消收藏）';
+      b.innerHTML = iconOf(type) || labelOf(type);
+      b.onclick = () => { try { chart.drawings.setTool(cur === type ? null : type); } catch {} };
+      b.oncontextmenu = (e) => { e.preventDefault(); try { chart.drawings.setFavorite(type, false); } catch {} };
       row.appendChild(b);
     }
   };
   renderFavs();
   chart.on('drawing:favorites', () => renderFavs());
+  chart.on('drawing:tool', () => renderFavs());
 
   const pick = favBox.querySelector('#ttFavPick');
   favBox.querySelector('#ttFavAdd').onclick = () => {
@@ -238,7 +242,8 @@ export function wireDrawingFloatingUI(app) {
     try { favs = chart.drawings.favorites() || []; } catch {}
     pick.innerHTML = types.map((t) => {
       const on = favs.includes(t);
-      return '<button class="tt-pick' + (on ? ' on' : '') + '" data-t="' + t + '">' + (on ? '★' : '☆') + ' ' + labelOf(t) + '</button>';
+      return '<button class="tt-pick-icon' + (on ? ' on' : '') + '" data-t="' + t + '" title="' + labelOf(t) + '">'
+        + '<span class="tt-pick-ic">' + (iconOf(t) || labelOf(t)) + '</span><span class="tt-pick-star">' + (on ? '★' : '☆') + '</span></button>';
     }).join('');
     pick.hidden = false;
     pick.querySelectorAll('.tt-pick').forEach((b) => {
