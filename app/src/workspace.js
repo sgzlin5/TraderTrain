@@ -1,6 +1,7 @@
 // 多图分屏工作区：N 个图表实例（同品种不同周期），共享回放游标
 // [vela P1] 图表层换 Vela：VelaChartApp / ReplayV 原生回放；Draw/Pine 走占位层（P3/P4 接回）
-import { VelaChartApp, ReplayV, DrawStub, PineStub } from './vela.js';
+import { VelaChartApp, ReplayV, PineStub } from './vela.js';
+import { DrawLayerV } from './vela-draw.js';
 
 /** 分屏布局表：cells = 格子数，css = 容器 grid 模板，areas = 每格 grid-area */
 export const LAYOUTS = [
@@ -74,10 +75,11 @@ export class Workspace {
     await app.mount();
     if (period) await app.switchPeriod(period);
     await app.waitLoaded();
-    const draw = new DrawStub(app.chart, {
+    const draw = new DrawLayerV(app.chart, {
       symbol: prof.symbol,
       periodKey: app.periodKey,
-      onChange: () => this.opts.onChange?.()
+      onChange: () => this.opts.onChange?.(),
+      getStyles: () => this.opts.getStyles?.()
     });
     const pine = new PineStub(app.chart);
     const replay = new ReplayV(app, {

@@ -745,6 +745,7 @@ function renderTools() {
       if (!d2) return;
       if (act === 'magnet') {
         const now = toggleMagnet();
+        state.app?.setMagnet?.(now);   // [vela P3] 原生吸附
         markDirty();
         renderTools();
         updateStatus(now ? '吸附已开：落点对齐开高低收' : '吸附已关');
@@ -781,7 +782,8 @@ function chartRect() { return $('chart').getBoundingClientRect(); }
 /** 覆盖层点位 → 图表内像素坐标（chart.convertToPixel 用的是图表左上角原点） */
 function overlayPixels(o) {
   const chart = state.app?.chart;
-  if (!chart) return [];
+  if (!chart || chart.isVela) return [];   // [vela P3] 命中/拖拽由 Vela 原生选择接管
+
   const pts = (o.points || []).filter(p => p.timestamp != null && Number.isFinite(p.value));
   if (!pts.length) return [];
   try {
@@ -805,7 +807,7 @@ function hitOverlay(vx, vy) {
   const r = chartRect();
   const px = vx - r.left, py = vy - r.top;
   let best = null, bestD = 9;
-  for (const o of (chart.getOverlays?.() || [])) {
+  for (const o of (chart.isVela ? (state.app?.overlayList?.() || []) : (chart.getOverlays?.() || []))) {
     const pts = overlayPixels(o);
     if (!pts.length) continue;
     let d = Math.min(...pts.map(p => Math.hypot(p.x - px, p.y - py)));
@@ -856,14 +858,14 @@ function showOvBar(o) {
 
 /** 当前选中绘图对应的工具 key */
 function selOverlayTool() {
-  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
+  const o = (state.app?.overlayList?.() || []).find(x => x.id === state.selOverlay);
   return o ? o.name : null;
 }
 
 /** 渲染 ⋯ 菜单里的线型/模板列表 */
 function renderOvMenu() {
   const tool = selOverlayTool();
-  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
+  const o = (state.app?.overlayList?.() || []).find(x => x.id === state.selOverlay);
   const cur = o?.styles?.line?.style || 'solid';
   $('ovLs').querySelectorAll('.ov-chip').forEach(b => b.classList.toggle('on', b.dataset.ls === cur));
   $('ovTplSaveRow').hidden = true;
@@ -901,7 +903,7 @@ function renderOvMenu() {
 /** 把模板套到当前选中的绘图上，并可顺带设为该工具默认 */
 function applyTemplate(tpl, makeDefault) {
   const id = state.selOverlay;
-  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === id);
+  const o = (state.app?.overlayList?.() || []).find(x => x.id === id);
   if (!o || !tpl) return;
   const line = { ...tpl.line };
   state.app.chart.overrideOverlay?.({ id, styles: { line } });
@@ -922,7 +924,7 @@ function applyTemplate(tpl, makeDefault) {
 
 /** 应用该工具的默认模板（没有模板时回到全局样式） */
 function applyDefaultTemplate(overlayId) {
-  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === overlayId);
+  const o = (state.app?.overlayList?.() || []).find(x => x.id === overlayId);
   if (!o) return;
   const tpl = defaultTemplateOf(state.drawTemplates, o.name);
   if (tpl) { applyTemplate(tpl, false); return; }
@@ -937,7 +939,7 @@ function applyDefaultTemplate(overlayId) {
 /** 把当前选中绘图的样式存成模板 */
 function saveOverlayAsTemplate() {
   const tool = selOverlayTool();
-  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
+  const o = (state.app?.overlayList?.() || []).find(x => x.id === state.selOverlay);
   if (!tool || !o) return;
   const nameRaw = $('ovTplName').value.trim();
   const list = state.drawTemplates?.templates?.[tool] || [];
@@ -965,7 +967,7 @@ function renderOvMenuForTest() { renderOvMenu(); }
 
 function refreshOvBar() {
   if (!state.selOverlay) return;
-  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
+  const o = (state.app?.overlayList?.() || []).find(x => x.id === state.selOverlay);
   if (o) showOvBar(o); else hideOvBar();
 }
 
@@ -1005,7 +1007,7 @@ function wireOverlayBar() {
       if (act === 'apply-default') { applyDefaultTemplate(id); $('ovMenu').hidden = true; refreshOvBar(); return; }
       if (act === 'fib') { openDrawStylePanel(); $('ovMenu').hidden = true; return; }
       if (act === 'reset') {
-        const o = (state.app.chart.getOverlays?.() || []).find(x => x.id === id);
+        const o = (state.app.overlayList?.() || []).find(x => x.id === id);
         if (o) {
           const st = state.draw.styleFor(o.name);
           state.app.chart.overrideOverlay?.({ id, styles: st.styles });
@@ -3904,6 +3906,7 @@ async function loadProfile(profile) {
   $('startAt').value = fmtLocalInput(Math.max(profile.first, profile.last - 86400000));
   renderPeriods();
   await loadMagnet();
+  state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 恢复吸附态
   // 有存档就按存档恢复（主题/版面/吸附/绘图样式/模板/工具栏/周期）
   const _snap = await loadConfigSnapshot();
   if (_snap) await applyWorkspaceSnapshot(_snap);
@@ -4243,6 +4246,7 @@ async function boot() {
   state.tools = (await kvGet('ui:tools')) || { mode: 'float', x: null, y: null };
   state.drawStyles = await loadDrawStyles();
   state.drawTemplates = await loadTemplateStore();
+  state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
     registerFibOverlay(window.klinecharts);
     registerPositionOverlays(window.klinecharts);

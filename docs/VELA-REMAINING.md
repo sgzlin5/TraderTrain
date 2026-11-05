@@ -49,7 +49,7 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 | **P4-a 前置实验** | ~~live 模式 `barstate.isconfirmed` 口径 + `importResolver` 取源策略~~ **已完成 2026-11-05**（[PINETS-COVERAGE §5](VELA-PINETS-COVERAGE.md)：D7 预处理 `not barstate.islast`、D8 resolver 接 Pine 库；`probe_p4a.mjs`） | ~~0.5~~ 0 | 已关闭；R12 关闭 |
 | **P1 数据与回放** | **已完成 2026-11-05**（`vela-data.js` = 自定义 `MarketDataFeed` 裸注入 + `vela.js` VelaChartApp/ReplayV；见 §9 实测记录）；48 处 `getDataList()` 已收敛（main.js 18 处 → `app.bars.*`，selftest2/11 同步适配） | ~~3.5~~ 0 | selftest2/11 全绿 |
 | **P2 工作区与同步** | **已完成 2026-11-05（按 D9 调整）**：保留 per-TAB Workspace + 每格 VelaChartApp；跨图同步换 `vela-ws.js`（Vela 原生 `setExternalCrosshair`，删 DOM 自绘方案）；MultiReplay 共享时钟收口（step 后各格 cursor 对齐主格）；TAB 驻留 DOM 模型不变 | ~~4~~ 0 | selftest14/15 全绿 |
-| **P3 绘图** | §5 映射表逐个接 `chart.drawings`；`drawStyles.js` → `SerializedDrawing.style`；管理面板接 `removeMany/lock/show`；砍艾略特（D2） | 4 | 独立，可与 P2 并行 |
+| **P3 绘图** | **已完成 2026-11-05**（`vela-draw.js` DrawLayerV：11 工具全映射——Vela 原生就有 polyline/position/freehand，D2 要砍的艾略特本项目工具栏本来就没有；持久化直接存 DrawingsDocument（旧 items 读入时迁移）；undo/redo/磁吸全原生；锚定数据空间 = 跨窗口重载天然持久，旧「窗口内重建」整套删除）；交互放置走真实鼠标（合成事件驱动不了渲染器，自检走编程式 `add()`） | ~~4~~ 0 | selftest2/9 绘图断言全绿 |
 | **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC / flow / 自定义；图例接 `chart.indicators()`；Pine 换 `vela-pinets`（D1），删 `pineDraw/pineCore` 坐标层；Pine 桥实测可用（见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)），省 1.5，加 `importResolver` 0.5 + live `isconfirmed` 对齐 0.5 | 4.5 | 依赖 P4-a |
 | **P5 收尾** | 5 套主题 → `VelaTheme`；截图 → `screenshotCanvas()`；快捷键/keymap；`setLocale('zh-Hans')`；全量回归 + 文档 | 3 | 依赖 P1–P4 |
 | 小计 | | **19.5**（19 + 0.5） | |
@@ -84,7 +84,8 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 1. P4-a 前置实验 ✅（2026-11-05 完成：D7 isconfirmed 预处理 / D8 resolver 接 Pine 库）
 2. P1 数据与回放 ✅（2026-11-05 完成：selftest2/11 全绿，seek 43ms/堆 40MB，见 §9）
 3. P2 工作区与同步 ✅（2026-11-05：selftest14/15 全绿，跨图同步换原生接缝）
-3'. P3 vela-draw.js（4）      ← 当前
+3'. P3 vela-draw.js ✅（2026-11-05：建档→落盘→读档往返全绿，截图 docs/vela-p3-draw.png）
+4. P4 vela-ind.js（4.5）      ← 当前
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）
 5. P1.5 实时接 feed（2）      ← 可与 P2/P3 并行，但必须在 P5 回归前完成
 6. P5 收尾 + selftest 1..45 重写（3+1）

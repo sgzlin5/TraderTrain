@@ -39,6 +39,30 @@ export class VelaChartApp {
   /** 查询面：state.app.bars.lastBar() / barAt(ts) / barsInRange(a,b) / allBars() / length */
   get bars() { return this.feed; }
 
+  /** 绘图列表（klinecharts overlay 形状，main.js 的样式面板/管理面板/右键菜单零改动） */
+  overlayList() {
+    const d = this.chart?.drawings;
+    if (!d) return [];
+    const REV = { trendline: 'segment', polyline: 'polyline', ray: 'rayLine', hline: 'horizontalStraightLine',
+      hray: 'horizontalRayLine', fibretracement: 'fibonacciLine', parallelchannel: 'priceChannelLine',
+      freehand: 'brush', position: 'longPosition' };
+    let list = [];
+    try { list = d.toJSON().drawings || []; } catch {}
+    return list.map(x => ({
+      id: x.id,
+      name: x.props?.tt || REV[x.type] || x.type,
+      points: (x.anchors || []).map(a => ({ timestamp: a.time, value: a.price })),
+      styles: { line: { color: x.style?.lineColor, size: x.style?.lineWidth, style: x.style?.lineStyle,
+        dashedValue: x.style?.lineStyle === 'dashed' ? [4, 4] : [1, 0] } },
+      locked: !!x.locked, visible: x.visible !== false
+    }));
+  }
+
+  /** 磁吸开关 → 原生吸附（weak = 吸最近 OHLC） */
+  setMagnet(on) {
+    try { this.chart?.drawings?.setSnapMode(on ? 'weak' : 'off'); } catch {}
+  }
+
   /** 查询封顶：回放中 = 游标（旧 getDataList 回放时只含已揭示的根）；非回放 = 窗口锚点
    *  （store 为回放跑道在锚点右侧多放的根，对业务层不可见 —— 旧窗口右端 = 锚点的语义） */
   _cursorCap() {
