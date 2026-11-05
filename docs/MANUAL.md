@@ -901,6 +901,8 @@ python tools/run_selftests.py --port 9222 --base http://127.0.0.1:8732 --tests 1
 | 冷启动 | 新 origin 首次加载要解 400 万根，启动看门狗现在是“30 s 起判 + 阶段 20 s 无推进才报错” |
 | `--seed` 耗时 | 首次约 1–3 分钟（108 MB 走 localhost + IndexedDB 写入） |
 | CDP 卡住 | 运行器自动重连并记 `CDP_ERROR`，不会整轮中断 |
+| **不要用 8731 跑自检** | 8731 是 exe/WebView2 的 origin；外部 Chrome 打开 8731 是另一套空库，会报“应用未就绪”。自检一律走 8732 |
+| 端口被占 | exe 启动时若 8731 已被占用（旧 `tools/serve.py` 没退），日志会写“端口已在服务中，直接开窗”，窗口里跑的是**旧代码**。先 `netstat -ano | findstr :8731` 找到 PID 停掉再启动 exe |
 
 `window.__UI_READY__` 是页面就绪标志，`window.__RESULT__` 是用例结果（`pass / checks / errors / elapsedMs`）。
 
