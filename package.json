@@ -9,6 +9,10 @@
     "test": "python tools/run_selftests.py --tests 1-45 --fresh"
   },
   "devDependencies": {
-    "eslint": "^9.13.0"
+    "@luxalgo/vela": "^0.9.3",
+    "@luxalgo/vela-pinets": "^0.3.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.13.0",
+    "pinets": "^0.13.1"
   }
 }

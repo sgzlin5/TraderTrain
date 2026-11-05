@@ -29,7 +29,23 @@
 1. **`request.security` 的数据由宿主给**：跨品种脚本（`request.security("ETHUSDT", …)`）在我们单品种的 IndexedDB 数据下只能得到 `na`。同品种 HTF（`"240"`/`"D"`）也需要 provider 能按 timeframe 聚合后再交给 `fetchSeries`。**这是数据面（P1）的活，不是引擎的**。
 2. **带 `import` 的 LuxAlgo 脚本需要 `importResolver`**：LuxAlgo 付费库里有一部分脚本 `import LuxAlgo/<lib>/<ver>`，没有解析器时**直接 prepare 失败**（实测报错原文见上表 #10）。要有库源码的合法来源才能补上，否则这类脚本用不了 —— 先按"不支持 import"记账。
 3. **纯绘图/表格脚本没有图例数值**：Dashboard 这类脚本 `model.series` 为 0（实测），只有 tables/lines/labels/boxes。我们现在的桥靠"补一个占位 figure"凑出图例行，Vela 侧要确认图例对空 series 的表现，自检断言要按 `{indicators, totals}` 写。
-4. **`barstate.isconfirmed` 在 static 模式末根 = 1**（实测 300 根，末根 `isconfirmed` 值 1、`islast` 值 1）。我们 WIP 里刚把口径改成"末根是正在走的那根，不算确认" —— **vela-pinets 默认不提供这个口径**；`mode:'live'` 下是否给出 0 未验证，这条留作 P4 前的必验项。
+4. **`barstate.isconfirmed` 在 static 模式末根 = 1**（实测 300 根，末根 `isconfirmed` 值 1、`islast` 值 1）。我们 WIP 里刚把口径改成"末根是正在走的那根，不算确认" —— **vela-pinets 默认不提供这个口径**；`mode:'live'` 下是否给出 0 未验证，这条留作 P4 前的必验项。**→ 已实测关闭（2026-11-05，见 §5）：live 模式末根同样是 1；桥接层做一行预处理 `barstate.isconfirmed` → `not barstate.islast` 即可精确复现主线口径**。
+
+## 5. P4-a 前置实验（2026-11-05，`probe_p4a.mjs`，输出 `vela-p4a-probe.txt`）
+
+| # | 用例 | 结果 | 实测数据 |
+|---|---|---|---|
+| 12 | `mode:'live'` + `notifyBars()` 推进（tick 原地变 / 收盘+新 bar） | ✅ 引擎侧通路成立 | tick → onModel 重跑（models 递增）；收盘+追加 → 序列 n 201→202，新 bar 纳入；**末根 `isconfirmed` 在 live 下仍 = 1**（与 static 同） |
+| 13 | 源码预处理 `barstate.isconfirmed` → `not barstate.islast`（主线口径） | ✅ 精确复现 | 初始末根 ic=0；收盘后次末根回 1、新末根 0 |
+| 14 | 链式 `import`（脚本→libA→libB） | ✅ resolver 递归可用 | 调用序 `mylib/a/1`（importer 空）→ `mylib/b/1`（`importer:'mylib/a/1'`），`version` 透传 |
+| 15 | resolver 返回 null | ✅ 报错原文可透传 UI | `Import "nobody/lib/1" could not be resolved: the import resolver returned no source` |
+
+**两项决策（D7 / D8）：**
+
+- **D7（isconfirmed 口径）**：P4 的桥（`vela-ind.js`）对脚本源做一行预处理 `barstate.isconfirmed` → `not barstate.islast`，等价于 main `pineCore.js` 的 `(bar_index < n-1)` 补丁；只重写用户脚本，引擎内部（strategy 成交时点）不受影响。
+- **D8（importResolver 取源）**：resolver 接到本项目现有「Pine 库」（IndexedDB）：import 的 `user/name/version` 与库条目路径匹配即返回源码（链式自动工作）；未命中把 #15 的报错原文透传到提醒面板。**不预置任何 LuxAlgo 付费库源码**（无合法来源）；用户自备库源码存进 Pine 库即可用。
+
+**实施注意（给 P4）**：`onModel` 的 series 元素是 `{time, value, color}` 包装；`notifyBars` 若在首轮完成前到达会被吞（探针 1b 初版实测），桥里要在 `onDone`/首轮之后再开放 live 推进。
 
 ## 4. 对剩余工作量的影响
 

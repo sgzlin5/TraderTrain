@@ -46,7 +46,7 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 
 | 阶段 | 内容 | 人日 | 前置 / 依赖 |
 |---|---|---:|---|
-| **P4-a 前置实验** | **live 模式 `barstate.isconfirmed` 口径**（static 实测末根 = 1，我们要「末根未确认」）+ `importResolver` 的取源策略；原「同图第二次 `runScript` 返回 `ok:false`」已于 2026-11-05 关闭（`PineEngine` 连跑两次均 ok） | 0.5 | 无；**必须在 P4 开工前做**，否则 P4 返工 |
+| **P4-a 前置实验** | ~~live 模式 `barstate.isconfirmed` 口径 + `importResolver` 取源策略~~ **已完成 2026-11-05**（[PINETS-COVERAGE §5](VELA-PINETS-COVERAGE.md)：D7 预处理 `not barstate.islast`、D8 resolver 接 Pine 库；`probe_p4a.mjs`） | ~~0.5~~ 0 | 已关闭；R12 关闭 |
 | **P1 数据与回放** | `vela-data.js` 自定义 `DataProvider`（`getBars` 按 `{from,to,limit}` 从 IndexedDB 切片，永不返回整段）；`bars` 深度 8k–20k；`replay.start/step/play` + 速度映射；48 处 `getDataList()` 收敛成 `barAt/lastBar/barsInRange` | 3.5 | 数据模式已定（P0 §9–10），无阻塞 |
 | **P2 工作区与同步** | `VelaWorkspace` + `setLayout('2h'/'4'/'8')`；每格 `setSymbol/setTimeframe`；`sync.set()`；TAB = `getState/applyState` 快照 | 4 | 依赖 P1（每格要数据） |
 | **P3 绘图** | §5 映射表逐个接 `chart.drawings`；`drawStyles.js` → `SerializedDrawing.style`；管理面板接 `removeMany/lock/show`；砍艾略特（D2） | 4 | 独立，可与 P2 并行 |
@@ -80,9 +80,9 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 ## 5. 建议顺序
 
 ```
-0. merge origin/main → vela（实测零冲突，10 分钟）+ 处置 WIP + 正式冻结 main 图表层
-1. P4-a 前置实验（0.5）——并行做（live `isconfirmed` + import 策略）
-2. P1 vela-data.js（3.5）
+0. merge origin/main → vela ✅（2026-11-05 完成，两次 merge 零冲突，含 54e520e；WIP 已落盘；main 图表层已冻结）
+1. P4-a 前置实验 ✅（2026-11-05 完成：D7 isconfirmed 预处理 / D8 resolver 接 Pine 库）
+2. P1 vela-data.js（3.5）    ← 当前
 3. P2 vela-ws.js（4）        ←→ 3'. P3 vela-draw.js（4，可并行）
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）
 5. P1.5 实时接 feed（2）      ← 可与 P2/P3 并行，但必须在 P5 回归前完成
@@ -102,8 +102,8 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 
 | # | 风险 | 影响 | 对策 |
 |---|---|---|---|
-| R11 | **实时链路是新的未知项**（`MarketDataFeed.subscribe` 未实测） | P1.5 可能翻倍 | 与 P4-a 一起做一次 1 小时探针：合成 bar 每秒 `onBar`，看 last bar 是否原地刷新 |
-| R12 | **vela-pinets 无 `barstate.isconfirmed` 等价口径** | Pine 指标最后一根值与主线不一致 | P4-a 顺带验：同一脚本在 vela-pinets 下最后一根的 `complete` 字段是否就是这个语义 |
+| R11 | **实时链路是新的未知项**（`MarketDataFeed.subscribe` 未实测） | P1.5 可能翻倍 | 1 小时探针：合成 bar 每秒 `onBar`，看 last bar 是否原地刷新。**引擎侧已半验证**：`PineEngine` live 模式 `notifyBars()` 重跑可用（[COVERAGE §5 #12](VELA-PINETS-COVERAGE.md)），剩 Vela 图表侧的 `subscribe(onBar)` |
+| ~~R12~~ | ~~vela-pinets 无 `barstate.isconfirmed` 等价口径~~ | — | **已关闭（2026-11-05）**：桥接层一行预处理 `→ not barstate.islast` 精确复现主线口径（D7） |
 | R13 | selftest 断言面（109 处） | P5 回归成本高于预期 | P1 起就按「selftest 先改、功能后改」推进，不把 45 个用例堆到最后 |
 | R2/R9/R10 | 版本漂移 / 不回填 / 4M=1 GB | 不变 | vendor 锁 0.9.3；`setMarket({bars, visibleRange})` 重建窗口；provider 永不返回整段 |
 
