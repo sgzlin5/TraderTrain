@@ -86,10 +86,21 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 3. P2 工作区与同步 ✅（2026-11-05：selftest14/15 全绿，跨图同步换原生接缝）
 3'. P3 vela-draw.js ✅（2026-11-05：建档→落盘→读档往返全绿，截图 docs/vela-p3-draw.png）
 4. P4 vela-ind.js — 面板接线 ✅（指标库添加/移除走 addNativeIndicator，TT_ 前缀）
-   P4 剩余：①**R14（新风险）**：native/Pine 输出的非 series 原语（boxes/lines/labels/tables）
-   在 0.9.3 NativeRenderer 上模型可 mount（inspect 可见，capabilities.drawings=true）但不渲染
-   —— 红盒探针决定性证实。SMC×4 可视化改走 registerRendererLayer 自绘（P0-E 验证过通路，
-   smcRender 的 canvas 绘制可原样移植；calc 适配器代码已留在 vela-ind.js 待复用）；
+   P4 剩余：①**R14（新风险）+ 解决方案**：native/Pine 输出的非 series 原语（boxes/lines/
+   labels/tables）在 0.9.3 NativeRenderer 上模型可 mount（inspect 可见）但不渲染（红盒探针
+   决定性证实，且 capabilities.drawings=true 自相矛盾）。**三层方案**：
+   ▸ Tier-0 排错（半小时，干净新页面）：最小 Pine `label.new/box.new` 是否渲染（区分 Pine 管线
+   vs native emit 管线）；`xloc:'bar_index'` 变体（bar_time 变换可疑）；对照官方 emit 用法
+   ▸ Tier-1 主线（与缺陷无关的确定通路）：SMC/flow 走 **pushData + registerRendererLayer 自绘**
+   —— 这是 Vela 设计好的侧信道（`NativeIndicatorContext.pushData` 文档原文即为"非 series/fill
+   的原生 visuals"准备；layer 的 `render(args)` 里 `args.coords.timeToX/priceToY` P0-E 已实测）。
+   SMC 保持 native（图例/设置/生命周期全保留），算出 zones/events 后 pushData，layer 里用
+   canvas 2D 画——smcRender 的 drawRect/drawLine/drawTag 几乎原样移植，约 1 人日
+   ▸ Pine 原语（LuxAlgo Dashboard 表格/框/标签）：依赖 Tier-0 结论——是我们 emit 形状问题就修；
+   是 Vela 缺陷就报上游（pre-1.0 迭代快，R2 反而可能很快修）；最后手段 = host 从
+   handle.context() 镜像原语到自绘层重画（hack）
+   ⚠ 附带发现：live feed 每秒 tick → 引擎每秒重跑 → runScript 长跑后页面主线程卡死
+   （评估环境被反复重型脚本+崩溃降级）。P4-2c 性能专项必须包含「live 期 Pine 重跑节流」；
    ②FLOW_VP/WALL/DEPTH 同走 renderer 层；③Pine 大脚本性能：Dashboard 经 chart.runScript
    ~60s+/次（引擎直跑 300 根 677ms），反复跑可压垮页面——需剖析 fetchSeries/重跑策略
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）
