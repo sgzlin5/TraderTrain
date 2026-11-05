@@ -131,6 +131,41 @@ function buildFavoritesFloat() {
   return el;
 }
 
+/** 旧版样式模板迁移（一次性）：ui:drawTemplates（klinecharts 命名）→ Vela toolTemplates。
+ *  线样式映射 line{color,size,style} → style{lineColor,lineWidth,lineStyle}；
+ *  斐波那契 levels 暂不迁移（Vela 侧 props 结构不同，后续批次）。 */
+export async function migrateLegacyTemplates(chart) {
+  try {
+    const { loadTemplateStore } = await import('./drawStyles.js');
+    const { TOOL_MAP } = await import('./vela-draw.js');
+    const store = await loadTemplateStore();
+    const tpls = store?.templates || {};
+    const out = chart.drawings.toolTemplates() || {};
+    let n = 0;
+    for (const [toolKey, list] of Object.entries(tpls)) {
+      const type = TOOL_MAP[toolKey];
+      if (!type) continue;
+      const conv = (list || [])
+        .filter(t => t?.name && t.line?.color)
+        .map(t => ({
+          name: t.name,
+          settings: { style: { lineColor: t.line.color, lineWidth: t.line.size || 1, lineStyle: t.line.style || 'solid' } }
+        }));
+      if (!conv.length) continue;
+      const cur = out[type] || [];
+      const names = new Set(cur.map(x => x.name));
+      for (const c of conv) if (!names.has(c.name)) { cur.push(c); n++; }
+      out[type] = cur;
+    }
+    if (n) {
+      chart.drawings.setToolTemplates(out);
+      const { kvSet } = await import('./db.js');
+      await kvSet('vela:toolTemplates', out);   // 迁移结果入 kv，跨会话保留
+    }
+    return n;
+  } catch (e) { console.warn('[tt-float:migrate]', e?.message); return 0; }
+}
+
 /** 模板持久化恢复（每格图表 mount 后调）：kv 里的 toolTemplates JSON 整体回灌 */
 export async function restoreToolTemplates(chart) {
   try {

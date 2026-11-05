@@ -3978,8 +3978,10 @@ async function loadProfile(profile) {
   try { const m = await import('./vela-ind.js'); m.updateSmcLayers?.(state.app); } catch {}
   try {
     const fm = await import('./vela-float-ui.js');
+    let migrated = false;
     for (const cell of state.workspace?.cells || []) {
       fm.wireDrawingFloatingUI(cell.app);
+      if (!migrated) { await fm.migrateLegacyTemplates(cell.app.chart); migrated = true; }   // [P5] 旧样式模板一次性迁入
       await fm.restoreToolTemplates(cell.app.chart);
     }
   } catch (e) { logErr('float-ui', e); }   // [P5] 悬浮属性框 + 收藏工具框 + 模板恢复
