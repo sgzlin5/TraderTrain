@@ -1,8 +1,8 @@
 # TraderTrain built-in static server (fallback when Python is missing). Windows PowerShell 5.1+.
 # ASCII only on purpose: PowerShell 5.1 mis-parses UTF-8 without BOM.
-# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve.ps1 -Port 8731 -Root <project root>
+# Usage: powershell -NoProfile -ExecutionPolicy Bypass -File tools\serve.ps1 -Port 8733 -Root <project root>
 param(
-  [int]$Port = 8731,
+  [int]$Port = 8733,
   [string]$Root = "."
 )
 

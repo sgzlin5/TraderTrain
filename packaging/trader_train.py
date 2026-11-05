@@ -3,9 +3,9 @@
 
 做什么：
   1) 把打包进来的 app/ 铺到 %LOCALAPPDATA%\\TraderTrain\\app（可写，带 BUILD 戳做版本升级）；
-  2) 用内置的 tools/serve.py 在固定端口 8731 起本地服务（静态站 + /api/* 下载导入）；
+  2) 用内置的 tools/serve.py 在固定端口 8733 起本地服务（静态站 + /api/* 下载导入）；
   3) 用 pywebview(WebView2) 开一个无地址栏窗口，用户数据目录固定在
-     %LOCALAPPDATA%\\TraderTrain\\webview —— origin 恒定 http://127.0.0.1:8731，
+     %LOCALAPPDATA%\\TraderTrain\\webview —— origin 恒定 http://127.0.0.1:8733，
      IndexedDB 里的行情不会因为换版本而丢。
 
 保留 Chrome 数据老路：`TraderTrain.exe --chrome` 会改用当前目录的 .chrome-profile
@@ -23,7 +23,7 @@ import urllib.request
 
 VERSION = "0.1.0"
 APP_NAME = "TraderTrain"
-PORT = int(os.environ.get("TT_PORT", "8731"))   # 仅供冒烟测试改端口；正式用 8731
+PORT = int(os.environ.get("TT_PORT", "8733"))   # 仅供冒烟测试改端口；正式用 8733
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 源码运行时用
 
 

@@ -2,7 +2,7 @@
 """跑一遍 ?selftest=N 自检并输出汇总（走 Chrome 远程调试协议）。
 
 用法：
-  python tools/run_selftests.py --port 9222 --base http://127.0.0.1:8731 --tests 1-45
+  python tools/run_selftests.py --port 9222 --base http://127.0.0.1:8733 --tests 1-45
   python tools/run_selftests.py --tests 2,11,44 --json out.json --fresh
 
 前提：Chrome 以 --remote-debugging-port=<port> 启动，且已打开 base 页面（脚本会自动新建标签）。
@@ -150,7 +150,7 @@ async def main_async(args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", default="9222", help="Chrome 远程调试端口")
-    ap.add_argument("--base", default="http://127.0.0.1:8731")
+    ap.add_argument("--base", default="http://127.0.0.1:8733")
     ap.add_argument("--tests", default="1-45")
     ap.add_argument("--fresh", action="store_true", help="每个用例前清会话/成交/提醒/SMC 指标")
     ap.add_argument("--timeout", type=int, default=90, help="单个用例最长等待秒数")

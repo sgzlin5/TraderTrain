@@ -1,9 +1,9 @@
 @echo off
 rem TraderTrain launcher
-rem  - serves the project on a FIXED port 8731 (IndexedDB origin depends on it)
+rem  - serves the project on a FIXED port 8733 (IndexedDB origin depends on it)
 rem  - uses a dedicated Chrome profile (.chrome-profile) that holds the app data
 setlocal
-set PORT=8731
+set PORT=8733
 set ROOT=%~dp0
 set PROFILE=%ROOT%.chrome-profile
 set "PF=%ProgramFiles%"

@@ -746,7 +746,11 @@ Pine 编辑器里的「回测」按钮：跑一次脚本 → 读 PineTS 的 `ctx
 - `.ttdata` 结构：`"TTDATA1\n"`（8 B）+ `uint32` 头长度（小端）+ JSON 头（`profiles` / `chunks[{key,bytes}]`）+ 各分片原始字节顺序拼接。导入会先校验魔数与长度，包被截断会直接报错而不是写一半。
 - 单包上限 1.4 GB（超过就让分品种导）。实测 4,016,034 根 / 107.2 MB：**导出 866 ms、导入 634 ms**。
 - 换机顺序：**先导配置 → 再导行情包**（配置里不含清单，顺序反了也不会丢，但清单以包内为准）。
-- 端口仍是命根子：新机器必须还是 `http://127.0.0.1:8731`，否则 origin 变了读不到旧数据。
+- 端口仍是命根子：新机器必须还是 `http://127.0.0.1:8733`，否则 origin 变了读不到旧数据。
+- **vela 分支端口 = 8733**（2026-11-05 起；8731 让给主仓库打包 exe，两者可并存）。
+  origin 变更时 IndexedDB 不随端口迁移（Chrome 元数据绑定 origin）——全量历史已在 8733
+  重新导入（csv2bin 全量 CSV → manifest → 页面导入）；旧 8731 origin 的实时段（liveStore）
+  需重新收集。
 
 ## 20. 数据格式（28 B/根，小端）
 
@@ -872,7 +876,7 @@ uv run --with pillow python tools/icon_sheet.py
 ### 自检怎么跑
 
 ```bash
-# 单个用例：浏览器开 http://127.0.0.1:8731/app/index.html?selftest=45
+# 单个用例：浏览器开 http://127.0.0.1:8733/app/index.html?selftest=45
 # 全部用例（需要 Chrome 带 --remote-debugging-port=9222）
 python tools/run_selftests.py --port 9222 --tests 1-45 --fresh --json report.json
 ```

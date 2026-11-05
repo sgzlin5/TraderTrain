@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 """TraderTrain 本地服务：静态站 + Dukascopy 历史数据下载 API。
 
-替代 `python -m http.server`（端口必须固定 8731，IndexedDB 的 origin 依赖它）。
+替代 `python -m http.server`（端口固定 8733 —— vela 分支专用（8731 让给主仓库打包 exe）；IndexedDB 的 origin 依赖端口）。
 
 用法:
-    python tools/serve.py --port 8731 --root .
+    python tools/serve.py --port 8733 --root .
 
 API:
     GET  /api/instruments                      → 可选标的（含中文名/类别/point 值）
@@ -679,7 +679,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=8731)
+    ap.add_argument("--port", type=int, default=8733)
     ap.add_argument("--root", default=".")
     args = ap.parse_args()
     root = os.path.abspath(args.root)

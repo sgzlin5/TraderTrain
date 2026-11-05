@@ -11,7 +11,7 @@
 ```bash
 git clone git@github.com:sgzlin5/TraderTrain.git
 cd TraderTrain
-start.bat            # 起服务（固定端口 8731）+ 用独立 profile 打开 Chrome --app 窗口
+start.bat            # 起服务（固定端口 8733）+ 用独立 profile 打开 Chrome --app 窗口
 ```
 
 首次进来是空的：`04 数据` → 「下载」（Dukascopy 外汇/金属 · Binance 加密）或「导入」（CSV / ZIP）。行情数据不入库，需自己拉一份。
