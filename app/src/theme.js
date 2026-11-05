@@ -1,5 +1,6 @@
 // 版面设置：右键图表弹出，改背景/网格/涨跌配色，持久化到 IndexedDB kv
 // 只覆盖「皮肤之上」的动态部分（颜色与网格开关），字体/十字光标等仍由 chart.js 的 THEME 决定
+import { buildVelaTheme } from './chart.js';
 import { kvGet, kvSet } from './db.js';
 
 const KEY = 'layout:chart';

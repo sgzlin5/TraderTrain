@@ -1258,6 +1258,16 @@ function renderTradeMarks(s) {
   if (!state.app) return;
   const chart = state.app.chart;
   const pos = s.pos;
+  // [vela P5] 标记走自绘层：写载荷即画（无需清 overlay）
+  if (chart.isVela || !chart.createOverlay) {
+    window.__TT_TRADE_DATA = pos ? {
+      entry: pos.entry, sl: pos.sl, tp: pos.tp, side: pos.side, qty: pos.qty
+    } : null;
+    _markSig = pos ? `${pos.side}@${pos.entry}/${pos.sl}/${pos.tp}` : '-';
+    try { chart.resize(); } catch {}   // 静态图无自发帧——标记变更后主动触发重绘
+    return;
+  }
+  const pos2 = pos;
   const sig = pos ? `${pos.side}@${pos.entry}/${pos.sl}/${pos.tp}/${state.app.bars ? state.app.bars.length : 0}` : '-';
   if (sig === _markSig) return;
   _markSig = sig;
@@ -4258,10 +4268,11 @@ async function boot() {
   state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
   try {
     window.__A_wireSmc = null;
-    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, wireSmcLayerTriggers } = await import('./vela-ind.js');
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers } = await import('./vela-ind.js');
     registerNativeVelaIndicators();
     registerSmcVelaIndicators();
-    registerSmcLayers();   // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
+    registerSmcLayers();        // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
+    registerTradeMarksLayer();  // [P5] 交易标记层（入场/SL/TP 线 + 方向 chip）
     window.__A_wireSmc = wireSmcLayerTriggers;
   } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）

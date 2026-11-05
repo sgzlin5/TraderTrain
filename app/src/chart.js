@@ -150,6 +150,20 @@ export function buildChartTheme(mode = currentThemeKey()) {
   };
 }
 
+/** 主题 key → VelaTheme（vela 分支图表内核的主题细映射，随 applyThemeMode 下发） */
+export function buildVelaTheme(key) {
+  const t = CHART_THEME[key] || CHART_THEME.dark;
+  return {
+    background: t.mode === 'light' ? '#f2f5f8' : '#0b0f14',
+    textColor: t.axis,
+    gridColor: t.grid,
+    borderColor: t.hair,
+    upColor: t.up,
+    downColor: t.down,
+    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace'
+  };
+}
+
 export class ChartApp {
   constructor(container, profile) {
     this.container = container;

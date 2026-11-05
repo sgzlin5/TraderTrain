@@ -168,6 +168,69 @@ function smcPayloadToItems(name, p, biz) {
   return items;
 }
 
+/** 交易标记层：host 写 window.__TT_TRADE_DATA = { entry, sl, tp, side, qty }，层画
+ *  入场/SL/TP 全宽虚线 + 右缘方向 chip（多绿/空红）。R14 同路自绘。 */
+export function registerTradeMarksLayer() {
+  const { registerRendererLayer } = V() || {};
+  if (typeof registerRendererLayer !== 'function') return;
+  try {
+    registerRendererLayer({
+      id: 'TT_TRADE_MARKS',
+      placement: 'above-data',
+      create() {
+        let cv = null;
+        return {
+          mount(canvas) {
+            cv = canvas;
+            window.__LAYER_CV = window.__LAYER_CV || {};
+            window.__LAYER_CV.TT_TRADE_MARKS = canvas;
+          },
+          render(args) {
+            try { paintTradeMarks(args, cv || (window.__LAYER_CV || {}).TT_TRADE_MARKS); } catch {}
+          }
+        };
+      }
+    });
+  } catch (e) { console.warn('[vela:marks-layer]', e?.message); }
+}
+
+function paintTradeMarks(args, cv) {
+  const t = window.__TT_TRADE_DATA || null;
+  if (!cv) return;
+  const ctx2 = cv.getContext('2d');
+  const dpr = cv.clientWidth ? cv.width / cv.clientWidth : 1;
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx2.clearRect(0, 0, cv.width, cv.height);
+  const sc = args.scale, bd = args.bounds;
+  if (!t || !sc || !bd) return;
+  const Y = (v) => {
+    const lo = sc.min, hi = sc.max;
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi === lo) return NaN;
+    return bd.top + (1 - (v - lo) / (hi - lo)) * bd.height;
+  };
+  const W = cv.clientWidth;
+  const line = (v, color) => {
+    const y = Y(v);
+    if (!Number.isFinite(y)) return;
+    ctx2.strokeStyle = color; ctx2.lineWidth = 1; ctx2.setLineDash([5, 4]);
+    ctx2.beginPath(); ctx2.moveTo(0, y); ctx2.lineTo(W, y); ctx2.stroke(); ctx2.setLineDash([]);
+  };
+  const bull = t.side === 'long';
+  const main = bull ? '#5fe3c0' : '#ff6f85';
+  if (t.entry != null) line(t.entry, main);
+  if (t.sl != null) line(t.sl, '#ff6f85');
+  if (t.tp != null) line(t.tp, '#5fe3c0');
+  if (t.entry != null) {
+    const y = Y(t.entry);
+    const text = `${bull ? '▲ 多' : '▼ 空'} ${t.qty ?? ''}`;
+    ctx2.font = '10px ui-monospace, Menlo, Consolas, monospace';
+    const w = ctx2.measureText(text).width + 8;
+    ctx2.fillStyle = 'rgba(6,12,20,.78)'; ctx2.fillRect(W - w - 4, y - 9, w, 14);
+    ctx2.strokeStyle = main; ctx2.strokeRect(W - w - 4, y - 9, w, 14);
+    ctx2.fillStyle = main; ctx2.fillText(text, W - w, y + 2);
+  }
+}
+
 /** SMC 自绘层：id = native type → pushData 载荷进 args.data，canvas 2D 直接画
  *  （R14 Tier-1：非 series 原语不上屏的确定通路；绘制代码移植自 smcRender） */
 export function registerSmcLayers() {
