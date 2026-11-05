@@ -4247,6 +4247,7 @@ async function boot() {
   state.drawStyles = await loadDrawStyles();
   state.drawTemplates = await loadTemplateStore();
   state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
+  try { const { registerNativeVelaIndicators } = await import('./vela-ind.js'); registerNativeVelaIndicators(); } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
     registerFibOverlay(window.klinecharts);
     registerPositionOverlays(window.klinecharts);
