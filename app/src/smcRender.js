@@ -23,6 +23,35 @@ function dropPool(chart, name) {
   p.sig = '';
 }
 
+function makeDraggable(el) {
+  let drag = null;
+  el.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.smc-toggle')) return;
+    drag = { x: e.clientX, y: e.clientY, left: el.offsetLeft, top: el.offsetTop };
+    el.setPointerCapture?.(e.pointerId);
+    el.classList.add('dragging');
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const nx = Math.max(4, Math.min(el.parentElement.clientWidth - 60, drag.left + (e.clientX - drag.x)));
+    const ny = Math.max(4, Math.min(el.parentElement.clientHeight - 40, drag.top + (e.clientY - drag.y)));
+    el.style.left = `${nx}px`;
+    el.style.top = `${ny}px`;
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+  });
+  el.addEventListener('pointerup', (e) => {
+    if (!drag) return;
+    drag = null;
+    el.classList.remove('dragging');
+    try { import('./db.js').then(({ kvSet }) => kvSet('ui:smcPanel', { left: el.offsetLeft, top: el.offsetTop, collapsed: el.classList.contains('collapsed') })); } catch {}
+  });
+  el.addEventListener('dblclick', () => {
+    el.classList.toggle('collapsed');
+    try { import('./db.js').then(({ kvSet }) => kvSet('ui:smcPanel', { left: el.offsetLeft, top: el.offsetTop, collapsed: el.classList.contains('collapsed') })); } catch {}
+  });
+}
+
 function ensurePanel(host) {
   if (panelEl && panelEl.isConnected) return panelEl;
   panelEl = document.createElement('div');
@@ -30,6 +59,14 @@ function ensurePanel(host) {
   panelEl.className = 'smc-panel';
   panelEl.hidden = true;
   host.appendChild(panelEl);
+  makeDraggable(panelEl);
+  // 恢复上次的位置/折叠状态
+  import('./db.js').then(async ({ kvGet }) => {
+    const st = await kvGet('ui:smcPanel');
+    if (!st) return;
+    if (Number.isFinite(st.left)) { panelEl.style.left = `${st.left}px`; panelEl.style.top = `${st.top}px`; panelEl.style.right = 'auto'; panelEl.style.bottom = 'auto'; }
+    if (st.collapsed) panelEl.classList.add('collapsed');
+  }).catch(() => {});
   return panelEl;
 }
 
@@ -50,8 +87,10 @@ const rect = (add, ts1, v1, ts2, v2, fill, stroke) =>
         styles: { polygon: { color: fill, borderColor: stroke, borderSize: 1, borderStyle: 'dashed' } } });
 
 const tag = (add, ts, price, text, color, z = 4) =>
+  // 注意：simpleAnnotation 的文本来自 extendData，styles.text.text 不会渲染（实测）
   add({ name: 'simpleAnnotation', points: [{ timestamp: ts, value: price }], zLevel: z,
-        styles: { text: { color, size: 9, family: FONT, backgroundColor: 'transparent' } } });
+        extendData: String(text),
+        styles: { text: { color, size: 10, family: FONT, backgroundColor: 'rgba(6,12,20,.72)' } } });
 
 /* -------------------------------- 各指标绘制 -------------------------------- */
 

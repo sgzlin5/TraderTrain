@@ -1125,9 +1125,11 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .chk-inline:hover{color:var(--fg)}
 
 /* SMC 结构/趋势面板（悬浮在图表右下角，随指标显示/隐藏） */
-.smc-panel{position:absolute;right:14px;bottom:16px;z-index:6;padding:8px 10px 6px;min-width:186px;
+.smc-panel{position:absolute;right:14px;bottom:16px;z-index:6;padding:8px 10px 6px;min-width:186px;cursor:grab;
   background:rgba(6,12,20,.9);border:1px solid var(--line,rgba(255,255,255,.12));border-radius:6px;
-  font:var(--fs-sm)/1.5 var(--sans);color:var(--fg,#cddae6);pointer-events:none;backdrop-filter:blur(2px)}
+  font:var(--fs-sm)/1.5 var(--sans);color:var(--fg,#cddae6);pointer-events:auto;user-select:none;backdrop-filter:blur(2px)}
+.smc-panel.dragging{cursor:grabbing;opacity:.92}
+.smc-panel.collapsed table,.smc-panel.collapsed .smc-foot{display:none}
 .smc-panel .smc-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:4px;font-weight:600}
 .smc-panel table{width:100%;border-collapse:collapse}
 .smc-panel th{font:500 var(--fs-xs)/1.6 var(--sans);color:var(--muted-fg,#8fa0b0);text-align:left;font-weight:500}
@@ -1136,3 +1138,12 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .smc-panel .pos{color:var(--up,#5fe3c0)}
 .smc-panel .neg{color:var(--down,#ff6f85)}
 .smc-panel .flat{color:var(--muted-fg,#8fa0b0)}
+
+/* 快捷键帮助（? 弹出） */
+.help-panel{position:fixed;right:18px;bottom:56px;z-index:80;width:320px;padding:10px 12px 8px;
+  background:rgba(6,12,20,.96);border:1px solid var(--line,rgba(255,255,255,.14));border-radius:8px;
+  box-shadow:0 12px 32px rgba(0,0,0,.45);font:var(--fs-sm)/1.6 var(--sans);color:var(--fg,#cddae6)}
+.help-panel header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.help-panel table{width:100%;border-collapse:collapse}
+.help-panel td{padding:2px 0;vertical-align:top}
+.help-panel td:first-child{width:104px;color:var(--muted-fg,#8fa0b0);font-family:ui-monospace,Menlo,Consolas,monospace}

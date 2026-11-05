@@ -33,6 +33,7 @@ import {
 } from './pine.js';
 import { DEFAULT_LAYOUT, normalize, loadLayout, saveLayout, applyLayout as chartApplyLayout, loadTheme, saveTheme, applyThemeMode, migrateLayoutColors, THEMES, themeMeta } from './theme.js';
 import { buildChartTheme, indicatorPalette } from './chart.js';
+import { fmtTs, fmtTsShort, fmtDay, fmtLocalInput } from './fmt.js';
 import {
   builtinList, activeNames, toggleBuiltin, PANE_LAYOUTS, paneCount, applyPaneLayout, LABELS as IND_LABELS, CUSTOM_META,
   loadIndPrefs, saveIndPrefs, applyIndPrefs, OVERLAY_INDS,
@@ -42,10 +43,6 @@ import {
 const $ = (id) => document.getElementById(id);
 const MB = (n) => +(n / 1048576).toFixed(1);
 // 全站统一时间口径：UTC，显式带时区（审计 P1-B3）
-const fmtTs = (ts) => ts ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '-';
-const fmtTsShort = (ts) => ts ? new Date(ts).toISOString().slice(5, 16).replace('T', ' ') : '-';
-const fmtDay = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : '-';
-const fmtLocalInput = (ts) => ts ? new Date(ts).toISOString().slice(0, 16) : '';
 
 const store = new SessionStore();
 
@@ -61,6 +58,45 @@ const state = {
 };
 window.__APP__ = state;
 state.store = store;
+
+const DEBUG = new URLSearchParams(location.search).has('debug');
+
+/** 自检用：把会互相污染的运行态清干净（?fresh=1 时每个用例前执行） */
+/** 超时兜不住就当它没完成（自检重置不能让页面卡死） */
+function withTimeout(p, ms, tag) {
+  return Promise.race([
+    Promise.resolve(p).catch((e) => logErr(tag, e)),
+    new Promise((res) => setTimeout(() => { logErr(tag, '超时 ' + ms + 'ms'); res(null); }, ms))
+  ]);
+}
+
+async function resetForTest() {
+  try {
+    // 清“会被上一个用例改掉”的状态：绘图样式/模板、Pine 库与映射、回放开关
+    // （主题、页签、布局属于用户偏好，不动）
+    const keys = ['ui:replay', 'ui:drawStyles', 'ui:drawTemplates', 'pine:lib', 'pine:active', 'pine:map'];
+    for (const k of keys) { try { await kvSet(k, null); } catch (e) { logErr('reset:kv', e); } }
+    // 画在图上/已落盘的绘图（draw:<symbol>:<period>）
+    try {
+      const dm = state.draw || state.app?.draw;
+      if (dm) { dm.items = []; if (dm.persist) await withTimeout(dm.persist(), 1500, 'reset:draw'); }
+    } catch (e) { logErr('reset:draw', e); }
+    if (state.session) state.session.trades = [];
+    if (state.trade) { state.trade.trades = []; state.trade.realized = 0; try { state.trade.orders?.forEach?.(o => (o.done = true)); } catch {} }
+    try { window.__TT_RENDER_ALERTS__?.([], 'selftest'); } catch (e) { logErr('reset:alerts', e); }
+    try { state.app?.chart?.getOverlays?.()?.forEach(o => { try { state.app.chart.removeOverlay({ id: o.id }); } catch {} }); } catch {}
+    for (const n of ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF', 'SMC_DASH']) { try { state.app?.chart?.removeIndicator({ name: n }); } catch {} }
+    try { window.__TT_RENDER_SESSION__?.(); } catch {}
+    if (state.app?.chart) await withTimeout(applyReplayMode(false, { silent: true }), 2000, 'reset:replay');
+  } catch (e) { logErr('reset', e); }
+}
+
+/** 统一错误出口：默认 warn，?debug=1 时升级成 error（别再让 catch {} 把真 bug 吃掉） */
+function logErr(where, e) {
+  const text = `[${where}] ${(e && (e.stack || e.message)) || e}`;
+  if (DEBUG) console.error(text); else console.warn(text);
+  return text;
+}
 
 function msg(text, bad = false) {
   const el = $('importMsg');
@@ -1237,10 +1273,21 @@ function renderTradeMarks(s) {
       if (id) state.marks.push(id);
     } catch {}
   };
-  // 入场线不带价格标签（右侧已有最新价标签），SL/TP 用价格线保留标签
-  add('horizontalStraightLine', pos.entry, pos.side === 'long' ? '#5fe3c0' : '#ff6f85');
+  // 入场线 + 箭头标签（多/空 + 手数），SL/TP 用价格线保留右侧标签
+  const bull = pos.side === 'long';
+  add('horizontalStraightLine', pos.entry, bull ? '#5fe3c0' : '#ff6f85');
   if (pos.sl != null) add('priceLine', pos.sl, '#ff6f85');
   if (pos.tp != null) add('priceLine', pos.tp, '#5fe3c0');
+  // 入场点的方向标记（v10 不支持 draw，这里用 overlay 注解代替箭头）
+  try {
+    const id = chart.createOverlay({
+      name: 'simpleAnnotation',
+      points: [{ dataIndex: idx, value: pos.entry }],
+      extendData: `${bull ? '▲ 多' : '▼ 空'} ${pos.qty}`,
+      styles: { text: { color: bull ? '#5fe3c0' : '#ff6f85', size: 11, family: 'ui-monospace, Menlo, Consolas, monospace', backgroundColor: 'rgba(6,12,20,.72)' } }
+    });
+    if (id) state.marks.push(id);
+  } catch (e) { logErr('trade:标记', e); }
 }
 
 function renderTrade(snap) {
@@ -3883,7 +3930,7 @@ async function loadProfile(profile) {
     // 不预探活：冷启动第一次连上游可能要好几秒，探不通就直接放弃会把“实时”永久关掉。
     // 交给 feed 自己每 3 s 重试，出错会体现在状态栏（延迟/错误）。
     if (state.profile && pref !== false && !state.live) await startLiveFeed();
-  } catch (e) { console.warn('[live] 恢复失败', e?.message); }
+  } catch (e) { logErr('live:恢复', e); }
 
   // 启动自动补缺口（默认关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
   try {
@@ -3900,10 +3947,10 @@ async function loadProfile(profile) {
       else if (r.reason === 'up-to-date') console.info('[gap] 无缺口');
       else console.warn('[gap] 跳过：', r.reason);
     }
-  } catch (e) { console.warn('[gap] 失败', e?.message); }
+  } catch (e) { logErr('gap:自动补', e); }
 
   // 图表/回放对象就绪后再落实回放开关状态（这时 seek 才有意义）
-  try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { console.warn('[replay] 恢复模式失败', e?.message); }
+  try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { logErr('replay:恢复', e); }
 
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
@@ -4114,7 +4161,7 @@ async function catchUpLive(newestTs) {
       pushed++;
     }
     if (pushed) console.info('[live] 窗口落后 %d 根，已增量补齐 %d 根', behindBars, pushed);
-  } catch (e) { console.warn('[live] 追赶失败', e?.message); }
+  } catch (e) { logErr('live:追赶', e); }
 }
 
 /** 跳到最新 K 线：退出回放、回到实时边缘，并把实时采集拉起来 */
@@ -4136,11 +4183,11 @@ async function jumpToLatest(opts = {}) {
       const t = state.app?.lastTs?.();
       if (t && state.replay) { state.replay.cursor = t; state.replay.emit?.(); at = t; }
     }
-  } catch (e) { console.warn('[latest] 定位失败', e?.message); }
+  } catch (e) { logErr('latest:定位', e); }
   // 切回实时：源能取到数据就把采集拉起来
   try {
     if (!state.live && (await liveSourceReady(p.symbol))) await startLiveFeed();
-  } catch (e) { console.warn('[latest] 实时启动失败', e?.message); }
+  } catch (e) { logErr('latest:实时', e); }
   if (!opts.silent) {
     updateStatus(state.live
       ? `已跳到最新 K 线 · 实时中${at ? ' · ' + fmtTs(at) : ''}`
@@ -4160,6 +4207,7 @@ function wireLive() {
     updateStatus(state.replayMode ? '回放模式：开（起点/播放/步进/速度已就位）' : '回放模式：关（回到实时视图）');
   });
   window.__TT_JUMP_LATEST__ = (o) => jumpToLatest(o);
+  window.__TT_RESET__ = () => resetForTest();
   window.__TT_REPLAY_MODE__ = {
     on: () => applyReplayMode(true),
     off: () => applyReplayMode(false),
@@ -4178,7 +4226,7 @@ function wireLive() {
         if (state.live) { try { await state.live.stop(); } catch {} state.live = null; }
         await startLiveFeed();
       }
-    } catch (e) { console.warn('[live] 看门狗异常', e?.message); }
+    } catch (e) { logErr('live:看门狗', e); }
   }, 30_000);
 
   window.__TT_LIVE__ = {
@@ -4274,8 +4322,17 @@ async function boot() {
   };
   $('closeDrawer').onclick = () => { $('drawer').hidden = true; $('btnData').classList.remove('active'); };
   wireTransfer();
+  // 快捷键帮助：? 开关、Esc 关闭
+  const helpEl = $('helpPanel');
+  $('helpClose') && ($('helpClose').onclick = () => { helpEl.hidden = true; });
+  window.addEventListener('keydown', (e) => {
+    const tag = (e.target?.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+    if (e.key === '?') { e.preventDefault(); helpEl.hidden = !helpEl.hidden; }
+    else if (e.key === 'Escape' && !helpEl.hidden) { helpEl.hidden = true; }
+  });
   wireLive();
-  try { startSmcRender(state); } catch (e) { console.warn('[smc] 渲染层启动失败', e?.message); }
+  try { startSmcRender(state); } catch (e) { logErr('smc:启动', e); }
 /* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
 function wireTransfer() {
   const msg = $('xferMsg');
@@ -4380,48 +4437,16 @@ window.addEventListener('unhandledrejection', (e) => { if (!window.__UI_READY__)
 window.addEventListener('error', (e) => { if (!window.__UI_READY__) showBootError(e.message); });
 
 const params = new URLSearchParams(location.search);
-if (params.get('selftest') === '1') import('./selftest.js').then(m => m.run(state));
-if (params.get('selftest') === '2') import('./selftest2.js').then(m => m.run(state));
-if (params.get('selftest') === '3') import('./selftest3.js').then(m => m.run(state));
-if (params.get('selftest') === '4') import('./selftest4.js').then(m => m.run(state));
-if (params.get('selftest') === '5') import('./selftest5.js').then(m => m.run(state));
-if (params.get('selftest') === '6') import('./selftest6.js').then(m => m.run(state));
-if (params.get('selftest') === '7') import('./selftest7.js').then(m => m.run(state));
-if (params.get('selftest') === '8') import('./selftest8.js').then(m => m.run(state));
-if (params.get('selftest') === '9') import('./selftest9.js').then(m => m.run(state));
-if (params.get('selftest') === '10') import('./selftest10.js').then(m => m.run(state));
-if (params.get('selftest') === '11') import('./selftest11.js').then(m => m.run(state));
-if (params.get('selftest') === '12') import('./selftest12.js').then(m => m.run(state));
-if (params.get('selftest') === '13') import('./selftest13.js').then(m => m.run(state));
-if (params.get('selftest') === '14') import('./selftest14.js').then(m => m.run(state));
-if (params.get('selftest') === '15') import('./selftest15.js').then(m => m.run(state));
-if (params.get('selftest') === '16') import('./selftest16.js').then(m => m.run(state));
-if (params.get('selftest') === '17') import('./selftest17.js').then(m => m.run(state));
-if (params.get('selftest') === '18') import('./selftest18.js').then(m => m.run(state));
-if (params.get('selftest') === '19') import('./selftest19.js').then(m => m.run(state));
-if (params.get('selftest') === '20') import('./selftest20.js').then(m => m.run(state));
-if (params.get('selftest') === '21') import('./selftest21.js').then(m => m.run(state));
-if (params.get('selftest') === '22') import('./selftest22.js').then(m => m.run(state));
-if (params.get('selftest') === '23') import('./selftest23.js').then(m => m.run(state));
-if (params.get('selftest') === '24') import('./selftest24.js').then(m => m.run(state));
-if (params.get('selftest') === '25') import('./selftest25.js').then(m => m.run(state));
-if (params.get('selftest') === '26') import('./selftest26.js').then(m => m.run(state));
-if (params.get('selftest') === '27') import('./selftest27.js').then(m => m.run(state));
-if (params.get('selftest') === '28') import('./selftest28.js').then(m => m.run(state));
-if (params.get('selftest') === '29') import('./selftest29.js').then(m => m.run(state));
-if (params.get('selftest') === '30') import('./selftest30.js').then(m => m.run(state));
-if (params.get('selftest') === '31') import('./selftest31.js').then(m => m.run(state));
-if (params.get('selftest') === '32') import('./selftest32.js').then(m => m.run(state));
-if (params.get('selftest') === '33') import('./selftest33.js').then(m => m.run(state));
-if (params.get('selftest') === '34') import('./selftest34.js').then(m => m.run(state));
-if (params.get('selftest') === '35') import('./selftest35.js').then(m => m.run(state));
-if (params.get('selftest') === '36') import('./selftest36.js').then(m => m.run(state));
-if (params.get('selftest') === '37') import('./selftest37.js').then(m => m.run(state));
-if (params.get('selftest') === '38') import('./selftest38.js').then(m => m.run(state));
-if (params.get('selftest') === '39') import('./selftest39.js').then(m => m.run(state));
-if (params.get('selftest') === '40') import('./selftest40.js').then(m => m.run(state));
-if (params.get('selftest') === '41') import('./selftest41.js').then(m => m.run(state));
-if (params.get('selftest') === '42') import('./selftest42.js').then(m => m.run(state));
-if (params.get('selftest') === '43') import('./selftest43.js').then(m => m.run(state));
-if (params.get('selftest') === '44') import('./selftest44.js').then(m => m.run(state));
-if (params.get('selftest') === '45') import('./selftest45.js').then(m => m.run(state));
+const ST = Number(params.get('selftest') || 0);
+if (ST > 0) {
+  (async () => {
+    // ?fresh=1：跑之前先清掉会互相污染的运行态（成交/提醒/绘图/SMC/回放开关）
+    if (params.get('fresh') === '1') {
+      try { await window.__APP_READY__; } catch (e) { logErr('selftest:ready', e); }
+      try { await resetForTest(); } catch (e) { logErr('selftest:reset', e); }
+    }
+    // 1 号用例的文件名是 selftest.js（历史原因），其余是 selftestN.js
+    const mod = await import(ST === 1 ? './selftest.js' : `./selftest${ST}.js`);
+    await mod.run(state);
+  })().catch((e) => { console.error('[selftest] 启动失败', e); });
+}

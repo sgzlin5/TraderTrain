@@ -1,6 +1,7 @@
 // klinecharts 10.1.0 装配：单一品种 / 多周期聚合 / 向更早翻页
 import { PERIODS, periodSpanMs } from './aggregate.js';
 import { BarSource } from './source.js';
+const logWarn = (w, e) => console.warn(`[${w}]`, e?.message || e);
 import { decimalsFor } from './instruments.js';
 
 const K = window.klinecharts;
@@ -206,6 +207,7 @@ export class ChartApp {
             callback(bars, { forward: bars.length === page, backward: false });
             this._markLoaded(bars.length);
             if (this._onInit) { const f = this._onInit; this._onInit = null; f(bars.length); }
+            this._warmPrev(spanMs, page);
           } else if (type === 'forward') {
             const end = (timestamp ?? this.earliest) - 1;
             const bars = await this.source.frame(end, spanMs, page);
@@ -225,6 +227,20 @@ export class ChartApp {
       subscribeBar: ({ callback }) => { this.subCb = callback; },
       unsubscribeBar: () => { this.subCb = null; }
     };
+  }
+
+  /** 空闲时把上一屏读进缓存（年块解码一次，之后往回翻就不再等） */
+  _warmPrev(spanMs, page) {
+    if (this._warmFor === this.anchor) return;
+    this._warmFor = this.anchor;
+    const run = () => {
+      try {
+        const to = (this.earliest ?? this.anchor) - 1;
+        this.source.frame(to, spanMs, page).catch((e) => logWarn('warm', e));
+      } catch (e) { logWarn('warm', e); }
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 1500 });
+    else setTimeout(run, 400);
   }
 
   /** 图表当前最后一根的时间戳（没有就 null） */

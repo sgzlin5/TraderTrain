@@ -31,6 +31,8 @@ import sys
 import threading
 import time
 import urllib.error
+import queue
+import threading
 import urllib.parse
 import urllib.request
 import zipfile
@@ -54,6 +56,44 @@ BIQUOTE_ALIAS = {                      # 我们的代码 → biquote ticker
     "BTCUSDT": "BTCUSD", "ETHUSDT": "ETHUSD", "SOLUSDT": "SOLUSD",
     "BNBUSDT": "BNBUSD", "XRPUSDT": "XRPUSD", "DOGEUSDT": "DOGEUSD",
 }
+
+
+_LIVE_STREAMS = {}
+_LIVE_STREAM_LOCK = threading.Lock()
+
+
+def _live_stream_for(symbol):
+    """每个品种一个后台轮询线程；所有 SSE 客户端共享同一份上游流量。"""
+    sym = (symbol or "").upper()
+    with _LIVE_STREAM_LOCK:
+        st = _LIVE_STREAMS.get(sym)
+        if st:
+            return st
+        st = {"subs": [], "bars": None, "err": None, "stop": False}
+        _LIVE_STREAMS[sym] = st
+
+    def loop():
+        ticker = _biquote_ticker(sym)
+        while not st["stop"]:
+            t0 = time.time()
+            bars, err = _biquote_ohlc(ticker, "1m", 5)
+            if bars is not None:
+                st["bars"] = bars
+                st["err"] = None
+                payload = json.dumps({"symbol": sym, "ticker": ticker, "source": "biquote",
+                                      "at": int(time.time() * 1000), "bars": bars[-3:]}, ensure_ascii=False)
+                for q in list(st["subs"]):
+                    try:
+                        q.put_nowait(payload)
+                    except Exception:
+                        pass
+            else:
+                st["err"] = err
+            dt = 1.0 - (time.time() - t0)
+            time.sleep(max(0.15, dt))
+
+    threading.Thread(target=loop, daemon=True, name=f"live-{sym}").start()
+    return st
 
 
 def _biquote_ticker(code):
@@ -469,6 +509,13 @@ def _months_between(d0, d1):
 
 # ---------------------------------------------------------------- HTTP
 class Handler(SimpleHTTPRequestHandler):
+    def handle_one_request(self):
+        # SSE / 长连接客户端断开时 http.server 会抛 ConnectionResetError，别刷日志
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            self.close_connection = True
+
     server_version = "TraderTrain/1.0"
 
     def log_message(self, fmt, *args):
@@ -504,6 +551,46 @@ class Handler(SimpleHTTPRequestHandler):
                 if "=" in kv:
                     k, v = kv.split("=", 1)
                     query[k] = urllib.parse.unquote(v)
+
+        if path == "/api/live/stream":
+            code = (query.get("symbol") or "").upper()
+            if not code:
+                return self._json({"error": "缺少 symbol"}, 400)
+            st = _live_stream_for(code)
+            q = queue.Queue(maxsize=8)
+            st["subs"].append(q)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                if st["bars"]:
+                    snap = json.dumps({"symbol": code, "source": "biquote", "at": int(time.time() * 1000),
+                                       "bars": st["bars"][-3:]}, ensure_ascii=False)
+                    self.wfile.write(b"data: " + snap.encode("utf-8") + b"\n\n")
+                    self.wfile.flush()
+                last = time.time()
+                while True:
+                    try:
+                        item = q.get(timeout=1.0)
+                        self.wfile.write(b"data: " + item.encode("utf-8") + b"\n\n")
+                        self.wfile.flush()
+                        last = time.time()
+                    except queue.Empty:
+                        if time.time() - last > 15:
+                            self.wfile.write(b": ping\n\n")
+                            self.wfile.flush()
+                            last = time.time()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                try:
+                    st["subs"].remove(q)
+                except ValueError:
+                    pass
+            return
 
         if path == "/api/live":
             code = (query.get("symbol") or "").upper()

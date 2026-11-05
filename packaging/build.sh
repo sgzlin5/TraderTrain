@@ -17,7 +17,7 @@ if [ ! -x ".venv/Scripts/python.exe" ]; then
   $PY -m venv .venv
 fi
 ./.venv/Scripts/python.exe -m pip install -q --upgrade pip
-./.venv/Scripts/python.exe -m pip install -q pywebview pyinstaller
+./.venv/Scripts/python.exe -m pip install -q pywebview 'pyinstaller==6.22.3'
 
 echo "== 3) PyInstaller =="
 rm -rf build dist
@@ -29,6 +29,9 @@ rm -rf build dist
   --add-data "../data/manifest.json;data" \
   --add-data "../tools/serve.py;tools" \
   --add-data "../tools/fixtures;tools/fixtures" \
+  --exclude-module numpy --exclude-module pandas --exclude-module matplotlib \
+  --exclude-module PyQt5 --exclude-module PySide2 --exclude-module tkinter \
+  --exclude-module test --exclude-module pydoc \
   trader_train.py 2>&1 | tail -6
 
 echo "== 4) 附带说明 =="

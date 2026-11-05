@@ -819,7 +819,7 @@ uv run --with pillow python tools/icon_sheet.py
 - 源时间非 UTC（每天缺 06:00 整点、周一 07:00 开）；当前按原时间直读，日线聚合按 UTC 00:00 切。
 - 2023 年数据偏薄（308,752 根，正常约 353k），该区间不宜做精确统计。
 - 单次导入上限 1 GB（应用层）；总容量取决于浏览器配额（本机实测 10,309 MB）。
-- Pine 只支持 `indicator()`：`request.security` 返回 null、`syminfo.mintick` 为 NaN、`barstate.isconfirmed` 恒 false。
+- Pine 只支持 `indicator()`：`request.security` 返回 null、`syminfo.mintick` 为 NaN、`barstate.isconfirmed` 现按 `bar_index < n-1` 判定（最后一根不算确认）。
 - Pine 计算范围是**当前窗口**（1200–1280 根），切周期/暂停时重算（约 51 ms），不是全历史序列。
 - 截图依赖图表可见；后台标签页可能抓到空图（已加就绪等待与重试）。
 - 删除操作都是「连点两次」而非弹窗确认（原生 `confirm/prompt` 在 WebView 下会阻塞页面）。
@@ -839,3 +839,56 @@ uv run --with pillow python tools/icon_sheet.py
 - 刷新：`bash tools/sync-design-refs.sh`
 - 逐条比对结论：`docs/UI-AUDIT-2026-11-03.md`
 - 已落地：按资产定小数位（`instruments.js → decimalsFor/fmtPrice/fmtQty`，`chart.js` 建图与载入后各设一次精度）、数字等宽 `tabular-nums` 覆盖成交/持仓/统计/状态栏
+
+## 26. 稳定性与工程化
+
+### 实时推送（SSE，2026-11 起）
+
+`/api/live/stream?symbol=XAUUSD` 是 `text/event-stream`：服务端**每个品种只跑一个**后台轮询线程
+（1 s 一次 biquote），把结果推给所有打开的窗口 —— 三个图窗只消耗一份上游流量。
+
+客户端 `live.js`：
+
+| 层 | 行为 |
+|---|---|
+| 快路径 | `EventSource` 收到 `bars` 直接走 `_ingest()`，实测延迟 < 1 s（`streamTicks` 计数） |
+| 兜底 | 轮询仍在，但流健康时降到 **5 s** 一次（`POLL_MS_SAFE`） |
+| 断流 | `onerror` ×3 关掉 ES 回到 1 s 轮询；下一轮 poll 成功自动重开 |
+
+`GET /api/live` 保留原样（一次性拉取，供补洞与探活用）。
+
+### 错误日志
+
+`logErr(where, e)` 是统一出口：默认 `console.warn`，URL 加 `?debug=1` 升级成 `console.error`（带堆栈）。
+排查“某功能静默失效”时先开 `?debug=1`。
+
+### exe 退出原因
+
+`packaging/trader_train.py` 注册了 `atexit` / `sys.excepthook` / `threading.excepthook` / `faulthandler`：
+
+- `%LOCALAPPDATA%\TraderTrain\server.log` → 正常退出 `exit; pid=…`，未捕获异常 `FATAL:` + 堆栈
+- `%LOCALAPPDATA%\TraderTrain\crash.log` → 原生崩溃（faulthandler）的 C 栈
+
+### 自检怎么跑
+
+```bash
+# 单个用例：浏览器开 http://127.0.0.1:8731/app/index.html?selftest=45
+# 全部用例（需要 Chrome 带 --remote-debugging-port=9222）
+python tools/run_selftests.py --port 9222 --tests 1-45 --fresh --json report.json
+```
+
+`--fresh` 会在每个用例前执行 `resetForTest()`：清成交、提醒、图上绘图与落盘绘图、SMC 指标、
+绘图样式/模板（`ui:drawStyles`/`ui:drawTemplates`）、Pine 库与映射、回放开关。
+
+**已知边界**：这是“运行态”清理，不是“干净库”。依赖**默认设置**的用例（5 绘图样式、18/19 指标配置、
+23 指标库、24 SMC、28 结构面板、35 Pine 矩阵）要求 IndexedDB 里没有旧偏好；连续跑它们时仍可能因为
+上一个用例写入的偏好而失败 —— 单独跑或先清站点数据即可。真正的隔离做法是换 origin
+（`python tools/serve.py --port 8732`，IndexedDB 按 host:port 隔离）再导入 fixtures。`window.__UI_READY__` 是页面就绪标志，`window.__RESULT__` 是用例结果。
+
+### 快捷键表
+
+按 `?` 打开、`Esc` 关闭（`#helpPanel`）。
+
+### SMC 面板
+
+右下角面板现在可**拖动**（指针拖动，位置存 kv `ui:smcPanel`）、**双击折叠/展开**。

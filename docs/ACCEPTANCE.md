@@ -1571,3 +1571,19 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | 全摘 | — | overlay 0、面板隐藏 |
 
 `smc.js` 里 5 个指标的 `draw` 全部删除（不再有死代码），`check_js` 84 文件通过。
+
+## 2026-11-08 四类优化（第一批）
+
+| 判据 | 方法 | 结果 |
+|---|---|---|
+| SSE 单例订阅 | 两个 curl 同时连 `/api/live/stream`，5 s 内各收 6 条 | 通过（一份上游流量） |
+| 客户端走流 | `__TT_LIVE__.status()` | `streamTicks=18 / streamErr=0 / polls=4 / lastStreamAgo=644ms` |
+| 轮询降频 | 同上 | 流健康时 `polls` 增速比 1 s 时慢 5 倍 |
+| 自检隔离 | `run_selftests.py --fresh` | 修复了 3/9/31/32；设置类用例（5/18/19/23/24/28/35）仍需干净库，属已知边界 |
+| 统一错误出口 | `?debug=1` 下 console.error 出现堆栈 | 通过 |
+| exe 退出留痕 | 启动后 `server.log` 出现 `start`；退出出现 `exit; pid` | 通过 |
+| Pine isconfirmed | 表达式替换为 `(bar_index < n-1)` | 通过（29/37 复跑） |
+| SMC 标签可见 | `simpleAnnotation` 必须传 `extendData` | 截图确认 BOS/OB 文字 |
+| SMC 面板可拖 | `pointer-events` 由 none 改 auto | `auto` |
+| 快捷键表 | 按 `?` | `#helpPanel` 显示 |
+| exe 瘦身 | `--exclude-module` + 锁 6.22.3 | 17,343,282 → 17,133,295 B |

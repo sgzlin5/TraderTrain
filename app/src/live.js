@@ -8,6 +8,7 @@ import { appendLiveBars, getLiveMeta, liveLastTs } from './liveStore.js';
 const MIN = 60_000;
 // biquote 限流 15,000 次/分钟/IP，3 s 一轮（20 次/分钟）完全吃得下；实测单次 0.8–1.3 s
 const POLL_MS = 1_000;
+const POLL_MS_SAFE = 5_000;      // SSE 健康时的轮询兜底间隔
 const FLUSH_MS = 5_000;
 const FLUSH_BARS = 20;
 const BACKFILL_LIMIT = 1000;      // biquote 的 1m 上限（约 5 小时）
@@ -78,9 +79,13 @@ export class LiveFeed {
       const t0 = Date.now();
       await this._poll();
       // 固定节拍：扣掉本次请求耗时，否则真实周期 = POLL_MS + 请求耗时（实测 1 s 变成 ~1.9 s）
-      const wait = Math.max(150, POLL_MS - (Date.now() - t0));
+      // SSE 健康时轮询降频到 5 s 兜底；否则保持 1 s
+      const streamOk = this.es && Date.now() - (this.stats.lastStreamAt || 0) < 5000;
+      const target = streamOk ? POLL_MS_SAFE : POLL_MS;
+      const wait = Math.max(150, target - (Date.now() - t0));
       if (this.running) this.timer = setTimeout(tick, wait);
     };
+    this._openStream();
     this.timer = setTimeout(tick, 300);
     this.flushTimer = setInterval(() => { this._flush().catch(() => {}); }, FLUSH_MS);
     return this.status();
@@ -90,6 +95,7 @@ export class LiveFeed {
     this.running = false;
     clearTimeout(this.timer);
     clearInterval(this.flushTimer);
+    this._closeStream();
     this.timer = null; this.flushTimer = null;
     try { await this._flush(); } catch {}
     this.onStatus(this.status());
@@ -111,34 +117,73 @@ export class LiveFeed {
     }));
   }
 
+  /** SSE 推来的 bar 与轮询走同一条入库/绘制路径 */
+  _ingest(bars) {
+    const forming = bars.filter(b => b.forming);
+    const closed = bars.filter(b => !b.forming);
+    if (forming.length && this.onForming) this.onForming(forming[forming.length - 1]);
+    if (!closed.length) return;
+    const run = async () => {
+      let known = this.lastTs ?? (await liveLastTs(this.profile.id)) ?? this._histLast();
+      const newest = closed[closed.length - 1].timestamp;
+      let all = bars;
+      if (known != null && newest - known > GAP_MIN * MIN) {
+        try {
+          all = await this._fetch(GAP_FETCH_LIMIT);
+          this.stats.healed = (this.stats.healed || 0) + 1;
+        } catch (e) { /* 补洞失败不影响本轮 */ }
+      }
+      const fresh = all.filter(b => !b.forming).filter(b => known == null || b.timestamp > known);
+      if (fresh.length) {
+        this.buffer.push(...fresh);
+        this.pendingFlush = this.buffer.length >= FLUSH_BARS;
+        this.onStatus(this.status());
+        if (this.pendingFlush) await this._flush();
+      }
+    };
+    return run().catch((e) => { this.stats.lastErr = String(e.message || e); this.onStatus(this.status({ err: this.stats.lastErr })); });
+  }
+
+  /** SSE 快路径：服务端单例订阅 biquote，1 s 推一次；失败自动退回轮询 */
+  _openStream() {
+    if (typeof EventSource === 'undefined' || !this.profile) return;
+    try { this._closeStream(); } catch {}
+    try {
+      const es = new EventSource(`/api/live/stream?symbol=${encodeURIComponent(this.profile.symbol)}`);
+      this.es = es;
+      es.onmessage = (ev) => {
+        try {
+          const j = JSON.parse(ev.data);
+          const bars = (j.bars || []).map(b => ({
+            timestamp: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v, forming: !!b.open
+          }));
+          if (!bars.length) return;
+          this.stats.streamTicks = (this.stats.streamTicks || 0) + 1;
+          this.stats.lastStreamAt = Date.now();
+          this._ingest(bars);
+        } catch (e) { /* 单条坏包忽略 */ }
+      };
+      es.onerror = () => {
+        this.stats.streamErr = (this.stats.streamErr || 0) + 1;
+        // 连续失败就把 ES 关掉，回到轮询；下一轮 poll 成功后会重试打开
+        if (this.stats.streamErr >= 3) { try { es.close(); } catch {} this.es = null; }
+      };
+    } catch (e) { this.es = null; }
+  }
+
+  _closeStream() {
+    try { this.es?.close(); } catch {}
+    this.es = null;
+  }
+
   async _poll() {
     this.stats.polls++;
     this.stats.lastPollAt = Date.now();
     try {
       let bars = await this._fetch(POLL_LIMIT);
-      const forming = bars.filter(b => b.forming);
-      const closed = bars.filter(b => !b.forming);
-      if (forming.length) this.onForming(forming[forming.length - 1]);
-      if (closed.length) {
-        let known = this.lastTs ?? (await liveLastTs(this.profile.id)) ?? this._histLast();
-        // 补洞：本地最新那根落后超过 GAP_MIN 分钟（断线/休眠/关过页面），多拉一批一次补齐
-        const newest = closed[closed.length - 1].timestamp;
-        if (known != null && newest - known > GAP_MIN * MIN) {
-          try {
-            const more = await this._fetch(GAP_FETCH_LIMIT);
-            bars = more;
-            this.stats.healed = (this.stats.healed || 0) + 1;
-          } catch { /* 补洞失败不影响本轮 */ }
-        }
-        const closed2 = bars.filter(b => !b.forming);
-        const fresh = closed2.filter(b => known == null || b.timestamp > known);
-        if (fresh.length) {
-          this.buffer.push(...fresh);
-          this.pendingFlush = this.buffer.length >= FLUSH_BARS;
-          this.onStatus(this.status());
-          if (this.pendingFlush) await this._flush();
-        }
-      }
+      await this._ingest(bars);
+      // 流断了就顺手重开（服务端重启 / 网络切换后能自愈）
+      if (!this.es && (this.stats.streamErr || 0) < 100) this._openStream();
       this.onStatus(this.status({ ok: true }));
     } catch (e) {
       this.stats.errors++;

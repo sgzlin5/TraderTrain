@@ -183,11 +183,38 @@ def launch_chrome_mode():
 
 # ---------------------------------------------------------------- main
 
+def _install_exit_hooks(home):
+    """把“为什么退出”写进 server.log：正常退出、未捕获异常、原生崩溃（faulthandler）。"""
+    import atexit
+    import faulthandler
+    try:
+        fh = open(os.path.join(home, "crash.log"), "a", encoding="utf-8", buffering=1)
+        faulthandler.enable(fh)
+    except Exception:
+        pass
+
+    atexit.register(lambda: log(f"exit; pid={os.getpid()}"))
+
+    def _hook(t, v, tb):
+        import traceback
+        log("FATAL:", "".join(traceback.format_exception(t, v, tb)))
+    sys.excepthook = _hook
+
+    def _thread_hook(args):
+        import traceback
+        log("FATAL(thread):", "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)))
+    try:
+        threading.excepthook = _thread_hook
+    except Exception:
+        pass
+
+
 def main():
     home = data_home()
     setup_log(home)
     log("=" * 60)
     log(f"{APP_NAME} v{VERSION} start; home={home}")
+    _install_exit_hooks(home)
 
     if "--chrome" in sys.argv:
         ensure_app(resource_root(), home)
