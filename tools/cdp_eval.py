@@ -7,6 +7,7 @@ import argparse, asyncio, json, sys, urllib.request
 import websockets
 
 PORT = 9333
+ORIGIN = '8731'
 
 async def main():
     ap = argparse.ArgumentParser()
@@ -17,7 +18,9 @@ async def main():
 
     with urllib.request.urlopen(f'http://127.0.0.1:{PORT}/json') as r:
         tabs = json.load(r)
-    cands = [t for t in tabs if t['type'] == 'page' and '8731' in t['url']]
+    import os
+    origin = os.environ.get('TT_ORIGIN', '8731')
+    cands = [t for t in tabs if t['type'] == 'page' and origin in t['url']]
     page = next((t for t in reversed(cands) if 'selftest' in t['url']), cands[-1] if cands else None)
     if not page:
         print('NO-TAB', json.dumps([t['url'] for t in tabs if t['type'] == 'page'])[:300]); return

@@ -4255,9 +4255,10 @@ async function boot() {
   state.drawTemplates = await loadTemplateStore();
   state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
   try {
-    const { registerNativeVelaIndicators, registerSmcVelaIndicators } = await import('./vela-ind.js');
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers } = await import('./vela-ind.js');
     registerNativeVelaIndicators();
     registerSmcVelaIndicators();
+    registerSmcLayers();   // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
   } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
     registerFibOverlay(window.klinecharts);

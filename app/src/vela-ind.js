@@ -10,6 +10,7 @@ import { FLOW_INDS } from './flow.js';
 import { libList } from './pine.js';
 import { kvGet } from './db.js';
 
+window.__VI_COPIES = (window.__VI_COPIES || 0) + 1;   // 模块副本计数（诊断双实例）
 const V = () => window.VelaSDK;
 const LINE_STYLE_MAP = { solid: 'solid', dashed: 'dashed', dotted: 'dotted', dash: 'dashed', dot: 'dotted' };
 
@@ -92,32 +93,29 @@ export function registerNativeVelaIndicators() {
 /* ---------------- SMC×4 + FLOW_VOL：payload → boxes/lines/labels ---------------- */
 // SMC 的 calc 返回 rows（含 __smc 载荷：zones/events/swings/eq/fvgs），旧方案由 smcRender
 // 用 overlay 池画 rect/hline/tag；Vela 下直接 emit 数据空间原语（xloc=bar_time），坐标零换算。
+const LAYER_DATA = window.__TT_LAYER_DATA_REF = (window.__TT_LAYER_DATA_REF || new Map());   // 全局共享：防双模块实例
+window.__VI_TAG = 'vi@' + (window.__VI_TAG || '');
 const SMC_BULL = '#5fe3c0';
 const SMC_BEAR = '#ff6f85';
 const SMC_WARN = '#ffc36b';
 let _smcSeq = 0;
 
-/** payload → {boxes, lines, labels}（逐条移植 smcRender 的 drawFvg/drawIct/drawHtf/drawMst） */
-function smcPayloadToOutputs(name, p, biz) {
+/** payload → items（box/line/tag，绝对时间；逐条移植 smcRender 的 drawFvg/drawIct/drawHtf/drawMst） */
+function smcPayloadToItems(name, p, biz) {
   const ts = (i) => biz[Math.max(0, Math.min(biz.length - 1, i))]?.time ?? 0;
   const lastI = p.n ? p.n - 1 : biz.length - 1;
-  const boxes = [], lines = [], labels = [];
-  const seq = () => 'smc' + (_smcSeq++);
+  const items = [];
   const box = (t1, v1, t2, v2, bg, border) => {
     if (t1 == null || t2 == null || !Number.isFinite(v1) || !Number.isFinite(v2)) return;
-    boxes.push({ id: seq(), paneId: 'price', xloc: 'bar_time', left: Math.min(t1, t2), right: Math.max(t1, t2),
-      top: Math.max(v1, v2), bottom: Math.min(v1, v2), extend: 'none',
-      bgColor: bg, borderColor: border ?? bg, borderWidth: 1, borderStyle: 'dashed', textSize: 'tiny', hAlign: 'left', vAlign: 'top' });
+    items.push({ t: 'box', x1: Math.min(t1, t2), y1: Math.max(v1, v2), x2: Math.max(t1, t2), y2: Math.min(v1, v2), bg, border: border ?? bg });
   };
   const line = (t1, p1, t2, p2, color, style, width) => {
     if (t1 == null || t2 == null) return;
-    lines.push({ id: seq(), paneId: 'price', xloc: 'bar_time', x1: t1, y1: p1, x2: t2, y2: p2, extend: 'none',
-      color, invisible: false, width: width ?? 1, style: style === 'dotted' ? 'dotted' : 'dashed' });
+    items.push({ t: 'line', x1: t1, y1: p1, x2: t2, y2: p2, color, dash: style === 'dotted' ? [1, 3] : [5, 4], w: width ?? 1 });
   };
   const tag = (t, price, text, color) => {
     if (t == null || !Number.isFinite(price)) return;
-    labels.push({ id: seq(), paneId: 'price', xloc: 'bar_time', x: t, y: price, yloc: 'price', text,
-      style: 'label_center', color, textColor: '#0b1a26', size: 'tiny', textAlign: 'center', fontFamily: 'monospace' });
+    items.push({ t: 'tag', x: t, y: price, text, color });
   };
   const fill = (dir) => (dir === 1 ? 'rgba(95,227,192,.12)' : 'rgba(255,111,133,.12)');
   const bord = (dir) => (dir === 1 ? SMC_BULL : SMC_BEAR);
@@ -166,7 +164,102 @@ function smcPayloadToOutputs(name, p, biz) {
       tag(ts(q.from), q.price, q.type === 'H' ? 'EQH' : 'EQL', SMC_WARN);
     }
   }
-  return { boxes, lines, labels };
+  return items;
+}
+
+/** SMC 自绘层：id = native type → pushData 载荷进 args.data，canvas 2D 直接画
+ *  （R14 Tier-1：非 series 原语不上屏的确定通路；绘制代码移植自 smcRender） */
+export function registerSmcLayers() {
+  const { registerRendererLayer } = V() || {};
+  if (typeof registerRendererLayer !== 'function') return 0;
+  let n = 0;
+  for (const type of ['TT_SMC_FVG', 'TT_SMC_ICT', 'TT_SMC_HTF', 'TT_SMC_MST']) {
+    try {
+      registerRendererLayer({
+        id: type,
+        placement: 'above-data',
+        create() {
+          const TYPE = type;                    // 闭包：本层的 native type
+          let cv = null;
+          return {
+            mount(canvas) { cv = canvas; },
+            render(args) {
+              try {
+                this._paint(args, cv);
+              } catch (e) {
+                // 早期帧 scale/coords 未就绪会炸——吞掉等下一帧，避免整层被拆
+                if (!this._warned) { this._warned = true; console.warn('[vela-smc:layer]', e?.message); }
+              }
+            },
+            _paint(args, cv) {
+              if (!cv) return;
+              const ctx2 = cv.getContext('2d');
+              ctx2.clearRect(0, 0, cv.width, cv.height);
+              // [R14] 0.9.3 的 pushData→setNativeData 管线通到 scene.nativeData，但 layer 的
+              // args.data 装配拿不到（channel 匹配疑点）——改走 host 注册表 LAYER_DATA
+              const d = (window.__TT_LAYER_DATA || {})[TYPE] || (LAYER_DATA.get(TYPE) || args.data);
+              if (!d?.items?.length) return;
+              const co = args.coords;
+              const dpr = cv.clientWidth ? cv.width / cv.clientWidth : 1;
+              ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+              const X = (t) => co.timeToX(t);
+              // [R14] coords.priceToY 内部读未接线的 scale（.log undefined）会炸 ——
+              // 用 args.scale(min/max) + args.bounds(top/height) 手工线性映射（log/invert 兼容）
+              const sc = args.scale, bd = args.bounds;
+              const Y = (v) => {
+                if (!sc || !bd) return NaN;
+                const min = sc.min, max = sc.max;
+                if (!Number.isFinite(min) || !Number.isFinite(max) || max === min) return NaN;
+                let f;
+                if (sc.log) {
+                  const lv = Math.log(Math.max(v, 1e-9));
+                  const lmin = Math.log(Math.max(min, 1e-9)), lmax = Math.log(Math.max(max, 1e-9));
+                  f = (lv - lmin) / ((lmax - lmin) || 1);
+                } else {
+                  f = (v - min) / (max - min);
+                }
+                if (sc.invert) f = 1 - f;
+                return bd.top + (1 - f) * bd.height;
+              };
+              ctx2.font = '10px ui-monospace, Menlo, Consolas, monospace';
+              for (const it of d.items) {
+                if (it.t === 'box') {
+                  const x1 = X(it.x1), x2 = X(it.x2), y1 = Y(it.y1), y2 = Y(it.y2);
+                  if (!Number.isFinite(x1) || !Number.isFinite(y1)) continue;
+                  ctx2.fillStyle = it.bg;
+                  ctx2.fillRect(x1, y1, x2 - x1, y2 - y1);
+                  ctx2.strokeStyle = it.border;
+                  ctx2.setLineDash([4, 3]);
+                  ctx2.lineWidth = 1;
+                  ctx2.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                  ctx2.setLineDash([]);
+                } else if (it.t === 'line') {
+                  const x1 = X(it.x1), y1 = Y(it.y1), x2 = X(it.x2), y2 = Y(it.y2);
+                  if (!Number.isFinite(x1) || !Number.isFinite(y1) || !Number.isFinite(x2) || !Number.isFinite(y2)) continue;
+                  ctx2.strokeStyle = it.color;
+                  ctx2.lineWidth = it.w;
+                  ctx2.setLineDash(it.dash);
+                  ctx2.beginPath(); ctx2.moveTo(x1, y1); ctx2.lineTo(x2, y2); ctx2.stroke();
+                  ctx2.setLineDash([]);
+                } else if (it.t === 'tag') {
+                  const x = X(it.x), y = Y(it.y);
+                  if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+                  const w = ctx2.measureText(it.text).width + 8;
+                  ctx2.fillStyle = it.color;
+                  ctx2.fillRect(x + 4, y - 8, w, 14);
+                  ctx2.fillStyle = '#0b1a26';
+                  ctx2.fillText(it.text, x + 8, y + 3);
+                }
+              }
+              ctx2.setTransform(1, 0, 0, 1, 0, 0);
+            }
+          };
+        }
+      });
+      n++;
+    } catch (e) { console.warn('[vela-smc:layer]', type, e?.message); }
+  }
+  return n;
 }
 
 /** SMC_FVG/ICT/HTF/MST（DASH 面板与 FLOW_VP/WALL/DEPTH 走像素/DOM 层，后续批次） */
@@ -205,11 +298,31 @@ export function registerSmcVelaIndicators() {
               const params = (tpl.calcParams || []).map((d, i) => this._inputs?.['p' + i] ?? d);
               let rows = [];
               try { rows = tpl.calc(biz, { params, calcParams: params }) || []; } catch (e) { console.warn('[vela-smc]', tpl.name, e?.message); }
-              const out = {};
               if (isSmc) {
+                // [R14 Tier-1] 非 series 原语不上屏（Vela 0.9.3 缺陷）→ pushData 给同 id 自绘层
+                try {
                 const payload = rows.__smc || null;
-                if (payload) Object.assign(out, smcPayloadToOutputs(tpl.name, payload, biz));
-              } else {
+                const items = payload ? smcPayloadToItems(tpl.name, payload, biz) : [];
+                // 空结果不删除：历史深化/重算时 bar 数变化会让 index 过滤瞬时为空，
+                // 保留最后有效载荷。载荷走 window 全局表（跨模块副本/帧稳）；
+                // pushData 保留——0.9.3 上管线通到 scene.nativeData 但层 args.data 装配不到（R14）
+                (window.__TT_LAYER_DATA = window.__TT_LAYER_DATA || {})['TT_' + tpl.name] = { items };
+                if (items.length) LAYER_DATA.set('TT_' + tpl.name, { items });
+                // 占位 series：透明色 + 首尾两点真实价（撑起 pane 标尺）——没有值 priceToY 会读 undefined 炸
+                const a1 = items[0] || { y1: biz[0]?.close ?? 0 };
+                const a2 = items[items.length - 1] || a1;
+                ctx.emit({ series: [{ id: `tt-${tpl.name.toLowerCase()}-anchor`, title: tpl.shortName || tpl.name,
+                  kind: 'line',
+                  points: [
+                    { time: biz[0]?.time ?? 0, value: a1.y1 ?? null },
+                    { time: biz[biz.length - 1]?.time ?? 0, value: a2.y1 ?? null }
+                  ],
+                  style: { color: 'rgba(0,0,0,0)', width: 1, lineStyle: 'solid' } }] });
+                if (items.length) ctx.pushData({ items });
+                return;
+                } catch (e) { window.__RUNLOG = (window.__RUNLOG || []).concat(`${tpl.name}: ERR ${String(e && e.message).slice(0, 80)}`); return; }
+              }
+              {
                 // FLOW_VOL：vu/vd 直方图
                 const series = [];
                 for (const fig of (tpl.figures || [])) {

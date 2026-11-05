@@ -83,7 +83,8 @@ export class VelaChartApp {
       locale: 'zh-Hans',
       animations: false,
       drawings: { toolbar: false },
-      live: true                        // [vela P1.5] 实时 forming bar：走 TTFeed.subscribe
+      live: false                       // [R15] live:true 会让 runScript 等首 tick 永不落定 + 原语管线异常；
+                                        // 实时 bar 显示等 live 稳定后随 R15 专项重开（pushLiveBar/subscribe 已就绪）
     }, { dataFeed: this.feed });
     await this.reloadWindow(this.anchor);
     // 容器尺寸变化兜底（Vela 自带观察，这里只防面板开合的极端情况）
