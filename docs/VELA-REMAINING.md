@@ -117,8 +117,13 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
    ⚠ 附带发现② **R16（新）**：setVisibleRange/周期快速切换后 pane 偶发进入破损态
    （坐标轴塌缩到 0.1-0.9 / 数据不绘制，重载恢复）——疑与自绘层的透明锚 series 交互，
    需排查（短期规避：减少程序化 setVisibleRange）；
-   ▸ SMC 剩余：FLOW_VP/WALL/DEPTH 同路移植 + SMC_DASH 面板 + 图例 "undefined" 名字
-   （native shorttitle 传递，已加 shortTitle 待验证）；
+   ▸ SMC 剩余：FLOW_VP/WALL/DEPTH 同路移植 ✅（已上屏）+ SMC_DASH 面板 + 图例 "undefined"
+   名字（native shortTitle 已加待验证）
+   ▸ **绘图工具栏已切换官方原生**（2026-11-05）：`drawings: { toolbar: true }` 启用 Vela
+   原生工具栏（70+ 工具类型 / 设置弹窗 / 撤销重做 / 收藏），我们的自制绘图工具栏在
+   vela 分支隐藏（renderTools/placeTools/wireTools 的 __VELA_BRANCH__ 门）；样式模板
+   面板与绘图管理面板保留（走 DrawLayerV 适配器）。selftest9 的 #tools 按钮探针
+   需改走 chart.drawings API（归入 selftest 重写批次）；
    ②FLOW_VP/WALL/DEPTH 同走 renderer 层；③Pine 大脚本性能：Dashboard 经 chart.runScript
    ~60s+/次（引擎直跑 300 根 677ms），反复跑可压垮页面——需剖析 fetchSeries/重跑策略
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）

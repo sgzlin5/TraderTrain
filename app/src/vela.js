@@ -82,7 +82,7 @@ export class VelaChartApp {
       theme: velaTheme(),
       locale: 'zh-Hans',
       animations: { zoom: 180, pan: true, autoScale: true, intro: false, liveBar: false },   // [P5] 官方同款滚轮缩放缓动 + 惯性平移；intro 首绘揭示保持关闭
-      drawings: { toolbar: false },
+      drawings: { toolbar: true },   // [P5] 官方原生绘图工具栏（工具全集 + 设置弹窗 + 撤销重做）
       live: false                       // [R15] 回退：live:true 下 runScript/脚本首跑不落定（4 轮实验：
                                         // 合成首 tick/稳定后补发均无效），Pine 管线优先。
                                         // TTFeed.subscribe 的合成 tick 与 pushLiveBar 桥保留，

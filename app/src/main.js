@@ -696,6 +696,7 @@ function updateFloating() {
 function renderTools() {
   const box = $('tools');
   if (!box) return;
+  if (window.__VELA_BRANCH__) { box.hidden = true; return; }   // [P5] Vela 用官方原生工具栏
   const d = state.draw;
   const active = d?.activeTool;
   const canUndo = !!(d && d.history && d.history.length);
@@ -1173,6 +1174,7 @@ function wireDrawStylePanel() {
 /* ---------------- 悬浮工具栏：拖动 / 收起 ---------------- */
 
 function toolsState() {
+  if (window.__VELA_BRANCH__) return { mode: 'rail' };   // [P5]
   if (!state.tools) state.tools = { mode: 'float', x: null, y: null };
   if (!state.tools.mode) state.tools.mode = state.tools.hidden ? 'rail' : 'float';   // 兼容旧字段
   delete state.tools.hidden;
@@ -1186,6 +1188,7 @@ function saveTools() {
 
 /** 两种形态：float = 图表上方悬浮条（可拖动）；rail = 贴左侧竖排栏 */
 function placeTools() {
+  if (window.__VELA_BRANCH__) { const t = $('tools'); if (t) t.hidden = true; return; }   // [P5]
   const box = $('tools');
   if (!box) return;
   const t = toolsState();
@@ -1220,7 +1223,7 @@ function setToolsMode(mode) {
 function wireTools() {
   const box = $('tools');
   if (!box) return;
-
+  if (window.__VELA_BRANCH__) { box.hidden = true; return; }   // [P5] Vela 用官方原生工具栏
   box.addEventListener('mousedown', (e) => {
     const handle = e.target.closest('.drag');
     if (!handle) return;
@@ -4266,6 +4269,7 @@ async function boot() {
   state.drawStyles = await loadDrawStyles();
   state.drawTemplates = await loadTemplateStore();
   state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
+  window.__VELA_BRANCH__ = true;   // [P5] vela 分支标记：官方原生绘图工具栏
   try {
     window.__A_wireSmc = null;
     const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers } = await import('./vela-ind.js');
