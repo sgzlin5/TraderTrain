@@ -39,9 +39,19 @@
 
 ## E. 已明确的"不做 / 暂停"
 
+> ⚠️ **图表层冻结（2026-11-05 起，自 `54e520e` 之后）**：klinecharts 图表层
+> （`chart.js`、`draw.js`、`drawStyles.js`、`workspace.js`、`crosshairSync.js`、`replay.js`、
+> `magnet.js`、`indicators.js`、`customIndicators.js`、`smc.js`/`smcRender.js`、`flow.js`、
+> `fibOverlay.js`/`segmentOverlay.js`/`polylineOverlay.js`/`positionOverlay.js`、
+> `pineDraw.js`/`pineCore.js`、`main.js` 的图表接线部分）
+> **只修阻断性 bug，不加功能** —— Vela 迁移在独立仓库 `TraderTrain-vela`（分支 `vela`）进行，
+> 方案见该仓库 `docs/VELA-MIGRATION.md`（决策 D4：两分支不并存、长期分叉）。
+> 业务层（`session`/`trade`/`ingest`/`download`/`db`/`theme`/`instruments` 等）照常维护：
+> 先落本仓库，再 cherry-pick 到 vela；反向不要做。
+
 | 事项 | 结论 |
 |---|---|
-| 迁 Vela（0.9.3） | 已评估：技术可行但 17–27 人日、pre-1.0，**暂停**（见 `VELA-FEASIBILITY.md`） |
+| 迁 Vela（0.9.3） | **已重启，迁移中**（24~25 人日，独立仓库 `TraderTrain-vela`）；本仓库图表层冻结，只跟到 `54e520e` |
 | 移动端布局 | 桌面 app 形态，不做 |
 | 跨品种 `request.security` | 依赖多品种数据源，随 C1 一起考虑 |
 | selftest 编号 5 | 历史空洞，不影响功能 |
