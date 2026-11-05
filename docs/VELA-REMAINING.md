@@ -104,8 +104,12 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
    ▸ Pine 原语（LuxAlgo Dashboard 表格/框/标签）：依赖 Tier-0 结论——是我们 emit 形状问题就修；
    是 Vela 缺陷就报上游（pre-1.0 迭代快，R2 反而可能很快修）；最后手段 = host 从
    handle.context() 镜像原语到自绘层重画（hack）
-   ⚠ 附带发现①：live feed 每秒 tick → 引擎每秒重跑 → runScript 长跑后页面主线程卡死
-   —— **R15**（live:true 已回退，Pine 优先；实时 bar 显示等本项修完随 pushLiveBar 重开）
+   ⚠ 附带发现① **R15（实验记录 2026-11-05，已回退 live:false）**：live:true 下
+   runScript/脚本首跑不落定（45s 超时，模型无产物）。4 轮实验：合成首 tick（订阅时/
+   mirror 就绪后/稳定 1s 后补发）均无效——门控不在首 tick；此前「手动 pushLiveBar 解锁」
+   的案例是脚本已建实例后的重跑。**实时 bar 显示暂时下线**（TTFeed.subscribe 合成 tick +
+   pushLiveBar 桥代码保留，live:false 下 subscribe 不会被调=零开销；重开=一行改 live:true
+   +解决首跑门控）。附带：live 期每秒 notifyBars 重跑的性能问题一并归入本专项
    ⚠ 附带发现② **R16（新）**：setVisibleRange/周期快速切换后 pane 偶发进入破损态
    （坐标轴塌缩到 0.1-0.9 / 数据不绘制，重载恢复）——疑与自绘层的透明锚 series 交互，
    需排查（短期规避：减少程序化 setVisibleRange）；

@@ -89,11 +89,26 @@ export class TTFeed {
   }
 
   /**
-   * 实时 forming bar 订阅（P1.5 接 liveStore 轮询；P1 先给空订阅——图表不用 live）。
-   * 返回退订函数。
+   * 实时 forming bar 订阅。**关键（R15）**：Vela 的 live 管线在等「第一个 tick」——
+   * 没有它 runScript/脚本首跑永不落定（实测：手动补一个 tick 后挂起的脚本立刻完成）。
+   * 所以 subscribe 时用存量最后一根补发一个合成 tick（值不变 = 视觉无变化），
+   * 无需上游在线即可解锁；此后真实 tick 由 live 桥经 pushLiveBar 进入。
    */
   subscribe(cfg, onBar) {
     this._onBar = onBar;
+    // 订阅早于历史加载——等 mirror 稳定（连续 1s 无增长）再补发合成首 tick：
+    // 过早的 tick 会被加载中的管线丢掉（实测）
+    let tries = 0, lastN = -1, stable = 0;
+    const tick = () => {
+      if (this._onBar !== onBar) return;                      // 已退订
+      const n = this.mirror.length;
+      if (n === 0) { if (++tries < 80) setTimeout(tick, 100); return; }
+      if (n !== lastN) { lastN = n; stable = 0; if (++tries < 120) setTimeout(tick, 100); return; }
+      if (++stable < 3) { setTimeout(tick, 350); return; }    // 稳定 ~1s
+      const last = this.mirror[n - 1];
+      try { onBar({ ...last }); } catch (e) { console.warn('[vela-data:首tick]', e?.message); }
+    };
+    setTimeout(tick, 100);
     return () => { if (this._onBar === onBar) this._onBar = null; };
   }
 

@@ -83,8 +83,10 @@ export class VelaChartApp {
       locale: 'zh-Hans',
       animations: false,
       drawings: { toolbar: false },
-      live: false                       // [R15] live:true 会让 runScript 等首 tick 永不落定 + 原语管线异常；
-                                        // 实时 bar 显示等 live 稳定后随 R15 专项重开（pushLiveBar/subscribe 已就绪）
+      live: false                       // [R15] 回退：live:true 下 runScript/脚本首跑不落定（4 轮实验：
+                                        // 合成首 tick/稳定后补发均无效），Pine 管线优先。
+                                        // TTFeed.subscribe 的合成 tick 与 pushLiveBar 桥保留，
+                                        // 待 Vela 修复或查明首跑门控后一行重开
     }, { dataFeed: this.feed });
     await this.reloadWindow(this.anchor);
     // 容器尺寸变化兜底（Vela 自带观察，这里只防面板开合的极端情况）
