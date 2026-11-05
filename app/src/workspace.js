@@ -1,9 +1,6 @@
 // 多图分屏工作区：N 个图表实例（同品种不同周期），共享回放游标
-import { ChartApp } from './chart.js';
-import { DrawLayer } from './draw.js';
-import { Replay } from './replay.js';
-import { PineManager } from './pine.js';
-import { resolveToolStyles } from './drawStyles.js';
+// [vela P1] 图表层换 Vela：VelaChartApp / ReplayV 原生回放；Draw/Pine 走占位层（P3/P4 接回）
+import { VelaChartApp, ReplayV, DrawStub, PineStub } from './vela.js';
 
 /** 分屏布局表：cells = 格子数，css = 容器 grid 模板，areas = 每格 grid-area */
 export const LAYOUTS = [
@@ -73,21 +70,21 @@ export class Workspace {
   async _createCell(i, period, profile = null) {
     const prof = profile || this.profile;
     const el = this._mkEl(i);
-    const app = new ChartApp(el, prof);
+    const app = new VelaChartApp(el, prof);
     await app.mount();
     if (period) await app.switchPeriod(period);
     await app.waitLoaded();
-    const draw = new DrawLayer(app.chart, {
+    const draw = new DrawStub(app.chart, {
       symbol: prof.symbol,
       periodKey: app.periodKey,
-      onChange: () => this.opts.onChange?.(),
-      getStyles: () => this.opts.getStyles?.()
+      onChange: () => this.opts.onChange?.()
     });
-    const pine = new PineManager(app.chart);
-    const replay = new Replay(app, {
+    const pine = new PineStub(app.chart);
+    const replay = new ReplayV(app, {
       onTick: (bar) => { if (i === 0) this.opts.onTick?.(bar); },
       onState: () => { if (i === 0) this.opts.onState?.(this.multi.state()); }
     });
+    app.replayRef = replay;   // lastBar() 回放中取渲染态 forming 桶用
     try { await draw.load(); } catch {}
     const cell = { i, el, app, draw, pine, replay, profile: prof };
     const tag = cell.el.querySelector('.cell-tag');
@@ -192,9 +189,8 @@ export class MultiReplay {
 
   async setStart(ts) {
     this.pause();
-    this.list.forEach(r => { r.cursor = ts; r.bucket = null; });
-    await Promise.all(this.list.map(r => r.app.seek(ts).catch(() => {})));
-    this.list.forEach(r => { r.bucket = null; });
+    // [vela P1] 交给每格的 ReplayV：回放中 = 原生 seek；未在回放 = 重灌窗口
+    await Promise.all(this.list.map(r => r.setStart(ts).catch(() => {})));
     this.emit();
   }
 

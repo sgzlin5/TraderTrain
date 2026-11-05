@@ -21,13 +21,13 @@ export async function run(state) {
     for (let i = 0; i < 4; i++) {
       document.getElementById('randomStart').click();
       await wait(900);
-      const list = app.chart.getDataList();
       const cursor = rp.cursor;
+      const lb = app.lastBar();   // [vela] 回放中封顶在游标
       picks.push({
         cursor,
         inRange: cursor >= prof.first && cursor <= hiBound,
-        windowEnd: list.length ? list[list.length - 1].timestamp : null,
-        bars: list.length,
+        windowEnd: lb ? lb.timestamp : null,
+        bars: app.bars.length,
         input: input.value,
         cursorInfo: document.getElementById('cursorInfo').textContent
       });

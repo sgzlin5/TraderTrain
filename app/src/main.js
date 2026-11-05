@@ -578,9 +578,9 @@ function renderPeriods() {
 function updateStatus(extra = '') {
   const app = state.app;
   if (!app) { $('stPeriod').textContent = '-'; $('stLoaded').textContent = '-'; $('stMsg').textContent = extra; return; }
-  const list = app.chart.getDataList();
+  const n = app.bars ? app.bars.length : 0;
   $('stPeriod').textContent = `周期 ${app.periodKey}`;
-  $('stLoaded').textContent = `已加载 ${list.length} 根 · 读窗 ${app.stats.lastMs} ms`;
+  $('stLoaded').textContent = `已加载 ${n} 根 · 读窗 ${app.stats.lastMs} ms`;
   $('stMsg').textContent = extra;
 }
 
@@ -805,7 +805,7 @@ function hitOverlay(vx, vy) {
   const r = chartRect();
   const px = vx - r.left, py = vy - r.top;
   let best = null, bestD = 9;
-  for (const o of chart.getOverlays()) {
+  for (const o of (chart.getOverlays?.() || [])) {
     const pts = overlayPixels(o);
     if (!pts.length) continue;
     let d = Math.min(...pts.map(p => Math.hypot(p.x - px, p.y - py)));
@@ -856,14 +856,14 @@ function showOvBar(o) {
 
 /** 当前选中绘图对应的工具 key */
 function selOverlayTool() {
-  const o = state.app?.chart.getOverlays().find(x => x.id === state.selOverlay);
+  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
   return o ? o.name : null;
 }
 
 /** 渲染 ⋯ 菜单里的线型/模板列表 */
 function renderOvMenu() {
   const tool = selOverlayTool();
-  const o = state.app?.chart.getOverlays().find(x => x.id === state.selOverlay);
+  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
   const cur = o?.styles?.line?.style || 'solid';
   $('ovLs').querySelectorAll('.ov-chip').forEach(b => b.classList.toggle('on', b.dataset.ls === cur));
   $('ovTplSaveRow').hidden = true;
@@ -901,12 +901,12 @@ function renderOvMenu() {
 /** 把模板套到当前选中的绘图上，并可顺带设为该工具默认 */
 function applyTemplate(tpl, makeDefault) {
   const id = state.selOverlay;
-  const o = state.app?.chart.getOverlays().find(x => x.id === id);
+  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === id);
   if (!o || !tpl) return;
   const line = { ...tpl.line };
-  state.app.chart.overrideOverlay({ id, styles: { line } });
+  state.app.chart.overrideOverlay?.({ id, styles: { line } });
   if (o.name === 'fibonacciLine' && Array.isArray(tpl.levels) && tpl.levels.length) {
-    state.app.chart.overrideOverlay({ id, extendData: { levels: tpl.levels.slice() } });
+    state.app.chart.overrideOverlay?.({ id, extendData: { levels: tpl.levels.slice() } });
   }
   state.draw.capture();
   state.draw.persist();
@@ -922,12 +922,12 @@ function applyTemplate(tpl, makeDefault) {
 
 /** 应用该工具的默认模板（没有模板时回到全局样式） */
 function applyDefaultTemplate(overlayId) {
-  const o = state.app?.chart.getOverlays().find(x => x.id === overlayId);
+  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === overlayId);
   if (!o) return;
   const tpl = defaultTemplateOf(state.drawTemplates, o.name);
   if (tpl) { applyTemplate(tpl, false); return; }
   const st = state.draw.styleFor(o.name);
-  state.app.chart.overrideOverlay({ id: overlayId, styles: st.styles });
+  state.app.chart.overrideOverlay?.({ id: overlayId, styles: st.styles });
   state.draw.capture();
   state.draw.persist();
   refreshOvBar();
@@ -937,7 +937,7 @@ function applyDefaultTemplate(overlayId) {
 /** 把当前选中绘图的样式存成模板 */
 function saveOverlayAsTemplate() {
   const tool = selOverlayTool();
-  const o = state.app?.chart.getOverlays().find(x => x.id === state.selOverlay);
+  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
   if (!tool || !o) return;
   const nameRaw = $('ovTplName').value.trim();
   const list = state.drawTemplates?.templates?.[tool] || [];
@@ -965,7 +965,7 @@ function renderOvMenuForTest() { renderOvMenu(); }
 
 function refreshOvBar() {
   if (!state.selOverlay) return;
-  const o = state.app?.chart.getOverlays().find(x => x.id === state.selOverlay);
+  const o = (state.app?.chart.getOverlays?.() || []).find(x => x.id === state.selOverlay);
   if (o) showOvBar(o); else hideOvBar();
 }
 
@@ -1005,10 +1005,10 @@ function wireOverlayBar() {
       if (act === 'apply-default') { applyDefaultTemplate(id); $('ovMenu').hidden = true; refreshOvBar(); return; }
       if (act === 'fib') { openDrawStylePanel(); $('ovMenu').hidden = true; return; }
       if (act === 'reset') {
-        const o = state.app.chart.getOverlays().find(x => x.id === id);
+        const o = (state.app.chart.getOverlays?.() || []).find(x => x.id === id);
         if (o) {
           const st = state.draw.styleFor(o.name);
-          state.app.chart.overrideOverlay({ id, styles: st.styles });
+          state.app.chart.overrideOverlay?.({ id, styles: st.styles });
           state.draw.capture();
           state.draw.persist();
         }
@@ -1256,13 +1256,13 @@ function renderTradeMarks(s) {
   if (!state.app) return;
   const chart = state.app.chart;
   const pos = s.pos;
-  const sig = pos ? `${pos.side}@${pos.entry}/${pos.sl}/${pos.tp}/${chart.getDataList().length}` : '-';
+  const sig = pos ? `${pos.side}@${pos.entry}/${pos.sl}/${pos.tp}/${state.app.bars ? state.app.bars.length : 0}` : '-';
   if (sig === _markSig) return;
   _markSig = sig;
   for (const id of state.marks) { try { chart.removeOverlay({ id }); } catch {} }
   state.marks = [];
   if (!pos) return;
-  const idx = Math.max(0, chart.getDataList().length - 1);
+  const idx = Math.max(0, state.app.bars ? state.app.bars.length - 1 : 0);
   const add = (name, value, color) => {
     try {
       const id = chart.createOverlay({
@@ -1327,7 +1327,7 @@ function renderTrade(snap) {
  * 只看前 300 根（够判断，不用扫 400 万根）。
  */
 function detectVolume() {
-  const bars = state.app?.chart?.getDataList?.() || [];
+  const bars = state.app?.bars?.allBars?.() || [];
   const sample = bars.slice(0, 300);
   const hasVol = sample.some(b => Number(b.volume) > 0);
   state.hasVolume = hasVol;
@@ -1993,16 +1993,11 @@ function wireLegendHover() {
 /** 图上左上角的指标图例：一行显示 名称(参数) + 每条线的值 + 显隐/设置/移除 */
 let _legendIndexTs = null;   // 图例取值用的 bar（十字光标优先，否则最后一根）
 
-function legendValueIndex(chart) {
-  const list = chart.getDataList();
-  if (!list.length) return -1;
-  if (_legendIndexTs == null) return list.length - 1;
-  let lo = 0, hi = list.length - 1, ans = list.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (list[mid].timestamp >= _legendIndexTs) { ans = mid; hi = mid - 1; } else lo = mid + 1;
-  }
-  return ans;
+function legendValueIndex() {
+  const bars = state.app?.bars;
+  if (!bars || !bars.length) return -1;
+  if (_legendIndexTs == null) return bars.length - 1;
+  return bars.indexAtOrAfter(_legendIndexTs);
 }
 
 function fmtLegendValue(v, precision = 2) {
@@ -2022,12 +2017,12 @@ function renderLegend() {
   const box = $('chartLegend');
   if (!box) return;
   const chart = state.app?.chart;
-  const list = chart?.getIndicators() || [];
+  const list = (chart?.getIndicators?.() || chart?.indicators?.() || []).map(x => x.visible === false ? { visible: false } : x);
   if (!list.length) { box.innerHTML = ''; box.hidden = true; return; }
   box.hidden = false;
 
   const palette = indicatorPalette();
-  const idx = legendValueIndex(chart);
+  const idx = legendValueIndex();
   const open = state.legendOpen !== false;
 
   const rows = list.map((ind, i) => {
@@ -2270,7 +2265,7 @@ async function applyPineSettings() {
   entry.lineStyles = readLines();
   await libSave(entry);
 
-  const bars = chart.getDataList();
+  const bars = state.app?.bars?.allBars?.() || [];
   const r = await state.pine.apply({ ...entry }, bars);
   if (!r.ok) { updateStatus(`Pine 重算失败：${r.error}`, true); return false; }
   updateIndBadge();
@@ -2400,7 +2395,7 @@ function wireIndSettings() {
       if (entry) {
         entry.inputs = {}; entry.lineStyles = [];
         await libSave(entry);
-        const r = await state.pine.apply({ ...entry }, state.app.chart.getDataList());
+        const r = await state.pine.apply({ ...entry }, state.app.bars.allBars());
         if (!r.ok) updateStatus(`Pine 重算失败：${r.error}`, true);
       }
       updateIndBadge(); refreshLegend(); renderIndicatorPanel(); closeIndSettings();
@@ -2437,7 +2432,7 @@ function indLabel(name) {
 }
 
 function updateIndBadge() {
-  const n = state.app ? (state.app.chart.getIndicators() || []).length : 0;
+  const n = state.app ? (state.app.chart.getIndicators?.() || []).length : 0;   // [vela] P4 接 chart.indicators()
   const b = $('indBadge');
   b.textContent = String(n);
   b.hidden = n === 0;
@@ -2527,7 +2522,7 @@ async function renderIndicatorPanel() {
       row.querySelector('[data-add]').onclick = async () => {
         if (on) state.pine.remove(e.id);
         else {
-          const bars = chart.getDataList();
+          const bars = state.app?.bars?.allBars?.() || [];
           const r = await state.pine.apply({ ...e }, bars);
           if (!r.ok) updateStatus(`Pine 失败：${r.error}`);
         }
@@ -3094,12 +3089,10 @@ function openSub(id, itemEl) {
 }
 
 /** 复位图表：回到最新一根 + 恢复默认柱宽 */
-function resetChartView() {
-  const chart = state.app?.chart;
-  if (!chart) return;
-  const list = chart.getDataList();
-  try { chart.setBarSpace(8); } catch {}
-  try { chart.scrollToDataIndex(Math.max(0, list.length - 1), 120); } catch {}
+async function resetChartView() {
+  const app = state.app;
+  if (!app?.chart) return;
+  try { await app.seek(app.anchor); } catch (e) { logErr('resetChartView', e); }
   updateStatus('已复位图表');
 }
 
@@ -3132,7 +3125,7 @@ async function copyWindowShot() {
   try {
     const p = state.profile;
     const app = state.app;
-    const bars = app?.chart?.getDataList?.() || [];
+    const bars = app?.bars?.allBars?.() || [];
     const last = bars.length ? bars[bars.length - 1].timestamp : null;
     const fmt = (ts) => (ts ? fmtTs(ts) : '—');
     const blob = await captureWindowShot($('chart'), {
@@ -3173,7 +3166,7 @@ async function runPineBacktest(srcOverride = null, nameOverride = null) {
     updateStatus('这个脚本没有 strategy()，没有回测数据', true);
     return null;
   }
-  const bars = state.app?.chart?.getDataList() || [];
+  const bars = state.app?.bars?.allBars() || [];
   if (!bars.length) { updateStatus('还没有数据', true); return null; }
 
   const btn = $('pineBacktest');
@@ -3262,7 +3255,7 @@ async function renderCopyDrawList() {
 
 async function copyDrawings(from) {
   const draw = state.draw;
-  const list = state.app?.chart.getDataList() || [];
+  const list = state.app?.bars?.allBars() || [];
   if (!draw || !list.length) return;
   // 按「整段数据范围」判断能否复制（不在当前可视窗口也可以，滚过去就能看到）
   const first = state.profile?.first ?? list[0].timestamp;
@@ -3388,7 +3381,7 @@ async function restorePineIndicators() {
     if (!ids?.length) return 0;
     const chart = state.app?.chart;
     if (!chart) return 0;
-    const bars = chart.getDataList();
+    const bars = state.app?.bars?.allBars?.() || [];
     if (!bars?.length) return 0;
     const lib = await libList();
     let n = 0;
@@ -3408,7 +3401,7 @@ async function restorePineIndicators() {
 
 async function refreshPine() {
   if (!state.pine || !state.app) return;
-  const bars = state.app.chart.getDataList();
+  const bars = state.app.bars.allBars();
   if (!bars.length) return;
   const applied = state.pine.list();
   for (const it of applied) {
@@ -3454,7 +3447,7 @@ async function renderLib() {
     const apply = document.createElement('button');
     apply.textContent = '上图';
     apply.onclick = async () => {
-      const bars = state.app.chart.getDataList();
+      const bars = state.app.bars.allBars();
       const r = await state.pine.apply({ ...e }, bars);
       pineMsg(r.ok ? `已上图：${r.names.join(', ')}` : `失败：${r.error}`, !r.ok);
       renderPineApplied();
@@ -3508,7 +3501,7 @@ function renderInputs(inputs, values = {}) {
       if (!entry) return;
       const v = p.type === 'bool' ? inp.checked : (p.type === 'string' ? inp.value : Number(inp.value));
       entry.inputs = { ...(entry.inputs || {}), [p.title]: v };
-      const bars = state.app.chart.getDataList();
+      const bars = state.app.bars.allBars();
       const r = await state.pine.apply(entry, bars);
       pineMsg(r.ok ? `参数已应用（${p.title}=${v}）` : `应用失败：${r.error}`, !r.ok);
       renderPineApplied();
@@ -3521,7 +3514,7 @@ async function checkPine() {
   const src = $('pineSrc').value.trim();
   if (!src) { pineMsg('源码为空', true); return null; }
   if (!state.app) { pineMsg('先导入并加载数据', true); return null; }
-  const bars = state.app.chart.getDataList();
+  const bars = state.app.bars.allBars();
   pineMsg('编译中…');
   const { compilePine } = await import('./pine.js');
   // 编辑器里的源码即当前编辑对象，参数改动要作用在这份源码上
@@ -3552,7 +3545,7 @@ async function applyPine() {
   const name = $('pineName').value.trim() || 'PINE 指标';
   if (!src) { pineMsg('源码为空', true); return; }
   if (!state.app) { pineMsg('先导入并加载数据', true); return; }
-  const bars = state.app.chart.getDataList();
+  const bars = state.app.bars.allBars();
   const entry = {
     id: state.pineEntry?.id || `P${Date.now().toString(36)}`,
     name, src,
@@ -4127,7 +4120,7 @@ async function applyReplayMode(on, opts = {}) {
     try {
       const p = state.profile;
       const newest = Math.max(p?.last || 0, p?.live?.last || 0);
-      if (state.replay && newest) await state.replay.setStart(Math.min(Date.now(), newest + 60000));
+      if (state.replay && newest) await state.replay.setStart(newest);   // [vela P1] 锚到最新一根
     } catch {}
   }
   if (!opts.silent) await kvSet('ui:replay', !!on).catch(() => {});
@@ -4246,23 +4239,25 @@ async function boot() {
   state.tools = (await kvGet('ui:tools')) || { mode: 'float', x: null, y: null };
   state.drawStyles = await loadDrawStyles();
   state.drawTemplates = await loadTemplateStore();
-  registerFibOverlay(window.klinecharts);
-  registerPositionOverlays(window.klinecharts);
-  registerPolylineOverlay(window.klinecharts);
-  try {
-    const { registerCustomIndicators } = await import('./customIndicators.js');
-    registerCustomIndicators(window.klinecharts);
-    const { registerSmcIndicators } = await import('./smc.js');
-    registerSmcIndicators(window.klinecharts);
-    const { registerFlowIndicators } = await import('./flow.js');
-    registerFlowIndicators(window.klinecharts);
-  } catch (e) { console.warn('[customInd]', e?.message); }
+  if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
+    registerFibOverlay(window.klinecharts);
+    registerPositionOverlays(window.klinecharts);
+    registerPolylineOverlay(window.klinecharts);
+    try {
+      const { registerCustomIndicators } = await import('./customIndicators.js');
+      registerCustomIndicators(window.klinecharts);
+      const { registerSmcIndicators } = await import('./smc.js');
+      registerSmcIndicators(window.klinecharts);
+      const { registerFlowIndicators } = await import('./flow.js');
+      registerFlowIndicators(window.klinecharts);
+    } catch (e) { console.warn('[customInd]', e?.message); }
+    registerExtensionOverlays();
+    registerSegmentOverlay(window.klinecharts, () => state.app?.chart || null);
+  }
   state.pineMap = await loadPineMap();
   state.indFavs = await loadFavs();
   state.indCombos = await loadCombos();
   state.indCat = IND_CATS.some(c => c.key === state.indCat) ? state.indCat : 'key';
-  registerExtensionOverlays();
-  registerSegmentOverlay(window.klinecharts, () => state.app?.chart || null);
   bindModifierKeys();
   wireModifierNudge();
   state.theme = await loadTheme();
@@ -4332,7 +4327,7 @@ async function boot() {
     else if (e.key === 'Escape' && !helpEl.hidden) { helpEl.hidden = true; }
   });
   wireLive();
-  try { startSmcRender(state); } catch (e) { logErr('smc:启动', e); }
+  if (window.klinecharts) { try { startSmcRender(state); } catch (e) { logErr('smc:启动', e); } }   // [vela P1] P4 接回
 /* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
 function wireTransfer() {
   const msg = $('xferMsg');

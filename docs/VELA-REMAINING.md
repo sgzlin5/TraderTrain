@@ -47,7 +47,7 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 | 阶段 | 内容 | 人日 | 前置 / 依赖 |
 |---|---|---:|---|
 | **P4-a 前置实验** | ~~live 模式 `barstate.isconfirmed` 口径 + `importResolver` 取源策略~~ **已完成 2026-11-05**（[PINETS-COVERAGE §5](VELA-PINETS-COVERAGE.md)：D7 预处理 `not barstate.islast`、D8 resolver 接 Pine 库；`probe_p4a.mjs`） | ~~0.5~~ 0 | 已关闭；R12 关闭 |
-| **P1 数据与回放** | `vela-data.js` 自定义 `DataProvider`（`getBars` 按 `{from,to,limit}` 从 IndexedDB 切片，永不返回整段）；`bars` 深度 8k–20k；`replay.start/step/play` + 速度映射；48 处 `getDataList()` 收敛成 `barAt/lastBar/barsInRange` | 3.5 | 数据模式已定（P0 §9–10），无阻塞 |
+| **P1 数据与回放** | **已完成 2026-11-05**（`vela-data.js` = 自定义 `MarketDataFeed` 裸注入 + `vela.js` VelaChartApp/ReplayV；见 §9 实测记录）；48 处 `getDataList()` 已收敛（main.js 18 处 → `app.bars.*`，selftest2/11 同步适配） | ~~3.5~~ 0 | selftest2/11 全绿 |
 | **P2 工作区与同步** | `VelaWorkspace` + `setLayout('2h'/'4'/'8')`；每格 `setSymbol/setTimeframe`；`sync.set()`；TAB = `getState/applyState` 快照 | 4 | 依赖 P1（每格要数据） |
 | **P3 绘图** | §5 映射表逐个接 `chart.drawings`；`drawStyles.js` → `SerializedDrawing.style`；管理面板接 `removeMany/lock/show`；砍艾略特（D2） | 4 | 独立，可与 P2 并行 |
 | **P4 指标** | `registerNativeIndicator` 重写关键位 5 / SMC / flow / 自定义；图例接 `chart.indicators()`；Pine 换 `vela-pinets`（D1），删 `pineDraw/pineCore` 坐标层；Pine 桥实测可用（见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)），省 1.5，加 `importResolver` 0.5 + live `isconfirmed` 对齐 0.5 | 4.5 | 依赖 P4-a |
@@ -82,8 +82,9 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 ```
 0. merge origin/main → vela ✅（2026-11-05 完成，两次 merge 零冲突，含 54e520e；WIP 已落盘；main 图表层已冻结）
 1. P4-a 前置实验 ✅（2026-11-05 完成：D7 isconfirmed 预处理 / D8 resolver 接 Pine 库）
-2. P1 vela-data.js（3.5）    ← 当前
-3. P2 vela-ws.js（4）        ←→ 3'. P3 vela-draw.js（4，可并行）
+2. P1 数据与回放 ✅（2026-11-05 完成：selftest2/11 全绿，seek 43ms/堆 40MB，见 §9）
+3. P2 vela-ws.js（4）        ← 当前
+3'. P3 vela-draw.js（4，可并行）
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）
 5. P1.5 实时接 feed（2）      ← 可与 P2/P3 并行，但必须在 P5 回归前完成
 6. P5 收尾 + selftest 1..45 重写（3+1）
@@ -106,6 +107,44 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 | ~~R12~~ | ~~vela-pinets 无 `barstate.isconfirmed` 等价口径~~ | — | **已关闭（2026-11-05）**：桥接层一行预处理 `→ not barstate.islast` 精确复现主线口径（D7） |
 | R13 | selftest 断言面（109 处） | P5 回归成本高于预期 | P1 起就按「selftest 先改、功能后改」推进，不把 45 个用例堆到最后 |
 | R2/R9/R10 | 版本漂移 / 不回填 / 4M=1 GB | 不变 | vendor 锁 0.9.3；`setMarket({bars, visibleRange})` 重建窗口；provider 永不返回整段 |
+
+## 9. P1 完成记录（2026-11-05）
+
+**交付**：`app/src/vela.js`（VelaChartApp + ReplayV + DrawStub/PineStub 占位）、`app/src/vela-data.js`（TTFeed）、
+`tools/vela-entry.mjs` + `npm run build:vela`（vendor 1.9MB → `app/vendor/vela/vela.bundle.js`）、
+workspace/main/index.html 接线、selftest2/11 适配。
+
+**实测修正了两条方案假设**（都写回了 [VELA-MIGRATION.md](VELA-MIGRATION.md)）：
+
+1. **provider 注册表模式的 store 永锚实时尾**：`setMarket({bars, visibleRange})` 在同身份下被优化成
+   纯视口重框（0 次取数）；深度回填永远从 store 尾部向前翻页，`visibleRange` 对数据布局无效。
+   ⇒ **任意日期起点的回放必须自定义 `MarketDataFeed`（`new Vela(el, opts, { dataFeed })` 裸注入）**：
+   `load(cfg)` 的返回值就是 store，cfg 携带 visibleRange，锚定由我们决定。
+2. **seek 的可靠原语 = 周期往返**：身份变化（timeframe switch）才触发 `feed.load`；
+   中间腿必须用真实登记周期（'2m' 这类 span 回退 1m，且两次 setMarket 有乱序竞态——
+   用 `historyComplete()` 串行化）。实测 seek 全程 **43 ms**（判据 300 ms）。
+
+**回放语义对齐**（ReplayV，全部有 selftest 断言背书）：
+- 1m：`start({from: ts})` 起点根可见，`step()` 整根推进（= 旧 nextBars 推进）
+- >1m：`setTicks` 把每根聚合 bar 按其 1m 组成逐 tick 展开（= 旧「推桶」）；
+  **起点桶 ≤ 起点的成员折成一个预置 tick**（= 旧窗口构建的「部分桶预烤」）；
+  tick 源会被 Vela 预取，**必须按 bar.time 键控**（共享数组会被下一桶覆盖——实测踩坑）
+- 回放激活时窗口重建要先 `replay.stop()`（carry-over 会进入 cursorTime:null 僵死态）
+- 跑道耗尽（remaining=0）→ 以游标为锚重建窗口再续（`_extendIfNeeded`）
+- `lastBar()/lastTs()` 查询封顶：非回放=窗口锚点、回放=游标，forming 桶取渲染态聚合
+  （store 里只有完整桶，直接查会拿到未来数据——selftest2 的 lowOk/closeOk 断言抓出来的）
+
+**验收判据实测**（`?fresh=1` + CDP）：
+| 判据 | 目标 | 实测 |
+|---|---|---|
+| selftest2/11 | 全绿 | ✅（setstart/step5/跨缺口/300步@0.065ms/5m推桶/交易撮合/持久化） |
+| 任意日期跳转 | ≤300 ms | ✅ 43.2 ms（8000 深度）/ 20.6 ms（20000 深度，暖缓存） |
+| 堆 @8000 | ≤60 MB | ✅ 22.4 MB |
+| 堆 @20000 | ≤120 MB | ✅ 40.4 MB |
+| boot | 无错 | ✅（ready，含实时段/恢复快照） |
+
+**P1 已知边界**（后续阶段处理）：绘图/Pine/SMC/指标 UI 走占位层（P3/P4）；实时 bar 不上图（P1.5）；
+`main.js` 存量 `ind` 未定义 lint 报错来自 main 的 54e520e（Pine 恢复路径，P4 重写时消掉）。
 
 ## 8. 本文数字的复现命令
 

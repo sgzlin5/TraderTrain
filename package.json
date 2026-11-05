@@ -6,7 +6,8 @@
   "scripts": {
     "lint": "eslint app/src tools --ext .js",
     "check": "bash tools/check_js.sh",
-    "test": "python tools/run_selftests.py --tests 1-45 --fresh"
+    "test": "python tools/run_selftests.py --tests 1-45 --fresh",
+    "build:vela": "esbuild tools/vela-entry.mjs --bundle --format=iife --minify --outfile=app/vendor/vela/vela.bundle.js"
   },
   "devDependencies": {
     "@luxalgo/vela": "^0.9.3",

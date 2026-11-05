@@ -1,6 +1,6 @@
 # K 线库迁移方案：klinecharts 10.1.0 → Vela 0.9.3
 
-> **状态：步骤 0 已完成（2026-11-05），P1 起开工** —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
+> **状态：P1 已完成（2026-11-05），P2/P3 起开工** —— P1 的两条实测修正：①provider 注册表 store 永锚实时尾，任意锚点窗口必须走自定义 `MarketDataFeed`（`deps.dataFeed` 裸注入，`load` 返回值即 store）；②seek 靠周期往返触发身份重载（~43ms）。详见 [VELA-REMAINING.md §9](VELA-REMAINING.md)。 —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
 >
 > **步骤 0 记录**：① `origin/main` 已 merge 进 `vela`（含 `54e520e` 四类优化，两次 merge 均零冲突）；② 原 main 工作区挂着的 12 文件 WIP 已由 `54e520e` 落盘，无需另行处置；③ main 图表层已正式冻结（main 仓库 `docs/BACKLOG.md` 顶部冻结公告，`31bf844`）。
 >

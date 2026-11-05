@@ -117,7 +117,7 @@ export async function saveCombos(list) { try { await kvSet(COMBO_KEY, list || []
 
 /** 把当前图上的指标存成一个组合 */
 export async function saveComboFromChart(chart, name, prefs) {
-  const items = (chart.getIndicators() || []).map(i => i.name);
+  const items = (chart.getIndicators?.() || []).map(i => i.name);
   if (!items.length) throw new Error('当前图上一个指标都没有');
   const combos = await loadCombos();
   const combo = {
@@ -172,7 +172,7 @@ export async function saveIndPrefs(prefs) {
 /** 把偏好（calcParams / lines）套到一个已在图的指标上 */
 export function applyIndPrefs(chart, name, prefs) {
   if (!chart || !prefs) return false;
-  const cur = (chart.getIndicators() || []).find(i => i.name === name);
+  const cur = (chart.getIndicators?.() || []).find(i => i.name === name);
   if (!cur) return false;
   const patch = { name, paneId: cur.paneId };
   if (Array.isArray(prefs.calcParams) && prefs.calcParams.length) patch.calcParams = prefs.calcParams;
@@ -182,7 +182,7 @@ export function applyIndPrefs(chart, name, prefs) {
 
 /** 开关一个内置指标（叠加指标挂主图，其余自动新建副图）；带上已保存的参数/颜色 */
 export function toggleBuiltin(chart, name, overlay, prefs = null) {
-  const has = (chart.getIndicators() || []).some(i => i.name === name);
+  const has = (chart.getIndicators?.() || []).some(i => i.name === name);
   if (has) { chart.removeIndicator({ name }); return false; }
   const create = { name };
   if (overlay) create.paneId = 'candle_pane';
@@ -209,11 +209,11 @@ const RATIOS = {
 
 /** 除主图外的面板数（时间轴面板不算） */
 export function paneCount(chart) {
-  return (chart?.getPaneOptions() || []).filter(p => p.id !== 'x_axis_pane').length;
+  return (chart?.getPaneOptions?.() || []).filter(p => p.id !== 'x_axis_pane').length;
 }
 
 function subPanes(chart) {
-  return (chart.getPaneOptions() || [])
+  return (chart.getPaneOptions?.() || [])
     .filter(p => p.id !== 'x_axis_pane' && p.id !== 'candle_pane')
     .sort((a, b) => a.order - b.order);
 }
@@ -241,7 +241,7 @@ export function applyPaneLayout(chart, target) {
   // 高度：主图比例略大，副图均分
   const total = Math.max(200, chart.getSize().height - 26);
   const ratios = RATIOS[want] || RATIOS[1];
-  const panes = (chart.getPaneOptions() || [])
+  const panes = (chart.getPaneOptions?.() || [])
     .filter(p => p.id !== 'x_axis_pane')
     .sort((a, b) => a.order - b.order);
   panes.forEach((p, i) => {
