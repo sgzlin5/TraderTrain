@@ -3974,6 +3974,10 @@ async function loadProfile(profile) {
 
   try { window.__A_wireSmc?.(state.app); } catch (e) { logErr('smc:wire', e); }   // [R14] SMC 层触发接线
   try { const m = await import('./vela-ind.js'); m.updateSmcLayers?.(state.app); } catch {}
+  try {
+    const fm = await import('./vela-float-ui.js');
+    for (const cell of state.workspace?.cells || []) fm.wireDrawingFloatingUI(cell.app);
+  } catch (e) { logErr('float-ui', e); }   // [P5] 悬浮属性框 + 收藏工具框
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
 }
@@ -4277,6 +4281,7 @@ async function boot() {
     registerSmcVelaIndicators();
     registerSmcLayers();        // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
     registerTradeMarksLayer();  // [P5] 交易标记层（入场/SL/TP 线 + 方向 chip）
+    import('./vela-float-ui.js').then((m) => { window.__TT_FLOAT_UI = m; }).catch(() => {});   // [P5] 悬浮框模块（每格 mount 后接线）
     window.__A_wireSmc = wireSmcLayerTriggers;
   } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）

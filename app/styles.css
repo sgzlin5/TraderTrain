@@ -1147,3 +1147,36 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .help-panel table{width:100%;border-collapse:collapse}
 .help-panel td{padding:2px 0;vertical-align:top}
 .help-panel td:first-child{width:104px;color:var(--muted-fg,#8fa0b0);font-family:ui-monospace,Menlo,Consolas,monospace}
+
+
+/* ---------------- vela 悬浮属性框 / 收藏工具框 ---------------- */
+.tt-float{position:absolute;top:118px;right:12px;z-index:30;min-width:230px;
+  background:rgba(10,17,26,.96);border:1px solid rgba(138,175,202,.28);border-radius:6px;
+  box-shadow:0 8px 28px rgba(0,0,0,.5);padding:8px 10px;color:#cfe3ef;
+  font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}
+.tt-float-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.tt-float-head b{flex:1;font-size:12px;color:#e6f1f8}
+.tt-x{background:none;border:none;color:#94a9bb;cursor:pointer;font-size:12px;padding:0 2px}
+.tt-x:hover{color:#e6f1f8}
+.tt-float-row{display:flex;align-items:center;gap:6px;margin:4px 0}
+.tt-lb{width:34px;color:#94a9bb;flex:none}
+.tt-swatches{display:inline-flex;gap:4px}
+.tt-sw{width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.25);cursor:pointer;padding:0}
+.tt-sw:hover{transform:scale(1.15)}
+.tt-act{background:rgba(255,255,255,.06);border:1px solid rgba(138,175,202,.3);color:#cfe3ef;
+  border-radius:3px;padding:1px 7px;cursor:pointer;font:11px ui-monospace,monospace}
+.tt-act:hover{background:rgba(138,175,202,.22)}
+.tt-danger{color:#ff9daa;border-color:rgba(255,111,133,.4)}
+.tt-danger:hover{background:rgba(255,111,133,.16)}
+.tt-fav{top:auto;right:12px;bottom:90px;max-width:280px}
+.tt-fav-row{display:flex;flex-wrap:wrap;gap:5px}
+.tt-fav-btn{background:rgba(138,175,202,.14);border:1px solid rgba(138,175,202,.3);color:#cfe3ef;
+  border-radius:4px;padding:2px 9px;cursor:pointer;font:12px ui-monospace,monospace}
+.tt-fav-btn:hover{background:rgba(138,175,202,.28)}
+.tt-hint{color:#7a919f;font-size:11px}
+.tt-fav-picker{max-height:240px;overflow:auto;margin-top:6px;border-top:1px solid rgba(138,175,202,.2);padding-top:6px;
+  display:grid;grid-template-columns:1fr 1fr;gap:3px}
+.tt-pick{background:none;border:none;color:#cfe3ef;text-align:left;cursor:pointer;
+  font:11px ui-monospace,monospace;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tt-pick:hover{background:rgba(138,175,202,.16)}
+.tt-pick.on{color:#ffc36b}

@@ -148,6 +148,12 @@ const PACK = {
   'chart.scrollToLatest.label': '跳到最新'
 };
 
+/** 工具类型 → 中文名（查 PACK 表，无则回退英文类型名） */
+export function labelZh(type) {
+  const zh = PACK['drawing.' + type + '.label'];
+  return typeof zh === 'string' ? zh : type;
+}
+
 export function registerVelaZhHans(V) {
   const registerLocale = V?.registerLocale;
   if (typeof registerLocale !== 'function') return false;
