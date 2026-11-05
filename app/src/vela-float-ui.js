@@ -14,7 +14,8 @@ function buildStyleFloat() {
   el.hidden = true;
   el.innerHTML = `
     <div class="tt-float-head"><b id="ttStyleTitle">绘图</b><button class="tt-x" title="关闭">✕</button></div>
-    <div class="tt-float-row"><span class="tt-lb">模板</span><span id="ttTplChips" class="tt-swatches"></span>
+    <div class="tt-float-row"><span class="tt-lb">模板</span><span id="ttTplChips" class="tt-tpl-row"></span></div>
+    <div class="tt-float-row"><input id="ttTplName" placeholder="模板名" style="flex:1;min-width:0;background:rgba(255,255,255,.06);border:1px solid rgba(138,175,202,.3);color:#cfe3ef;border-radius:3px;padding:1px 6px;font:11px ui-monospace,monospace">
       <button class="tt-act" id="ttTplSave" title="把当前样式存为模板">存</button></div>
     <div class="tt-float-row"><span class="tt-lb">颜色</span><span class="tt-swatches" id="ttSwatches"></span>
       <input type="color" id="ttColorPick" title="自定义颜色" style="width:22px;height:22px;padding:0;border:1px solid rgba(255,255,255,.2);background:none"></div>
@@ -77,6 +78,13 @@ function buildStyleFloat() {
     box.innerHTML = '';
     let tpls = [];
     try { tpls = meta.chart.drawings.toolTemplates()[meta.type] || []; } catch {}
+    if (!tpls.length) {
+      const hint = document.createElement('span');
+      hint.className = 'tt-hint';
+      hint.textContent = '暂无模板';
+      box.appendChild(hint);
+      return;
+    }
     for (const t of tpls) {
       const b = document.createElement('button');
       b.className = 'tt-tpl'; b.textContent = t.name; b.title = '点击应用到当前绘图，Shift+点击删除';
@@ -96,8 +104,9 @@ function buildStyleFloat() {
     }
   };
   el.querySelector('#ttTplSave').onclick = () => {
-    const name = prompt('模板名称：');
-    if (!name) return;
+    const name = (el.querySelector('#ttTplName')?.value || '').trim();
+    if (!name) { el.querySelector('#ttTplName')?.focus(); return; }
+    if (el.querySelector('#ttTplName')) el.querySelector('#ttTplName').value = '';
     try {
       // 公开层无 saveToolTemplate——读 toolTemplates() 改后整灌 setToolTemplates
       const all = meta.chart.drawings.toolTemplates() || {};
