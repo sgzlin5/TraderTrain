@@ -1,6 +1,8 @@
 # K 线库迁移方案：klinecharts 10.1.0 → Vela 0.9.3
 
-> **状态：已解除搁置，P1 起可开工（2026-11-05）** —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
+> **状态：步骤 0 已完成（2026-11-05），P1 起开工** —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
+>
+> **步骤 0 记录**：① `origin/main` 已 merge 进 `vela`（含 `54e520e` 四类优化，两次 merge 均零冲突）；② 原 main 工作区挂着的 12 文件 WIP 已由 `54e520e` 落盘，无需另行处置；③ main 图表层已正式冻结（main 仓库 `docs/BACKLOG.md` 顶部冻结公告，`31bf844`）。
 >
 > 分支：`vela`（从 `main@7356dc2` 拉出）。本文只写**可执行方案**，不含营销。目标库 API 全部取自本机实测的 `@luxalgo/vela@0.9.3` 类型声明（`node_modules/@luxalgo/vela/dist/*.d.ts`），标 **[待实测]** 的是声明存在但行为未验证的部分。
 
