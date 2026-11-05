@@ -3959,6 +3959,8 @@ async function loadProfile(profile) {
   // 图表/回放对象就绪后再落实回放开关状态（这时 seek 才有意义）
   try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { logErr('replay:恢复', e); }
 
+  try { window.__A_wireSmc?.(state.app); } catch (e) { logErr('smc:wire', e); }   // [R14] SMC 层触发接线
+  try { const m = await import('./vela-ind.js'); m.updateSmcLayers?.(state.app); } catch {}
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
 }
@@ -4255,10 +4257,12 @@ async function boot() {
   state.drawTemplates = await loadTemplateStore();
   state.app?.setMagnet?.(isMagnetOn());   // [vela P3] 磁吸 → 原生吸附
   try {
-    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers } = await import('./vela-ind.js');
+    window.__A_wireSmc = null;
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, wireSmcLayerTriggers } = await import('./vela-ind.js');
     registerNativeVelaIndicators();
     registerSmcVelaIndicators();
     registerSmcLayers();   // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
+    window.__A_wireSmc = wireSmcLayerTriggers;
   } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
     registerFibOverlay(window.klinecharts);

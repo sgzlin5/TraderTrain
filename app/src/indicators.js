@@ -193,13 +193,18 @@ export function toggleBuiltin(chart, name, overlay, prefs = null) {
     if (has) {
       const h = (chart.indicators?.() || []).find(i => i.nativeType === type || i.id === type);
       try { h?.remove?.(); } catch {}
+      try { window.__TT_SMC_KICK?.(); } catch {}
       return false;
     }
     const inputs = {};
     if (prefs && Array.isArray(prefs.calcParams) && prefs.calcParams.length) {
       prefs.calcParams.forEach((v, i) => { inputs['p' + i] = v; });
     }
-    try { chart.addNativeIndicator(type, Object.keys(inputs).length ? { inputs } : undefined); return true; }
+    try {
+      chart.addNativeIndicator(type, Object.keys(inputs).length ? { inputs } : undefined);
+      try { window.__TT_SMC_KICK?.(); } catch {}
+      return true;
+    }
     catch (e) { console.warn('[vela-ind:add]', name, e?.message); return false; }
   }
   const has = (chart.getIndicators?.() || []).some(i => i.name === name);

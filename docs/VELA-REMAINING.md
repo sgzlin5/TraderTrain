@@ -91,16 +91,26 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
    决定性证实，且 capabilities.drawings=true 自相矛盾）。**三层方案**：
    ▸ Tier-0 排错（半小时，干净新页面）：最小 Pine `label.new/box.new` 是否渲染（区分 Pine 管线
    vs native emit 管线）；`xloc:'bar_index'` 变体（bar_time 变换可疑）；对照官方 emit 用法
-   ▸ Tier-1 主线（与缺陷无关的确定通路）：SMC/flow 走 **pushData + registerRendererLayer 自绘**
-   —— 这是 Vela 设计好的侧信道（`NativeIndicatorContext.pushData` 文档原文即为"非 series/fill
-   的原生 visuals"准备；layer 的 `render(args)` 里 `args.coords.timeToX/priceToY` P0-E 已实测）。
-   SMC 保持 native（图例/设置/生命周期全保留），算出 zones/events 后 pushData，layer 里用
-   canvas 2D 画——smcRender 的 drawRect/drawLine/drawTag 几乎原样移植，约 1 人日
+   ▸ Tier-1 主线 ✅ **已打通（2026-11-05）**：SMC 走 registerRendererLayer 自绘。完整修复链
+   （每一环都是实测踩坑）：①渲染器会包装层实例——`this` 上没有自定义方法，绘制必须是
+   create() 内的**闭包函数**；②native `_run` 跑在 worker 作用域——`window` 写入主页面不可见，
+   **计算移到 host**（`updateSmcLayers(app)`：主作用域跑 calc → `window.__TT_LAYER_DATA` 全局表
+   → 层每帧读它）；③`coords.priceToY` 内部读未接线 scale 会炸——用 `args.scale(min/max)` +
+   `args.bounds(top/height)` 手工线性映射；④空结果不删载荷（历史深化时 bar 数变化会让
+   index 过滤瞬时为空）；⑤静态图无自发数据帧——载荷更新后 `chart.resize()` 触发一帧。
+   实测：FVG 层画布 1392 绘制像素，图例/添加/移除全链路走指标面板 UI ✓（截图
+   docs/vela-tier1-smc.png）。触发接线（wireSmcLayerTriggers）：load:end/bar/market:changed/
+   replay:step/replay:tick + 面板添加/移除 kick
    ▸ Pine 原语（LuxAlgo Dashboard 表格/框/标签）：依赖 Tier-0 结论——是我们 emit 形状问题就修；
    是 Vela 缺陷就报上游（pre-1.0 迭代快，R2 反而可能很快修）；最后手段 = host 从
    handle.context() 镜像原语到自绘层重画（hack）
-   ⚠ 附带发现：live feed 每秒 tick → 引擎每秒重跑 → runScript 长跑后页面主线程卡死
-   （评估环境被反复重型脚本+崩溃降级）。P4-2c 性能专项必须包含「live 期 Pine 重跑节流」；
+   ⚠ 附带发现①：live feed 每秒 tick → 引擎每秒重跑 → runScript 长跑后页面主线程卡死
+   —— **R15**（live:true 已回退，Pine 优先；实时 bar 显示等本项修完随 pushLiveBar 重开）
+   ⚠ 附带发现② **R16（新）**：setVisibleRange/周期快速切换后 pane 偶发进入破损态
+   （坐标轴塌缩到 0.1-0.9 / 数据不绘制，重载恢复）——疑与自绘层的透明锚 series 交互，
+   需排查（短期规避：减少程序化 setVisibleRange）；
+   ▸ SMC 剩余：FLOW_VP/WALL/DEPTH 同路移植 + SMC_DASH 面板 + 图例 "undefined" 名字
+   （native shorttitle 传递，已加 shortTitle 待验证）；
    ②FLOW_VP/WALL/DEPTH 同走 renderer 层；③Pine 大脚本性能：Dashboard 经 chart.runScript
    ~60s+/次（引擎直跑 300 根 677ms），反复跑可压垮页面——需剖析 fetchSeries/重跑策略
 4. P4 vela-ind.js（4.5，含 SMC 自绘 + Pine 桥接线）
