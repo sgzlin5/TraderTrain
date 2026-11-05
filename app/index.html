@@ -363,7 +363,10 @@
         <input type="checkbox" id="dlAutoGap" checked> 启动自动补缺口
       </label>
       <button id="dlCancel" class="btn ghost" hidden>取消</button>
+      <button id="gapScanBtn" class="btn ghost" title="全档扫描 1m 时间戳的异常空洞（排除每日 06:00 维护与周末），列出后可按段补齐">扫描中间缺口</button>
     </div>
+    <div id="gapScanInfo" class="muted" hidden></div>
+    <div id="gapList" hidden></div>
     <div id="dlProgWrap" hidden>
       <progress id="dlProg" value="0" max="100"></progress>
       <div class="prog-line"><span id="dlText"></span></div>

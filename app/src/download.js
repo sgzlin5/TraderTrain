@@ -242,6 +242,72 @@ async function dlFinish(job) {
   }
 }
 
+/* ---------------- 中间缺口扫描与补齐（2026-11-05） ----------------
+   全档扫描 1m 时间戳的异常空洞，排除两类良性缺口：
+   · 每日维护（洞起点 05:5x UTC、≤2h —— Dukascopy 每天 06:00 整点缺失）
+   · 周末（起点周五/周六/周日傍晚、≤3.6 天 —— XAUUSD 周末休市）
+   其余列为候选：可按段补齐（ingest 按 timestamp 去重，已有根不覆盖）。 */
+
+export async function scanInteriorGaps(code) {
+  const { getProfile, getChunk } = await import('./db.js');
+  const { RECORD_BYTES } = await import('./binread.js');
+  const prev = await getProfile(`${code}-1m`);
+  if (!prev?.chunks?.length) return { gaps: [], bars: 0 };
+  let prevTs = null;
+  const gaps = [];
+  let bars = 0;
+  const MIN = 60000;
+  for (const ch of [...prev.chunks].sort((a, b) => a.year - b.year)) {
+    const buf = await getChunk(ch.key);
+    if (!buf) continue;
+    const dv = new DataView(buf);
+    const total = Math.floor(buf.byteLength / RECORD_BYTES);
+    bars += total;
+    for (let i = 0; i < total; i++) {
+      const ts = Number(dv.getBigInt64(i * RECORD_BYTES, true));
+      if (prevTs != null) {
+        const dt = ts - prevTs;
+        if (dt > MIN) {
+          const d = new Date(prevTs);
+          const dow = d.getUTCDay(), hour = d.getUTCHours(), days = dt / 86400000;
+          const nbars = Math.max(1, Math.round(dt / MIN) - 1);
+          let kind = 'gap';
+          if (days <= 0.09 && hour === 5 && d.getUTCMinutes() >= 50) kind = 'maint';
+          else if (nbars >= 55 && nbars <= 65) kind = 'maint';            // ~1h 维护段（不同年代时刻不一）
+          else if (days <= 3.6 && (dow === 5 || dow === 6 || (dow === 0 && hour >= 12))) kind = 'weekend';
+          if (kind === 'gap') gaps.push({
+            startDay: isoDay(new Date(prevTs + MIN)), endDay: isoDay(new Date(ts - MIN)),
+            bars: nbars, kind
+          });
+        }
+      }
+      prevTs = ts;
+    }
+  }
+  return { gaps, bars };
+}
+
+/** 顺序补齐候选缺口：每段走一次「补到昨天」同款管线（下载 → 去重合并入库 → 刷新）。 */
+export async function fillGaps(code, gaps, onStatus = () => {}) {
+  if (DL.jobId) { onStatus('下载队列忙，稍后再试', true); return false; }
+  DL.picked = { code, source: 'dukascopy' };
+  const { getProfile } = await import('./db.js');
+  for (let i = 0; i < gaps.length; i++) {
+    const g = gaps[i];
+    onStatus(`[${i + 1}/${gaps.length}] 补 ${g.startDay} → ${g.endDay} …`);
+    const before = (await getProfile(`${code}-1m`))?.bars ?? 0;
+    await dlAppend({ from: g.startDay, to: g.endDay });
+    if (!DL.jobId) { onStatus(`跳过 ${g.startDay}（无需下载或接口不可用）`); continue; }
+    // 等 dlPoll 完成（DL.jobId 在完成后被清空）+ 入库/刷新收尾
+    while (DL.jobId) await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 1500));
+    const after = (await getProfile(`${code}-1m`))?.bars ?? 0;
+    onStatus(`[${i + 1}/${gaps.length}] ${g.startDay} → ${g.endDay}：新增 ${(after - before).toLocaleString()} 根${after - before === 0 ? '（可能为休市日，上游也无数据）' : ''}`);
+  }
+  onStatus(`补齐完成：处理 ${gaps.length} 段`);
+  return true;
+}
+
 /** 启动时自动补缺口：历史尾部 → UTC 昨天。返回 {started, reason, from, to} */
 export async function autoGapFill(code, opts = {}) {
   if (DL.jobId) return { started: false, reason: 'busy' };
@@ -296,6 +362,57 @@ export function wireDownload() {
   }
   document.getElementById('dlStart').onclick = () => dlStart();
   document.getElementById('dlAppend').onclick = () => dlAppend();
+  // 中间缺口扫描（vela 分支新增）
+  const gapScanBtn = document.getElementById('gapScanBtn');
+  if (gapScanBtn) {
+    gapScanBtn.onclick = async () => {
+      const code = window.__APP__?.profile?.id?.replace(/-1m$/, '');
+      const info = document.getElementById('gapScanInfo');
+      const list = document.getElementById('gapList');
+      if (!code) { if (info) info.textContent = '先导入一个档案'; return; }
+      gapScanBtn.disabled = true;
+      if (info) { info.hidden = false; info.textContent = '扫描中…（全档时间戳遍历，约 2 秒）'; }
+      try {
+        const { scanInteriorGaps } = await import('./download.js');
+        const { gaps, bars } = await scanInteriorGaps(code);
+        if (list) {
+          list.hidden = false;
+          if (!gaps.length) {
+            list.innerHTML = `<div class="gap-row">扫描完成：${bars.toLocaleString()} 根中未发现可补的中间缺口（每日维护与周末已排除）</div>`;
+          } else {
+            // 分级：大缺口（≥10 根）逐条列出；零星（<10 根）计数 + 按天合并补齐
+            const big = gaps.filter(g => g.bars >= 10);
+            const tiny = gaps.filter(g => g.bars < 10);
+            const tinyBars = tiny.reduce((s2, g) => s2 + g.bars, 0);
+            let html = `<div class="gap-row">扫描完成：${bars.toLocaleString()} 根 · 候选缺口 ${gaps.length} 段
+              <button id="gapFillAll" class="btn">补齐以下全部</button></div>`;
+            html += big.map((g, i) => `<div class="gap-row">▸ ${g.startDay} → ${g.endDay} · 缺 ${g.bars.toLocaleString()} 根
+              <button class="btn ghost" data-gap-i="${gaps.indexOf(g)}">补</button></div>`).join('');
+            if (tiny.length) {
+              html += `<div class="gap-row">▸ 另有 ${tiny.length} 段零星缺失（共 ${tinyBars.toLocaleString()} 根，单段 1-9 根）
+                <button id="gapFillTiny" class="btn ghost">按天合并补齐</button></div>
+                <div class="gap-row muted">零星缺失多为上游数据源本身没有的根；合并补齐按天下载，已有根自动去重。若受影响日期超过 60 天会拒绝执行。</div>`;
+            }
+            if (!big.length && !tiny.length) html += `<div class="gap-row">无候选缺口</div>`;
+            list.innerHTML = html;
+            list.querySelectorAll('[data-gap-i]').forEach(b => {
+              b.onclick = () => runGapFill(code, [gaps[Number(b.dataset.gapI)]]);
+            });
+            const all = list.querySelector('#gapFillAll');
+            if (all) all.onclick = () => runGapFill(code, big.length ? big : gaps);
+            const ft = list.querySelector('#gapFillTiny');
+            if (ft) ft.onclick = () => {
+              const ranges = gapsToDayRanges(tiny);
+              if (ranges.length > 60) { if (info) info.textContent = `零星缺失分布在 ${ranges.length} 天，超过 60 段上限，请分年处理`; return; }
+              runGapFill(code, ranges.map(r => ({ startDay: r.startDay, endDay: r.endDay, bars: 0 })));
+            };
+          }
+        }
+      } catch (e) {
+        if (info) { info.hidden = false; info.textContent = `扫描失败：${e.message}`; }
+      } finally { gapScanBtn.disabled = false; }
+    };
+  }
   dlSyncAppendBtn();
   document.getElementById('dlCancel').onclick = async () => {
     if (!DL.jobId) return;
@@ -304,4 +421,41 @@ export function wireDownload() {
     DL.jobId = null;
     dlMsg('已取消');
   };
+}
+
+
+function gapsToDayRanges(gaps) {
+  const days = [...new Set(gaps.flatMap(g => {
+    const out = [];
+    const d0 = new Date(g.startDay + 'T00:00:00Z'), d1 = new Date(g.endDay + 'T00:00:00Z');
+    for (let d = d0.getTime(); d <= d1.getTime(); d += 86400000) out.push(new Date(d).toISOString().slice(0, 10));
+    return out;
+  }))].sort();
+  const ranges = [];
+  for (const day of days) {
+    const last = ranges[ranges.length - 1];
+    if (last && new Date(day) - new Date(last.endDay) <= 2 * 86400000) last.endDay = day;
+    else ranges.push({ startDay: day, endDay: day });
+  }
+  return ranges;
+}
+
+async function runGapFill(code, gaps) {
+  const info = document.getElementById('gapScanInfo');
+  const list = document.getElementById('gapList');
+  const onStatus = (t) => { if (info) info.textContent = t; };
+  await fillGaps(code, gaps, onStatus);
+  // 完成后重扫刷新列表
+  try {
+    const { scanInteriorGaps } = await import('./download.js');
+    const r = await scanInteriorGaps(code);
+    if (list) {
+      list.innerHTML = r.gaps.length
+        ? `<div class="gap-row">剩余 ${r.gaps.length} 段</div>` + r.gaps.map((g, i) => `<div class="gap-row">${g.startDay} → ${g.endDay} · 缺 ${g.bars.toLocaleString()} 根 <button class="btn ghost" data-gap-i="${i}">补</button></div>`).join('')
+        : `<div class="gap-row">扫描完成：未发现可补的中间缺口</div>`;
+      list.querySelectorAll('[data-gap-i]').forEach(b => {
+        b.onclick = () => runGapFill(code, [r.gaps[Number(b.dataset.gapI)]]);
+      });
+    }
+  } catch {}
 }
