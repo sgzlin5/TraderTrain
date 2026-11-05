@@ -132,7 +132,7 @@ export async function run(state) {
       && listFinal === list0
     );
   } catch (err) {
-    R.errors.push(String(err && err.message || err));
+    R.errors.push(String(err && (err.stack || err.message) || err));
     R.pass = false;
   } finally {
     R.done = true;

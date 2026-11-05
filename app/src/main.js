@@ -34,6 +34,15 @@ import {
 import { DEFAULT_LAYOUT, normalize, loadLayout, saveLayout, applyLayout as chartApplyLayout, loadTheme, saveTheme, applyThemeMode, migrateLayoutColors, THEMES, themeMeta } from './theme.js';
 import { buildChartTheme, indicatorPalette } from './chart.js';
 import { fmtTs, fmtTsShort, fmtDay, fmtLocalInput } from './fmt.js';
+import { install as install_TBOX } from './ui/toolsDraw.js';
+import { install as install_THEME } from './ui/themeMenu.js';
+import { install as install_DATA } from './ui/dataPanel.js';
+import { install as install_CSV } from './ui/csvImport.js';
+import { install as install_ARCH } from './ui/archive.js';
+import { install as install_COPYDRAW } from './ui/copyDraw.js';
+import { install as install_RPL } from './ui/replay.js';
+import { install as install_SESS } from './ui/session.js';
+import { install as install_TRADE } from './ui/trade.js';
 import {
   builtinList, activeNames, toggleBuiltin, PANE_LAYOUTS, paneCount, applyPaneLayout, LABELS as IND_LABELS, CUSTOM_META,
   loadIndPrefs, saveIndPrefs, applyIndPrefs, OVERLAY_INDS,
@@ -111,97 +120,20 @@ function pineMsg(text, bad = false) {
 
 /* ---------------- 周期 / 状态栏 ---------------- */
 
-/* ---------------- 扩展工具弹层 ---------------- */
-
-function renderMoreTools() {
-  const grid = $('moreToolsGrid');
-  if (!grid) return;
-  const active = state.draw?.activeTool;
-  grid.innerHTML = EXT_TOOLS.map(t => `<button data-ext="${t.key}" class="${active === t.key ? 'on' : ''}" title="${t.label}">${t.label}</button>`).join('');
-  grid.querySelectorAll('[data-ext]').forEach(b => {
-    b.onclick = () => {
-      if (!state.draw) return;
-      hideOvBar();
-      state.draw.activate(b.dataset.ext);
-      closeMoreTools();
-      renderTools();
-      $('toolHint').textContent = `绘制：${b.textContent}（按提示落点，Esc 取消）`;
-    };
-  });
-}
-
-function closeMoreTools() { $('moreTools').hidden = true; $('tools')?.classList.remove('mt-on'); }
-
-function toggleMoreTools() {
-  const el = $('moreTools');
-  if (!el.hidden) { closeMoreTools(); return; }
-  renderMoreTools();
-  const host = $('tools').getBoundingClientRect();
-  placeAt(el, Math.round(Math.min(host.left, window.innerWidth - 300)), Math.round(host.bottom + 8));
-  el.hidden = false;
-  document.addEventListener('mousedown', function onDoc(e) {
-    if (el.hidden) { document.removeEventListener('mousedown', onDoc, true); return; }
-    if (el.contains(e.target) || $('tools').contains(e.target)) return;
-    closeMoreTools();
-    document.removeEventListener('mousedown', onDoc, true);
-  }, true);
-}
-
-/* ---------------- 官方扩展工具（@klinecharts/extension 0.1.0） ---------------- */
-
-/** 扩展包里的 18 个 overlay：注册到全局，工具栏「更多」里可选 */
-export const EXT_TOOLS = [
-  { key: 'measure', label: '测量' },
-  { key: 'gannBox', label: '江恩箱' },
-  { key: 'fibonacciExtension', label: '斐波那契扩展' },
-  { key: 'fibonacciSegment', label: '斐波那契段' },
-  { key: 'fibonacciCircle', label: '斐波那契圆' },
-  { key: 'fibonacciSpeedResistanceFan', label: '速阻扇形' },
-  { key: 'fibonacciSpiral', label: '斐波那契螺旋' },
-  { key: 'abcd', label: 'AB=CD' },
-  { key: 'xabcd', label: '蝴蝶 XABCD' },
-  { key: 'threeWaves', label: '三浪' },
-  { key: 'fiveWaves', label: '五浪' },
-  { key: 'eightWaves', label: '八浪' },
-  { key: 'anyWaves', label: '任意浪' },
-  { key: 'arrow', label: '箭头' },
-  { key: 'rect', label: '矩形' },
-  { key: 'circle', label: '圆' },
-  { key: 'triangle', label: '三角' },
-  { key: 'parallelogram', label: '平行四边形' }
-];
-
-// 让「选中绘图」操作条也能显示扩展工具的中文名
-try { EXT_TOOLS.forEach(t => { OV_LABELS[t.key] = t.label; }); } catch {}
-
-let _extRegistered = false;
-function registerExtensionOverlays() {
-  if (_extRegistered) return 0;
-  const K = window.klinecharts;
-  if (!K || typeof K.registerOverlay !== 'function') return 0;
-  let n = 0;
-  for (const tpl of Object.values(KEXT)) {
-    if (!tpl || typeof tpl !== 'object' || !tpl.name) continue;
-    try { K.registerOverlay(tpl); n++; } catch (e) { console.warn('[ext]', tpl.name, e?.message); }
-  }
-  _extRegistered = true;
-  return n;
-}
-
 /* ---------------- 图表 TAB ---------------- */
 
 const TAB_PERIODS = ['1m', '5m', '15m', '1h'];
 
 function wsOptions(tabId = null) {
   return {
-    onChange: () => renderTools(),
+    onChange: () => TBOX.renderTools(),
     getStyles: () => resolveToolStyles(state.drawStyles, state.drawTemplates),
     onTick: (bar1m) => {
       state.trade?.onBar(bar1m);
-      scheduleTick();
-      if (++_pushedSincePine >= 120) { _pushedSincePine = 0; schedulePineRefresh(800); }
+      RPL.scheduleTick();
+      if (++_pushedSincePine >= 120) { _pushedSincePine = 0; RPL.schedulePineRefresh(800); }
     },
-    onState: (s) => { if (state.activeTab === state._tabOfReplay) { renderReplay(s); updateStatus(); } },
+    onState: (s) => { if (state.activeTab === state._tabOfReplay) { RPL.renderReplay(s); updateStatus(); } },
     onPickSymbol: (i) => openCellSymbolPicker(i),
     onCellsChanged: () => { syncTabSymbols(); saveTabs(); refreshLegend?.(); },
     onActive: (cell) => {
@@ -310,15 +242,15 @@ function activateTab(id) {
   state.wsLayout = tab.layout;
   state.wsPeriods = tab.periods;
   state._tabOfReplay = id;
-  if (state.replay) state.replay.setEmitter((s) => { renderReplay(s); updateStatus(); });
+  if (state.replay) state.replay.setEmitter((s) => { RPL.renderReplay(s); updateStatus(); });
 
   applyChartThemeAll();
   applyThemePaneLayout();
   renderTabs();
   renderPeriods();
-  renderTools();
+  TBOX.renderTools();
   renderPineApplied();
-  renderReplay();
+  RPL.renderReplay();
   updateStatus();
   setTimeout(() => { try { tab.ws.resizeAll(); } catch {} }, 60);
   return true;
@@ -538,7 +470,7 @@ function bindActiveCell() {
   state.pine = ws.pine;
   hideOvBar();
   renderPeriods();
-  renderTools();
+  TBOX.renderTools();
   renderPineApplied();
   updateStatus();
   if (ws.cells.length > 1) {
@@ -575,7 +507,7 @@ function renderPeriods() {
       }
       updateStatus(`切周期 ${p.label} · ${Math.round(performance.now() - t0)} ms`);
       markDirty();
-      schedulePineRefresh();
+      RPL.schedulePineRefresh();
     };
     nav.appendChild(b);
   }
@@ -588,190 +520,6 @@ function updateStatus(extra = '') {
   $('stPeriod').textContent = `周期 ${app.periodKey}`;
   $('stLoaded').textContent = `已加载 ${list.length} 根 · 读窗 ${app.stats.lastMs} ms`;
   $('stMsg').textContent = extra;
-}
-
-/* ---------------- 回放 ---------------- */
-
-function renderReplay(s = null) {
-  const st = s || (state.replay ? state.replay.state() : null);
-  if (!st) return;
-  $('cursorInfo').textContent = `游标 ${fmtTs(st.cursor)} · ${st.playing ? '播放中' : '暂停'} · ${st.speed}×`;
-  $('play').textContent = st.playing ? '暂停' : '播放';
-}
-
-function wireReplay() {
-  $('setStart').onclick = async () => {
-    if (!state.replay) return;
-    const v = $('startAt').value;
-    if (!v) return;
-    const ts = Date.parse(v + ':00Z');
-    const ms = await applyStart(ts);
-    updateStatus(`起点 ${fmtTs(ts)} · ${ms} ms`);
-  };
-  /** 在数据范围内随机取一个起点（避开首尾各一天，落点吸到真实存在的 1m bar） */
-  async function pickRandomStart() {
-    const p = state.profile;
-    const rp = state.replay;
-    if (!p || !rp) return 0;
-    const day = 86400000;
-    const lo = p.first + day;
-    const hi = p.last - day;
-    if (!(hi > lo)) return 0;
-    let ts = lo + Math.floor(Math.random() * (hi - lo));
-    try {
-      const nb = await rp.source.nextBars(ts, 1);
-      if (nb && nb[0]) ts = nb[0].timestamp;      // 落在休市/缺口里就顺延到下一根真 bar
-    } catch {}
-    return ts;
-  }
-
-  async function applyStart(ts) {
-    const t0 = performance.now();
-    $('startAt').value = fmtLocalInput(ts);
-    if (state.session) { state.session.startTs = ts; store.save(state.session).catch?.(() => {}); }
-    await state.replay.setStart(ts);
-    if (state.draw) await state.draw.load();
-    markDirty();
-    schedulePineRefresh();
-    return Math.round(performance.now() - t0);
-  }
-
-  $('randomStart').onclick = async () => {
-    if (!state.replay) return;
-    const ts = await pickRandomStart();
-    if (!ts) { updateStatus('数据范围太小，无法随机'); return; }
-    const ms = await applyStart(ts);
-    updateStatus(`随机起点 ${fmtTs(ts)} · ${ms} ms`);
-  };
-
-  $('fwd').onclick = async () => { if (state.replay) await state.replay.step(1); };
-  $('back').onclick = async () => {
-    if (!state.replay) return;
-    await state.replay.back(1);
-    if (state.draw) await state.draw.load();
-    if (state.trade) { state.trade._lastPrice = state.app.lastBar()?.close ?? null; state.trade.emit(); }
-    schedulePineRefresh();
-  };
-  $('play').onclick = () => {
-    state.replay?.toggle();
-    if (!state.replay?.playing) schedulePineRefresh();
-  };
-  $('speed').onchange = (e) => state.replay?.setSpeed(Number(e.target.value));
-  document.addEventListener('keydown', (e) => {
-    if (e.target.matches && e.target.matches('input,select,textarea')) return;
-    if (e.code === 'Space') { e.preventDefault(); state.replay?.toggle(); if (!state.replay?.playing) schedulePineRefresh(); }
-    else if (e.code === 'ArrowRight') { e.preventDefault(); state.replay?.step(1); }
-    else if (e.code === 'ArrowLeft') { e.preventDefault(); $('back').click(); }
-    else if (e.key === 'r' || e.key === 'R') { (e.shiftKey ? $('randomStart') : $('setStart')).click(); }
-    else if (e.key === 'Escape') { state.draw?.cancel(); renderTools(); }
-  });
-}
-
-/** 回放推进时：UI 节流（120ms）；Pine 指标每 120 根或暂停时重算 */
-let _tickTimer = null, _pushedSincePine = 0;
-function scheduleTick() {
-  if (_tickTimer) return;
-  _tickTimer = setTimeout(() => {
-    _tickTimer = null;
-    updateStatus();
-    updateFloating();
-    renderLegend();
-  }, 120);
-}
-
-let _pineTimer = null;
-function schedulePineRefresh(delay = 400) {
-  if (!state.pine) return;
-  if (_pineTimer) clearTimeout(_pineTimer);
-  _pineTimer = setTimeout(() => {
-    _pineTimer = null;
-    refreshPine();
-  }, delay);
-}
-
-function updateFloating() {
-  const t = state.trade;
-  if (!t || !t.pos || t._lastPrice == null) return;
-  const fl = (t.pos.side === 'long' ? t._lastPrice - t.pos.entry : t.pos.entry - t._lastPrice) * t.pos.qty;
-  const b = $('posBox').querySelector('b');
-  if (b) { b.textContent = fl.toFixed(2); b.className = fl >= 0 ? 'pos' : 'neg'; }
-}
-
-/* ---------------- 绘图 ---------------- */
-
-function renderTools() {
-  const box = $('tools');
-  if (!box) return;
-  const d = state.draw;
-  const active = d?.activeTool;
-  const canUndo = !!(d && d.history && d.history.length);
-  const canRedo = !!(d && d.future && d.future.length);
-  box.innerHTML = `
-    <button class="drag" data-act="drag" title="拖动工具栏">${'<i></i>'.repeat(6)}</button>
-    <button data-act="magnet" class="${isMagnetOn() ? 'active' : ''}" title="吸附（落点对齐到开高低收）">${TOOL_ACTIONS.magnet}</button>
-    <span class="tb-sep"></span>
-    ${TOOLS.map((t, i) => `${i === TOOLS.length - 2 ? '<span class="tb-sep"></span>' : ''}<button data-tool="${t.key}" class="${active === t.key ? 'active' : ''}" title="${t.label}">${t.icon}</button>`).join('')}
-    <span class="tb-sep"></span>
-    <button data-act="undo" ${canUndo ? '' : 'disabled'} title="撤销">${TOOL_ACTIONS.undo}</button>
-    <button data-act="redo" ${canRedo ? '' : 'disabled'} title="重做">${TOOL_ACTIONS.redo}</button>
-    <button data-act="removeLast" title="删除最后一根绘图">${TOOL_ACTIONS.removeLast}</button>
-    <button data-act="clear" title="清空当前周期的绘图">${TOOL_ACTIONS.clear}</button>
-    <button data-act="manage" title="绘图管理（多选 / 批量删除）">▤</button>
-    <button data-act="more" title="更多绘图工具（扩展包）">${TOOL_ACTIONS.more}</button>
-    <button data-act="style" title="绘图样式">${TOOL_ACTIONS.style}</button>
-    <span class="tb-sep"></span>
-    <button data-act="collapse" title="${toolsState().mode === 'rail' ? '切回悬浮工具栏' : '收起到左侧工具栏'}">${toolsState().mode === 'rail' ? TOOL_ACTIONS.float : TOOL_ACTIONS.collapse}</button>
-  `;
-
-  // 图标按钮只有 title：补 aria-label，读屏/键盘才有名字（B1）
-  box.querySelectorAll('button').forEach(b => {
-    if (!b.getAttribute('aria-label')) {
-      const label = b.getAttribute('title') || (b.dataset.tool ? (TOOLS.find(t => t.key === b.dataset.tool)?.label || '') : '');
-      if (label) b.setAttribute('aria-label', label);
-    }
-  });
-  box.querySelector('[data-act="manage"]')?.addEventListener('click', () => openDrawMgr());
-  box.querySelectorAll('button[data-tool]').forEach(b => {
-    const t = TOOLS.find(x => x.key === b.dataset.tool);
-    b.onclick = () => {
-      if (!state.draw) return;
-      hideOvBar();
-      state.draw.activate(b.dataset.tool);
-      renderTools();
-      $('toolHint').textContent = b.dataset.tool === 'polyline'
-        ? '绘制：折线（多次点击，双击/右键/回车结束，Esc 取消）'
-        : `绘制：${t.label}（点两次完成，Esc 取消）`;
-    };
-  });
-  box.querySelectorAll('button[data-act]').forEach(b => {
-    const act = b.dataset.act;
-    if (act === 'drag') return;
-    b.onclick = () => {
-      const d2 = state.draw;
-      if (!d2) return;
-      if (act === 'magnet') {
-        const now = toggleMagnet();
-        markDirty();
-        renderTools();
-        updateStatus(now ? '吸附已开：落点对齐开高低收' : '吸附已关');
-        return;
-      }
-      if (act === 'undo') { d2.undo(); renderTools(); }
-      else if (act === 'redo') { d2.redo(); renderTools(); }
-      else if (act === 'removeLast') { d2.removeLast(); renderTools(); }
-      else if (act === 'clear') { d2.clear(); renderTools(); }
-      else if (act === 'more') { toggleMoreTools(); }
-      else if (act === 'style') {
-        if ($('drawStylePanel').hidden) openDrawStylePanel(); else closeDrawStylePanel();
-      }
-      else if (act === 'collapse') {
-        const next = toolsState().mode === 'rail' ? 'float' : 'rail';
-        setToolsMode(next);
-        updateStatus(next === 'rail' ? '工具栏已贴到左侧，用工具栏里的切换按钮可切回悬浮' : '工具栏已悬浮');
-      }
-    };
-  });
-  if (!active) $('toolHint').textContent = '';
 }
 
 /* ---------------- 选中绘图：浮动操作条 ---------------- */
@@ -833,7 +581,7 @@ function showOvBar(o) {
   state.selOverlay = o.id;
   const line = o.styles?.line || {};
   $('ovName').textContent = OV_LABELS[o.name] || o.name;
-  $('ovColor').value = toHexColor(line.color);
+  $('ovColor').value = TBOX.toHexColor(line.color);
   const w = String(line.size ?? 1);
   if (![...$('ovWidth').options].some(op => op.value === w)) {
     const opt = document.createElement('option');
@@ -994,7 +742,7 @@ function wireOverlayBar() {
     hideOvBar();
     if (state.draw.removeOverlayById(id)) updateStatus('已删除该绘图');
   };
-  $('ovTune').onclick = () => openDrawStylePanel();
+  $('ovTune').onclick = () => TBOX.openDrawStylePanel();
   $('ovMore').onclick = () => {
     const el = $('ovMenu');
     if (!el.hidden) { el.hidden = true; return; }
@@ -1009,7 +757,7 @@ function wireOverlayBar() {
       const act = b.dataset.ov;
       if (act === 'save') { $('ovTplSaveRow').hidden = false; $('ovTplName').value = ''; $('ovTplName').focus(); return; }
       if (act === 'apply-default') { applyDefaultTemplate(id); $('ovMenu').hidden = true; refreshOvBar(); return; }
-      if (act === 'fib') { openDrawStylePanel(); $('ovMenu').hidden = true; return; }
+      if (act === 'fib') { TBOX.openDrawStylePanel(); $('ovMenu').hidden = true; return; }
       if (act === 'reset') {
         const o = state.app.chart.getOverlays().find(x => x.id === id);
         if (o) {
@@ -1052,566 +800,6 @@ function wireOverlayBar() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideOvBar(); });
 }
 
-/* ---------------- 绘图样式面板 ---------------- */
-
-function toHexColor(v) {
-  return /^#[0-9a-f]{6}$/i.test(v || '') ? v : themeLineColor();
-}
-
-function renderDrawStylePanel() {
-  const st = state.drawStyles || defaultDrawStyles();
-  const box = $('drawStyleRows');
-  box.innerHTML = TOOLS.map(t => {
-    const s = st[t.key] || {};
-    return `<div class="ds-row">
-      <span class="ds-name">${t.label}</span>
-      <input type="color" class="swatch" data-color="${t.key}" value="${toHexColor(s.color)}" title="线条颜色">
-      <select data-style="${t.key}" title="线型">${LINE_STYLE_OPTIONS.map(o => `<option value="${o.key}"${s.style === o.key ? ' selected' : ''}>${o.label}</option>`).join('')}</select>
-      <select data-size="${t.key}" title="粗细">${SIZE_OPTIONS.map(n => `<option value="${n}"${Number(s.size) === n ? ' selected' : ''}>${n}px</option>`).join('')}</select>
-      <button class="ds-reset" data-reset="${t.key}" title="恢复该工具默认">⟲</button>
-    </div>`;
-  }).join('');
-
-  box.querySelectorAll('input[data-color]').forEach(el => {
-    el.oninput = () => setDrawStyle(el.dataset.color, { color: el.value });
-  });
-  box.querySelectorAll('select[data-style]').forEach(el => {
-    el.onchange = () => setDrawStyle(el.dataset.style, { style: el.value });
-  });
-  box.querySelectorAll('select[data-size]').forEach(el => {
-    el.onchange = () => setDrawStyle(el.dataset.size, { size: Number(el.value) });
-  });
-  box.querySelectorAll('button[data-reset]').forEach(el => {
-    el.onclick = () => {
-      const key = el.dataset.reset;
-      const d = defaultDrawStyles()[key];
-      state.drawStyles[key] = { ...d };
-      commitDrawStyles();
-      renderDrawStylePanel();
-    };
-  });
-
-  // 斐波那契层级
-  const lv = st.fibonacciLine?.levels || FIB_DEFAULT_LEVELS;
-  $('fibLevels').innerHTML = lv.map((n, i) =>
-    `<span class="ds-chip"><b>${(n * 100).toFixed(1)}%</b><button data-lv="${i}" title="删除">×</button></span>`
-  ).join('') || '<span class="pl-hint">没有层级</span>';
-  $('fibLevels').querySelectorAll('button[data-lv]').forEach(b => {
-    b.onclick = () => {
-      const i = Number(b.dataset.lv);
-      const next = lv.slice();
-      next.splice(i, 1);
-      if (!next.length) { updateStatus('至少保留一个层级', true); return; }
-      state.drawStyles.fibonacciLine.levels = next;
-      commitDrawStyles();
-      renderDrawStylePanel();
-    };
-  });
-  $('fibPresets').innerHTML = FIB_PRESETS.map((p, i) =>
-    `<button class="btn ghost" data-preset="${i}">${p.label}</button>`).join('');
-  $('fibPresets').querySelectorAll('button[data-preset]').forEach(b => {
-    b.onclick = () => {
-      const p = FIB_PRESETS[Number(b.dataset.preset)];
-      state.drawStyles.fibonacciLine.levels = p.levels.slice();
-      commitDrawStyles();
-      renderDrawStylePanel();
-    };
-  });
-}
-
-function setDrawStyle(toolKey, patch) {
-  state.drawStyles[toolKey] = { ...state.drawStyles[toolKey], ...patch };
-  commitDrawStyles();
-}
-
-function commitDrawStyles() {
-  state.drawStyles = normalizeDrawStyles(state.drawStyles);
-  saveDrawStyles(state.drawStyles);
-  // 已有绘图按新样式重画
-  try { state.draw?.restore(); } catch {}
-}
-
-function addFibLevel() {
-  const raw = $('fibLevelInput').value.trim();
-  if (!raw) return;
-  let v = Number(raw);
-  if (!Number.isFinite(v)) { updateStatus('层级要填数字，例如 0.705 或 1.618', true); return; }
-  if (v > 2 && v <= 200) v = v / 100;          // 允许直接输入 70.5 表示 70.5%
-  if (v < -1 || v > 3) { updateStatus('层级范围建议 -100% ~ 300%', true); return; }
-  const levels = (state.drawStyles.fibonacciLine.levels || []).slice();
-  if (levels.some(n => Math.abs(n - v) < 1e-9)) { updateStatus('该层级已存在', true); return; }
-  levels.push(v);
-  levels.sort((a, b) => b - a);
-  state.drawStyles.fibonacciLine.levels = levels.slice(0, 16);
-  $('fibLevelInput').value = '';
-  commitDrawStyles();
-  renderDrawStylePanel();
-}
-
-function openDrawStylePanel() {
-  renderDrawStylePanel();
-  const el = $('drawStylePanel');
-  if (!el.hidden) return;
-  const r = $('tools').getBoundingClientRect();
-  placeAt(el, Math.round(Math.min(r.left, window.innerWidth - 360)), Math.round(r.bottom + 8));
-}
-
-function closeDrawStylePanel() { $('drawStylePanel').hidden = true; }
-
-function wireDrawStylePanel() {
-  $('closeDrawStyle').onclick = closeDrawStylePanel;
-  $('drawStyleDone').onclick = closeDrawStylePanel;
-  $('fibLevelAdd').onclick = addFibLevel;
-  $('fibLevelInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') addFibLevel(); });
-  document.addEventListener('mousedown', (e) => {
-    const el = $('drawStylePanel');
-    if (el.hidden) return;
-    if (el.contains(e.target) || $('tools').contains(e.target)) return;
-    closeDrawStylePanel();
-  }, true);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('drawStylePanel').hidden) closeDrawStylePanel();
-  });
-}
-
-/* ---------------- 悬浮工具栏：拖动 / 收起 ---------------- */
-
-function toolsState() {
-  if (!state.tools) state.tools = { mode: 'float', x: null, y: null };
-  if (!state.tools.mode) state.tools.mode = state.tools.hidden ? 'rail' : 'float';   // 兼容旧字段
-  delete state.tools.hidden;
-  return state.tools;
-}
-
-function saveTools() {
-  kvSet('ui:tools', toolsState()).catch?.(() => {});
-  markDirty();
-}
-
-/** 两种形态：float = 图表上方悬浮条（可拖动）；rail = 贴左侧竖排栏 */
-function placeTools() {
-  const box = $('tools');
-  if (!box) return;
-  const t = toolsState();
-  const rail = t.mode === 'rail';
-  box.hidden = false;
-  box.classList.toggle('rail', rail);
-  $('main').classList.toggle('has-rail', rail);
-  if (rail) {
-    box.classList.remove('dragged');
-    box.style.left = '';
-    box.style.top = '';
-  } else if (t.x == null || t.y == null) {
-    box.classList.remove('dragged');
-    box.style.left = '';
-    box.style.top = '';
-  } else {
-    box.classList.add('dragged');
-    box.style.left = `${t.x}px`;
-    box.style.top = `${t.y}px`;
-  }
-  if (state.app?.chart) { try { state.app.chart.resize(); } catch {} }
-}
-
-function setToolsMode(mode) {
-  const t = toolsState();
-  t.mode = mode === 'rail' ? 'rail' : 'float';
-  placeTools();
-  renderTools();
-  saveTools();
-}
-
-function wireTools() {
-  const box = $('tools');
-  if (!box) return;
-
-  box.addEventListener('mousedown', (e) => {
-    const handle = e.target.closest('.drag');
-    if (!handle) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const main = $('main').getBoundingClientRect();
-    const r = box.getBoundingClientRect();
-    const offX = e.clientX - r.left;
-    const offY = e.clientY - r.top;
-    box.classList.add('dragging');
-    const move = (ev) => {
-      const x = Math.min(Math.max(0, ev.clientX - main.left - offX), main.width - r.width);
-      const y = Math.min(Math.max(0, ev.clientY - main.top - offY), main.height - r.height);
-      box.classList.add('dragged');
-      box.style.left = `${Math.round(x)}px`;
-      box.style.top = `${Math.round(y)}px`;
-      toolsState().x = Math.round(x);
-      toolsState().y = Math.round(y);
-    };
-    const up = () => {
-      box.classList.remove('dragging');
-      document.removeEventListener('mousemove', move);
-      document.removeEventListener('mouseup', up);
-      saveTools();
-    };
-    document.addEventListener('mousemove', move);
-    document.addEventListener('mouseup', up);
-  });
-}
-
-/* ---------------- 交易 ---------------- */
-
-let _markSig = '';
-function renderTradeMarks(s) {
-  if (!state.app) return;
-  const chart = state.app.chart;
-  const pos = s.pos;
-  const sig = pos ? `${pos.side}@${pos.entry}/${pos.sl}/${pos.tp}/${chart.getDataList().length}` : '-';
-  if (sig === _markSig) return;
-  _markSig = sig;
-  for (const id of state.marks) { try { chart.removeOverlay({ id }); } catch {} }
-  state.marks = [];
-  if (!pos) return;
-  const idx = Math.max(0, chart.getDataList().length - 1);
-  const add = (name, value, color) => {
-    try {
-      const id = chart.createOverlay({
-        name,
-        points: [{ dataIndex: idx, value }],
-        styles: { line: { color, size: 1, style: 'dashed' } }
-      });
-      if (id) state.marks.push(id);
-    } catch {}
-  };
-  // 入场线 + 箭头标签（多/空 + 手数），SL/TP 用价格线保留右侧标签
-  const bull = pos.side === 'long';
-  add('horizontalStraightLine', pos.entry, bull ? '#5fe3c0' : '#ff6f85');
-  if (pos.sl != null) add('priceLine', pos.sl, '#ff6f85');
-  if (pos.tp != null) add('priceLine', pos.tp, '#5fe3c0');
-  // 入场点的方向标记（v10 不支持 draw，这里用 overlay 注解代替箭头）
-  try {
-    const id = chart.createOverlay({
-      name: 'simpleAnnotation',
-      points: [{ dataIndex: idx, value: pos.entry }],
-      extendData: `${bull ? '▲ 多' : '▼ 空'} ${pos.qty}`,
-      styles: { text: { color: bull ? '#5fe3c0' : '#ff6f85', size: 11, family: 'ui-monospace, Menlo, Consolas, monospace', backgroundColor: 'rgba(6,12,20,.72)' } }
-    });
-    if (id) state.marks.push(id);
-  } catch (e) { logErr('trade:标记', e); }
-}
-
-function renderTrade(snap) {
-  const s = snap || (state.trade ? state.trade.snapshot() : null);
-  if (!s) return;
-  const pos = s.pos;
-  const box = $('posBox');
-  if (pos) {
-    const fl = s.floating;
-    box.className = 'box ' + (pos.side === 'long' ? 'long' : 'short');
-    box.innerHTML = `${pos.side === 'long' ? '多' : '空'} ${pos.qty} oz @ ${fmtPrice(pos.entry, state.profile?.symbol)}
-      <br>SL ${pos.sl ?? '-'} · TP ${pos.tp ?? '-'}
-      <br>浮动 <b class="${(fl ?? 0) >= 0 ? 'pos' : 'neg'}">${fl == null ? '-' : fl.toFixed(2)}</b>`;
-  } else {
-    box.className = 'box';
-    const pend = s.orders.filter(o => !o.done).length;
-    box.textContent = pend ? `无持仓 · 挂单 ${pend} 笔` : '无持仓';
-  }
-  const wins = s.trades.filter(t => t.pnl > 0).length;
-  $('tradeStats').textContent = s.trades.length
-    ? `${s.trades.length} 笔 · 胜 ${wins} · 已实现 ${s.realized.toFixed(2)}`
-    : '暂无成交';
-  if (!s.trades.length) {
-    $('tradeList').innerHTML = `<div class="empty-card">
-      <b>还没有成交</b><p>点上面的「市价买/卖」或「限价挂单」下单，成交后会出现在这里。</p></div>`;
-  } else
-  $('tradeList').innerHTML = s.trades.slice().reverse().slice(0, 30).map(t => `
-    <div class="t"><span>${t.side === 'long' ? '多' : '空'} ${t.qty} @ ${fmtPrice(t.entry, state.profile?.symbol)} → ${fmtPrice(t.exit, state.profile?.symbol)}
-      <span class="muted">${t.why}</span></span>
-      <span class="${t.pnl >= 0 ? 'pos' : 'neg'}">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</span></div>`).join('');
-  $('stTrade').textContent = `持仓 ${pos ? `${pos.side} ${pos.qty}oz @ ${fmtPrice(pos.entry, state.profile?.symbol)}` : '无'} · 已实现 ${s.realized.toFixed(2)}`;
-  renderTradeMarks(s);
-}
-
-/**
- * 源数据成交量：全 0 时在顶栏和状态栏标明，免得用户以为是脚本或图表坏了。
- * 只看前 300 根（够判断，不用扫 400 万根）。
- */
-function detectVolume() {
-  const bars = state.app?.chart?.getDataList?.() || [];
-  const sample = bars.slice(0, 300);
-  const hasVol = sample.some(b => Number(b.volume) > 0);
-  state.hasVolume = hasVol;
-  const tag = $('volTag');
-  if (tag) {
-    tag.hidden = hasVol;
-    tag.textContent = hasVol ? '' : '无成交量';
-    tag.title = hasVol ? '' : '当前数据源没有成交量（Dukascopy 的 CSV 一般不带），依赖 volume 的脚本只能部分显示';
-  }
-  return hasVol;
-}
-
-function updateAsOf() {
-  const el = $('stAsOf');
-  if (!el) return;
-  const p = state.profile;
-  // 有实时段时“数据截至”要跟着实时走（profile.last 只是导入时的历史截止）
-  const liveLast = state.live?.lastTs || p?.live?.last || null;
-  const last = liveLast && (!p?.last || liveLast > p.last) ? liveLast : p?.last;
-  el.textContent = last ? `数据截至 ${fmtTs(last)}${liveLast ? ' · 含实时' : ''}` : '数据截至 -';
-}
-
-function lastPrice() {
-  const b = state.app?.lastBar();
-  return b ? b.close : null;
-}
-
-/** 交易状态变化 → 同步到场次（新平仓笔数 → 追加 + 截图） */
-function onTradeChange(snap) {
-  renderTrade(snap);
-  const ses = state.session;
-  if (ses) {
-    const fresh = snap.trades.slice(ses.trades.length);
-    if (fresh.length) {
-      ses.trades.push(...fresh);
-      store.save(ses).then(() => renderSession());
-      captureShot(ses, 'close', fresh[fresh.length - 1]);
-    }
-    if (!state.prevPos && snap.pos) captureShot(ses, 'open', snap.pos);
-    state.prevPos = snap.pos;
-  }
-}
-
-async function captureShot(session, phase, info) {
-  try {
-    // 等两帧再截：面板开合会改 #chart 宽度 → canvas 重置后要等重绘（用 setTimeout，后台标签页 rAF 会被节流）
-    await new Promise(r => setTimeout(r, 200));
-    const blob = await captureChart($('chart'));
-    if (!blob || blob.size < 3000) return;
-    await store.addShot(session, blob, { phase, ts: state.replay?.cursor ?? null, side: info?.side ?? null });
-    await store.save(session);
-    await renderShotList();
-  } catch (e) { console.warn('shot failed', e); }
-}
-
-function wireTrade() {
-  $('btnTrade').onclick = () => {
-    $('tradePanel').hidden = !$('tradePanel').hidden;
-    $('btnTrade').classList.toggle('active', !$('tradePanel').hidden);
-  };
-  $('closeTrade').onclick = () => { $('tradePanel').hidden = true; $('btnTrade').classList.remove('active'); };
-  $('qty').onchange = (e) => state.trade?.setQty(e.target.value);
-  const num = (id) => { const el = $(id); const v = Number(el.value); return el.value !== '' && Number.isFinite(v) ? v : null; };
-
-  $('buy').onclick = () => {
-    if (!state.trade || !state.app) return;
-    const p = lastPrice(); if (p == null) return;
-    const r = state.trade.openMarket('long', p, state.app.lastBar(), { sl: num('sl'), tp: num('tp') });
-    if (!r.ok) updateStatus(r.reason);
-  };
-  $('sell').onclick = () => {
-    if (!state.trade || !state.app) return;
-    const p = lastPrice(); if (p == null) return;
-    const r = state.trade.openMarket('short', p, state.app.lastBar(), { sl: num('sl'), tp: num('tp') });
-    if (!r.ok) updateStatus(r.reason);
-  };
-  $('flat').onclick = () => {
-    if (!state.trade || !state.app) return;
-    const p = lastPrice(); if (p == null) return;
-    const rec = state.trade.closePos(p, state.app.lastBar(), 'manual');
-    if (rec) updateStatus(`平仓 ${rec.side} pnl ${rec.pnl}`);
-  };
-  $('limitBuy').onclick = () => {
-    const p = num('limitPrice'); if (p == null || !state.trade) return;
-    state.trade.placeLimit('long', p, state.app.lastBar());
-    updateStatus(`挂多 @ ${p}`);
-  };
-  $('limitSell').onclick = () => {
-    const p = num('limitPrice'); if (p == null || !state.trade) return;
-    state.trade.placeLimit('short', p, state.app.lastBar());
-    updateStatus(`挂空 @ ${p}`);
-  };
-  $('cancelOrders').onclick = () => { state.trade?.cancelOrders(); updateStatus('已撤未成交挂单'); };
-}
-
-/* ---------------- 场次 ---------------- */
-
-async function ensureSession(symbol) {
-  const id = await store.activeId();
-  let ses = id ? await store.get(id) : null;
-  if (!ses || ses.symbol !== symbol) ses = await store.create({ symbol });
-  state.session = ses;
-  state.sessions = await store.list();
-  // 正在输入就别覆盖（平仓会自动 renderSession，否则用户刚写的备注被旧值冲掉）
-  const nameEl = $('sessName'), noteEl = $('sessNote');
-  if (document.activeElement !== nameEl) nameEl.value = ses.name;
-  if (document.activeElement !== noteEl) noteEl.value = ses.note || '';
-  await renderSession();
-  return ses;
-}
-
-function renderStats(session) {
-  const st = computeStats(session.trades);
-  const cell = (v, label) => `<div class="s"><b>${v}</b><span>${label}</span></div>`;
-  $('statBox').innerHTML = [
-    cell(st.count, '笔数'),
-    cell(st.winRate + '%', '胜率'),
-    cell(st.netProfit.toFixed(2), '净盈亏'),
-    cell(st.profitFactor === Infinity ? '∞' : st.profitFactor, '盈亏比'),
-    cell(st.expectancy.toFixed(2), '期望/笔'),
-    cell(st.maxDrawdown.toFixed(2), '最大回撤'),
-    cell(st.wins + '/' + st.losses, '胜/负'),
-    cell(st.maxConsecWins, '最多连赢'),
-    cell(st.maxConsecLosses, '最多连输')
-  ].join('');
-  return st;
-}
-
-async function renderSession() {
-  const ses = state.session;
-  if (!ses) return;
-  const st = renderStats(ses);
-  $('sessInfo').textContent = `${ses.name} · ${ses.symbol} · 创建 ${fmtTs(ses.createdAt)}${ses.endedAt ? ` · 结束 ${fmtTs(ses.endedAt)}` : ' · 进行中'} · 收官权益 ${st.finalEquity.toFixed(2)}`;
-  $('sessTrades').innerHTML = ses.trades.length
-    ? ses.trades.slice().reverse().map((t, i) => `
-      <div class="t"><span>${ses.trades.length - i}. ${t.side === 'long' ? '多' : '空'} ${t.qty} @ ${fmtPrice(t.entry, state.profile?.symbol)} → ${fmtPrice(t.exit, state.profile?.symbol)}
-        <span class="muted">${t.why} · ${fmtTs(t.closeTs)}</span></span>
-        <span class="${t.pnl >= 0 ? 'pos' : 'neg'}">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</span></div>`).join('')
-    : '<div class="muted">还没有已平仓交易</div>';
-  await renderShotList();
-  await renderSessionList();
-}
-
-async function renderShotList() {
-  const ses = state.session;
-  if (!ses) return;
-  const box = $('shotList');
-  box.innerHTML = '';
-  let bytes = 0;
-  for (const s of (ses.shots || []).slice(-12).reverse()) {
-    const url = await store.shotUrl(s.key);
-    bytes += s.bytes || 0;
-    if (!url) continue;
-    const img = document.createElement('img');
-    img.src = url;
-    img.title = `${s.phase === 'open' ? '开仓' : '平仓'} ${fmtTs(s.ts)}`;
-    img.onclick = () => window.open(url, '_blank');
-    box.appendChild(img);
-  }
-  $('shotInfo').textContent = ses.shots?.length ? `${ses.shots.length} 张 · ${MB(bytes)} MB` : '（暂无）';
-}
-
-async function renderSessionList() {
-  const list = await store.list();
-  state.sessions = list;
-  const ul = $('sessList');
-  ul.innerHTML = '';
-  if (!list.length) {
-    ul.innerHTML = `<li class="empty-card"><b>还没有场次</b>
-      <p>「新建场次」开始一轮练习；结束时点「结束并归档」，之后能在复盘档案里回看。</p></li>`;
-  }
-  for (const s of list.slice().reverse().slice(0, 20)) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span>${s.name}<div class="meta">${s.symbol} · ${s.count} 笔 · ${fmtDay(s.createdAt)}</div></span>`;
-    const box = document.createElement('span');
-    const open = document.createElement('button');
-    open.textContent = state.session?.id === s.id ? '当前' : '查看';
-    open.onclick = async () => {
-      const full = await store.get(s.id);
-      if (!full) return;
-      state.session = full;
-      await store.setActive(full.id);
-      $('sessName').value = full.name;
-      $('sessNote').value = full.note || '';
-      await renderSession();
-    };
-    const del = document.createElement('button');
-    del.className = 'ghost'; del.textContent = '删除';
-    let armed = false, timer = null;
-    del.onclick = async () => {
-      if (!armed) {
-        armed = true; del.textContent = '再点一次';
-        timer = setTimeout(() => { armed = false; del.textContent = '删除'; }, 3000);
-        return;
-      }
-      clearTimeout(timer);
-      await store.remove(s.id);
-      if (state.session?.id === s.id) { state.session = null; await ensureSession(state.profile.symbol); }
-      await renderSession();
-    };
-    box.append(open, del);
-    li.appendChild(box);
-    ul.appendChild(li);
-  }
-}
-
-function wireSession() {
-  $('btnSession').onclick = async () => {
-    $('sessionPanel').hidden = !$('sessionPanel').hidden;
-    $('btnSession').classList.toggle('active', !$('sessionPanel').hidden);
-    if (!$('sessionPanel').hidden) { await renderSession(); }
-  };
-  $('closeSession').onclick = () => { $('sessionPanel').hidden = true; $('btnSession').classList.remove('active'); };
-
-  $('sessSaveName').onclick = async () => {
-    if (!state.session) return;
-    state.session.name = $('sessName').value.trim() || state.session.name;
-    state.session.note = $('sessNote').value;
-    await store.save(state.session);
-    await renderSession();
-  };
-  $('sessNote').onblur = $('sessSaveName').onclick;
-
-  $('sessNew').onclick = async () => {
-    if (!state.profile) return;
-    const name = ($('sessName').value || '').trim() || `场次 ${new Date().toISOString().slice(5, 16).replace('T', ' ')}`;
-    state.session = await store.create({ symbol: state.profile.symbol, name, period: state.app?.periodKey || null, startTs: state.replay?.cursor || null });
-    state.prevPos = null;
-    if (state.trade) { state.trade.trades = []; state.trade.realized = 0; state.trade.pos = null; state.trade.orders = []; state.trade.emit(); }
-    $('sessName').value = state.session.name;
-    $('sessNote').value = '';
-    await renderSession();
-  };
-
-  $('sessEnd').onclick = async () => {
-    if (!state.session) return;
-    await store.end(state.session);
-    await renderSession();
-  };
-
-  $('sessExportJson').onclick = () => {
-    if (!state.session) return;
-    const ses = state.session;
-    download(`${ses.symbol}-${ses.id}.json`, sessionToJson(ses));
-  };
-  $('sessExportCsv').onclick = () => {
-    if (!state.session) return;
-    const ses = state.session;
-    download(`${ses.symbol}-${ses.id}.csv`, '\ufeff' + tradesToCsv(ses.trades), 'text/csv');
-  };
-}
-
-
-/** 按住/松开修饰键时，重算一次绘制预览（不用等鼠标再动一下） */
-let _lastPointer = null;
-function watchPointer() {
-  document.addEventListener('mousemove', (e) => { _lastPointer = { x: e.clientX, y: e.clientY }; }, true);
-}
-function nudgeDrawingPreview() {
-  const d = state.draw;
-  if (!d || !d.pending || !_lastPointer) return;
-  const cvs = [...document.querySelectorAll('#chart canvas')];
-  const big = cvs.sort((a, b) => (b.width * b.height) - (a.width * a.height))[0];
-  if (!big) return;
-  try {
-    big.dispatchEvent(new MouseEvent('mousemove', {
-      bubbles: true, cancelable: true, view: window,
-      clientX: _lastPointer.x, clientY: _lastPointer.y, buttons: 0, detail: 1
-    }));
-  } catch {}
-}
-function wireModifierNudge() {
-  watchPointer();
-  const keys = new Set(['Shift', 'Control']);
-  window.addEventListener('keydown', (e) => { if (keys.has(e.key)) nudgeDrawingPreview(); }, true);
-  window.addEventListener('keyup', (e) => { if (keys.has(e.key)) nudgeDrawingPreview(); }, true);
-}
-
 /* ---------------- 配置存档（保存到本地） ---------------- */
 
 let _dirty = false;
@@ -1642,7 +830,7 @@ function collectWorkspace() {
     layout: state.layout,
     drawStyles: state.drawStyles,
     drawTemplates: state.drawTemplates,
-    tools: toolsState(),
+    tools: TBOX.toolsState(),
     split: state.workspace ? { key: state.wsLayout, periods: state.workspace.cells.map(c => c.app.periodKey) } : null
   };
 }
@@ -1663,7 +851,7 @@ async function saveWorkspace(quiet = false) {
 async function applyWorkspaceSnapshot(snap) {
   if (!snap) return false;
   try {
-    if (snap.theme) { state.theme = applyThemeMode(snap.theme); updateThemeButton(); }
+    if (snap.theme) { state.theme = applyThemeMode(snap.theme); THEME.updateThemeButton(); }
     if (snap.layout) {
       state.layout = normalize(snap.layout);
       applyThemePaneLayout();
@@ -1674,7 +862,7 @@ async function applyWorkspaceSnapshot(snap) {
       state.drawStyles = normalizeDrawStyles(snap.drawStyles);
       state.drawTemplates = snap.drawTemplates || state.drawTemplates;
     }
-    if (snap.tools) { state.tools = snap.tools; toolsState(); placeTools(); }
+    if (snap.tools) { state.tools = snap.tools; TBOX.toolsState(); TBOX.placeTools(); }
     if (snap.split && state.workspace && snap.split.key && snap.split.key !== state.wsLayout) {
       state.wsLayout = snap.split.key;
       state.wsPeriods = Array.isArray(snap.split.periods) ? snap.split.periods : null;
@@ -1683,7 +871,7 @@ async function applyWorkspaceSnapshot(snap) {
       state.draw = state.workspace.draw;
       state.pine = state.workspace.pine;
       state.replay = state.workspace.multi;
-      state.replay.setEmitter((s) => { renderReplay(s); updateStatus(); });
+      state.replay.setEmitter((s) => { RPL.renderReplay(s); updateStatus(); });
     }
     if (snap.period && state.app && snap.period !== state.app.periodKey) {
       await state.app.switchPeriod(snap.period);
@@ -1707,259 +895,6 @@ function wireSaveButton() {
     }
   });
 }
-
-/* ---------------- 复盘档案 ---------------- */
-
-const AR_SORT = {
-  'time-desc': (a, b) => b.createdAt - a.createdAt,
-  'time-asc': (a, b) => a.createdAt - b.createdAt,
-  'pnl-desc': (a, b) => (b.netProfit || 0) - (a.netProfit || 0),
-  'pnl-asc': (a, b) => (a.netProfit || 0) - (b.netProfit || 0),
-  'count-desc': (a, b) => (b.count || 0) - (a.count || 0),
-  'rating-desc': (a, b) => (b.rating || 0) - (a.rating || 0)
-};
-
-function arQuery() {
-  if (!state.arq) state.arq = { symbol: 'all', st: 'all', sort: 'time-desc', q: '' };
-  return state.arq;
-}
-
-const stars = (n) => '★'.repeat(Math.max(0, Math.min(5, n || 0))) + '☆'.repeat(5 - Math.max(0, Math.min(5, n || 0)));
-const pnlCls = (v) => (v > 0 ? 'pos' : v < 0 ? 'neg' : 'muted');
-
-async function renderArchive() {
-  const q = arQuery();
-  const all = await store.list();
-  state.sessions = all;
-
-  const syms = [...new Set(all.map(a => a.symbol).filter(Boolean))];
-  const sel = $('arSymbol');
-  const sig = syms.join('|');
-  if (sel.dataset.sig !== sig) {
-    sel.dataset.sig = sig;
-    sel.innerHTML = `<option value="all">全部品种</option>` + syms.map(s => `<option value="${s}">${s}</option>`).join('');
-    sel.value = q.symbol;
-  }
-
-  let rows = all.filter(a => {
-    if (q.symbol !== 'all' && a.symbol !== q.symbol) return false;
-    if (q.st === 'open' && a.endedAt) return false;
-    if (q.st === 'closed' && !a.endedAt) return false;
-    if (q.q) {
-      const hay = `${a.name} ${(a.tags || []).join(' ')} ${a.conclusion || ''} ${a.note || ''}`.toLowerCase();
-      if (!hay.includes(q.q)) return false;
-    }
-    return true;
-  }).sort(AR_SORT[q.sort] || AR_SORT['time-desc']);
-
-  const netAll = rows.reduce((s, a) => s + (a.netProfit || 0), 0);
-  const nTrades = rows.reduce((s, a) => s + (a.count || 0), 0);
-  $('arSummary').textContent = `${rows.length} 份档案 · ${nTrades} 笔 · 净盈亏合计 ${netAll >= 0 ? '+' : ''}${netAll.toFixed(2)}`;
-
-  const box = $('arList');
-  if (!rows.length) {
-    box.innerHTML = '<div class="ar-empty">还没有档案。在场次面板里「新建场次」做一轮，结束后就会出现在这里。</div>';
-    return;
-  }
-
-  box.innerHTML = rows.map(a => `
-    <div class="ar-row" data-id="${a.id}">
-      <div class="ar-line">
-        <span class="ar-name">${a.name}${(a.tags || []).length ? `<em>${a.tags.map(t => `#${t}`).join(' ')}</em>` : ''}</span>
-        <span class="ar-meta">${a.symbol || '-'} · ${a.period || '-'} · ${fmtDay(a.createdAt)}${a.endedAt ? '' : ' · 进行中'}</span>
-        <span class="ar-count">${a.count || 0} 笔</span>
-        <span class="ar-pnl ${pnlCls(a.netProfit)}">${a.netProfit > 0 ? '+' : ''}${(a.netProfit || 0).toFixed(2)}</span>
-        <span class="ar-rate" title="评分">${stars(a.rating)}</span>
-        <span class="ar-act">
-          <button class="btn ghost" data-open>打开</button>
-          <button class="btn ghost" data-exp>导出</button>
-          <button class="btn ghost" data-pdf>报告</button>
-          <button class="btn ghost" data-del>删除</button>
-        </span>
-      </div>
-      <div class="ar-detail" hidden></div>
-    </div>`).join('');
-
-  box.querySelectorAll('.ar-row').forEach(row => {
-    const id = row.dataset.id;
-    const brief = rows.find(a => a.id === id);
-    const detail = row.querySelector('.ar-detail');
-
-    row.querySelector('.ar-line').onclick = async (e) => {
-      if (e.target.closest('button')) return;
-      if (!detail.hidden) { detail.hidden = true; return; }
-      const full = await store.get(id);
-      if (!full) return;
-      detail.innerHTML = await detailHtml(full);
-      detail.hidden = false;
-      wireDetail(detail, full);
-    };
-
-    row.querySelector('[data-open]').onclick = async () => { await openArchive(brief); };
-    row.querySelector('[data-exp]').onclick = async () => {
-      const full = await store.get(id);
-      if (!full) return;
-      download(`${full.symbol}-${full.id}.json`, sessionToJson(full));
-    };
-    row.querySelector('[data-pdf]').onclick = async (e) => {
-      e.stopPropagation();
-      const full = await store.get(id);
-      if (full) await exportSessionReport(full);
-    };
-    const del = row.querySelector('[data-del]');
-    let armed = false, timer = null;
-    del.onclick = async () => {
-      if (!armed) {
-        armed = true; del.textContent = '再点一次';
-        timer = setTimeout(() => { armed = false; del.textContent = '删除'; }, 3000);
-        return;
-      }
-      clearTimeout(timer);
-      await store.remove(id);
-      if (state.session?.id === id) state.session = null;
-      await renderArchive();
-      updateStatus('档案已删除');
-    };
-  });
-}
-
-async function detailHtml(full) {
-  const st = renderStats(full);
-  const rows = (full.trades || []).slice(-6).reverse().map((t, i) => `
-    <div class="t"><span>${t.side === 'long' ? '多' : '空'} ${t.qty} @ ${fmtPrice(t.entry, state.profile?.symbol)} → ${fmtPrice(t.exit, state.profile?.symbol)}
-      <span class="muted">${t.why} · ${fmtTs(t.closeTs)}</span></span>
-      <span class="${t.pnl >= 0 ? 'pos' : 'neg'}">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</span></div>`).join('');
-  return `
-    <div class="ar-stats">
-      <span><b class="${pnlCls(st.netProfit)}">${st.netProfit >= 0 ? '+' : ''}${st.netProfit}</b><i>净盈亏</i></span>
-      <span><b>${st.winRate}%</b><i>胜率</i></span>
-      <span><b>${Number.isFinite(st.profitFactor) ? st.profitFactor : '∞'}</b><i>盈亏比</i></span>
-      <span><b>${st.expectancy}</b><i>期望</i></span>
-      <span><b>${st.maxDrawdown}</b><i>最大回撤</i></span>
-      <span><b>${st.finalEquity}</b><i>收官权益</i></span>
-    </div>
-    ${rows ? `<div class="ar-trades">${rows}</div>` : '<div class="muted">没有已平仓交易</div>'}
-    <div class="ar-edit">
-      <div class="row">
-        <input id="arTags" class="grow" value="${(full.tags || []).join(', ')}" placeholder="标签，逗号分隔（如：假突破, 追单）">
-        <span class="ar-stars" id="arStars">${[1, 2, 3, 4, 5].map(n => `<button data-star="${n}" class="${(full.rating || 0) >= n ? 'on' : ''}">★</button>`).join('')}</span>
-      </div>
-      <textarea id="arConclusion" rows="2" placeholder="结论：这轮做对了什么 / 下次改什么">${full.conclusion || ''}</textarea>
-      <div class="row"><span class="spacer"></span><button class="btn" id="arSaveMeta">保存到档案</button></div>
-    </div>`;
-}
-
-function wireDetail(detail, full) {
-  let rating = full.rating || 0;
-  detail.querySelectorAll('[data-star]').forEach(b => {
-    b.onclick = () => {
-      rating = Number(b.dataset.star);
-      detail.querySelectorAll('[data-star]').forEach(x => x.classList.toggle('on', Number(x.dataset.star) <= rating));
-    };
-  });
-  detail.querySelector('#arSaveMeta').onclick = async () => {
-    const tags = detail.querySelector('#arTags').value.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean).slice(0, 12);
-    const conclusion = detail.querySelector('#arConclusion').value.trim();
-    await store.updateMeta(full.id, { tags, rating, conclusion });
-    await renderArchive();
-    if (state.session?.id === full.id) { state.session.tags = tags; state.session.rating = rating; state.session.conclusion = conclusion; }
-    updateStatus('档案已更新');
-  };
-}
-
-/** 打开档案：还原周期 + 起点 + 该场次交易 */
-async function openArchive(brief) {
-  const full = await store.get(brief.id);
-  if (!full) { updateStatus('档案读不出来'); return false; }
-  const symWarn = full.symbol && state.profile?.symbol && full.symbol !== state.profile.symbol;
-  if (full.period && state.app && full.period !== state.app.periodKey) {
-    await state.app.switchPeriod(full.period);
-    if (state.replay) state.replay.bucket = null;
-    if (state.draw) { state.draw.periodKey = full.period; await state.draw.load(); }
-    renderPeriods();
-  }
-  state.session = full;
-  await store.setActive(full.id);
-  $('sessName').value = full.name;
-  $('sessNote').value = full.note || '';
-  if (state.trade) {
-    state.trade.trades = [...(full.trades || [])];
-    state.trade.realized = state.trade.trades.reduce((s, t) => s + t.pnl, 0);
-    state.trade.pos = null; state.trade.orders = [];
-    state.trade.emit?.();
-    renderTrade(state.trade.snapshot());
-  }
-  if (full.startTs && state.replay) {
-    $('startAt').value = fmtLocalInput(full.startTs);
-    await state.replay.setStart(full.startTs);
-    if (state.draw) await state.draw.load();
-  }
-  await renderSession();
-  closeArchive();
-  updateStatus(symWarn ? `已打开 ${full.name}（品种 ${full.symbol} 与当前不同，只还原周期与起点）` : `已打开档案 ${full.name}`);
-  return true;
-}
-
-function closeArchive() {
-  $('archivePanel').hidden = true;
-  $('btnArchive').classList.remove('on');
-}
-
-function wireArchive() {
-  $('btnArchive').onclick = async () => {
-    const el = $('archivePanel');
-    if (!el.hidden) { closeArchive(); return; }
-    el.hidden = false;
-    $('btnArchive').classList.add('on');
-    await renderArchive();
-  };
-  $('closeArchive').onclick = closeArchive;
-  $('arSymbol').onchange = (e) => { arQuery().symbol = e.target.value; renderArchive(); };
-  $('arState').onchange = (e) => { arQuery().st = e.target.value; renderArchive(); };
-  $('arSort').onchange = (e) => { arQuery().sort = e.target.value; renderArchive(); };
-  $('arSearch').oninput = (e) => { arQuery().q = e.target.value.trim().toLowerCase(); renderArchive(); };
-  $('arExportAll').onclick = async () => {
-    const all = await store.list();
-    const full = [];
-    for (const b of all) { const s = await store.get(b.id); if (s) full.push(s); }
-    download(`archives-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify({ exportedAt: Date.now(), sessions: full }, null, 2));
-    updateStatus(`已导出 ${full.length} 份档案`);
-  };
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('archivePanel').hidden) closeArchive();
-  });
-}
-
-/* ---------------- 主题 ---------------- */
-
-function updateThemeButton() {
-  const meta = themeMeta(state.theme);
-  $('themeIcon').textContent = meta.mode === 'light' ? '☾' : '☀';
-  $('btnTheme').title = `主题：${meta.label}（点击切换）`;
-}
-
-async function setTheme(key) {
-  const next = themeMeta(key).key;
-  const prev = state.theme;
-  state.theme = applyThemeMode(next);
-  updateThemeButton();
-  renderThemeMenu();
-  await saveTheme(state.theme);
-  markDirty();
-  // 用户没改过涨跌色时，让它跟着主题走
-  if (prev !== next) {
-    state.layout = migrateLayoutColors(state.layout, prev, next);
-    saveLayout(state.layout);
-    markDirty();
-    syncLayoutUI();
-  }
-  const chart = state.app?.chart;
-  if (chart) {
-    applyChartThemeAll();
-    applyThemePaneLayout();             // 版面里自定义的涨跌色要重新盖回去
-  }
-}
-
 
 /* ---------------- 图上图例 + 指标设置 ---------------- */
 
@@ -2373,12 +1308,12 @@ function wireIndSettings() {
       { key: 'indicator', open: () => $('indicatorPanel').hidden === false, close: () => closeIndicatorPanel() },
       { key: 'strat', open: () => $('stratPanel').hidden === false, close: () => { $('stratPanel').hidden = true; } },
       { key: 'pine', open: () => $('pinePanel').hidden === false, close: () => { $('pinePanel').hidden = true; $('btnPine')?.classList.remove('on'); } },
-      { key: 'moreTools', open: () => $('moreTools')?.hidden === false, close: () => closeMoreTools() },
+      { key: 'moreTools', open: () => $('moreTools')?.hidden === false, close: () => TBOX.closeMoreTools() },
       { key: 'copyDraw', open: () => $('copyDrawPanel')?.hidden === false, close: () => { $('copyDrawPanel').hidden = true; } },
       { key: 'ctx', open: () => $('ctxMenu')?.hidden === false, close: () => closeCtx() },
       { key: 'layout', open: () => $('layoutMenu')?.hidden === false, close: () => closeLayoutMenu() },
-      { key: 'theme', open: () => $('themeMenu')?.hidden === false, close: () => closeThemeMenu() },
-      { key: 'archive', open: () => $('archivePanel')?.hidden === false, close: () => closeArchive() }
+      { key: 'theme', open: () => $('themeMenu')?.hidden === false, close: () => THEME.closeThemeMenu() },
+      { key: 'archive', open: () => $('archivePanel')?.hidden === false, close: () => ARCH.closeArchive() }
     ];
     const hit = closers.find(c => { try { return c.open(); } catch { return false; } });
     if (hit) { e.preventDefault(); e.stopPropagation(); try { hit.close(); } catch {} }
@@ -2904,7 +1839,7 @@ function syncLayoutMenu() {
         state.replay = state.workspace.multi;
         state.cxSync?.refresh();
         if (state.replay) {
-          state.replay.setEmitter((s) => { renderReplay(s); updateStatus(); });
+          state.replay.setEmitter((s) => { RPL.renderReplay(s); updateStatus(); });
           if (keepCursor) await state.replay.setStart(keepCursor);
         }
         state.wsPeriods = state.workspace.cells.map(c => c.app.periodKey);
@@ -2957,7 +1892,7 @@ function wireLayoutMenu() {
       updateStatus(on ? '十字光标已跨图同步' : '十字光标同步已关闭');
     };
   }
-  $('closeMoreTools') && ($('closeMoreTools').onclick = (e) => { e.stopPropagation(); closeMoreTools(); });
+  $('TBOX.closeMoreTools') && ($('TBOX.closeMoreTools').onclick = (e) => { e.stopPropagation(); TBOX.closeMoreTools(); });
   $('layoutMenu').querySelectorAll('#paneRows .layout-opt').forEach(b => {
     b.onclick = () => {
       const n = Number(b.dataset.panes);
@@ -2975,60 +1910,6 @@ function wireLayoutMenu() {
   }, true);
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('layoutMenu').hidden) closeLayoutMenu();
-  });
-}
-
-/* ---------------- 主题下拉 ---------------- */
-
-function renderThemeMenu() {
-  const box = $('themeRows');
-  if (!box) return;
-  box.innerHTML = THEMES.map(t => {
-    const s = t.swatch;
-    const candles = `
-      <i style="height:14px;background:${s.up}"></i>
-      <i style="height:20px;background:${s.down}"></i>
-      <i style="height:11px;background:${s.up};opacity:.85"></i>`;
-    return `<button class="theme-row ${state.theme === t.key ? 'on' : ''}" data-theme="${t.key}" role="menuitemradio" aria-checked="${state.theme === t.key}">
-      <span class="theme-prev" style="background:${s.bg};border-color:${s.line}">${candles}</span>
-      <span class="theme-meta"><span class="theme-name">${t.label}</span><span class="theme-desc">${t.desc}</span></span>
-    </button>`;
-  }).join('');
-  box.querySelectorAll('.theme-row').forEach(b => {
-    b.onclick = async () => {
-      await setTheme(b.dataset.theme);
-      closeThemeMenu();
-      updateStatus(`主题：${themeMeta(state.theme).label}`);
-    };
-  });
-}
-
-function closeThemeMenu() {
-  $('themeMenu').hidden = true;
-  $('btnTheme').classList.remove('on');
-  $('btnTheme').setAttribute('aria-expanded', 'false');
-}
-
-function wireThemeMenu() {
-  renderThemeMenu();
-  $('btnTheme').onclick = (e) => {
-    e.stopPropagation();
-    const el = $('themeMenu');
-    if (!el.hidden) { closeThemeMenu(); return; }
-    renderThemeMenu();
-    const r = $('btnTheme').getBoundingClientRect();
-    placeAt(el, Math.round(r.right - 246), Math.round(r.bottom + 8));
-    el.hidden = false;
-    $('btnTheme').classList.add('on');
-    $('btnTheme').setAttribute('aria-expanded', 'true');
-  };
-  document.addEventListener('mousedown', (e) => {
-    if ($('themeMenu').hidden) return;
-    if ($('themeMenu').contains(e.target) || $('btnTheme').contains(e.target)) return;
-    closeThemeMenu();
-  }, true);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('themeMenu').hidden) closeThemeMenu();
   });
 }
 
@@ -3239,152 +2120,6 @@ function renderStratPanel(sum, name) {
   rows.innerHTML = head + (body || '<div class="strat-empty">没有已平仓交易</div>');
   meta.textContent = `${name} · ${state.profile?.symbol || ''} · ${sum.trades} 笔已平${sum.openTrades ? ` · ${sum.openTrades} 笔持仓中` : ''} · 本金 ${sum.initialCapital}`;
   requestAnimationFrame(() => drawCurve($('stratCurve'), sum.curve));
-}
-
-/* ---- 从其他图复制绘制 ---- */
-
-async function renderCopyDrawList() {
-  const box = $('copyDrawList');
-  box.innerHTML = '';
-  const symbol = state.profile?.symbol;
-  const cur = state.app?.periodKey;
-  const found = [];
-  for (const p of PERIODS) {
-    if (p.key === cur) continue;
-    let items = null;
-    try { items = await kvGet(`draw:${symbol}:${p.key}`); } catch {}
-    if (Array.isArray(items) && items.length) found.push({ key: p.key, label: p.label, items });
-  }
-  if (!found.length) {
-    box.innerHTML = '<div class="sub-empty">没有其他周期的绘图</div>';
-    return;
-  }
-  for (const f of found) {
-    const b = document.createElement('button');
-    b.className = 'sub-item';
-    b.innerHTML = `<span>${f.label} 周期</span><small>${f.items.length} 条</small>`;
-    b.onclick = () => copyDrawings(f);
-    box.appendChild(b);
-  }
-}
-
-async function copyDrawings(from) {
-  const draw = state.draw;
-  const list = state.app?.chart.getDataList() || [];
-  if (!draw || !list.length) return;
-  // 按「整段数据范围」判断能否复制（不在当前可视窗口也可以，滚过去就能看到）
-  const first = state.profile?.first ?? list[0].timestamp;
-  const last = state.profile?.last ?? list[list.length - 1].timestamp;
-  let added = 0;
-  for (const it of from.items) {
-    const pts = (it.points || []).filter(pt => pt.timestamp >= first && pt.timestamp <= last);
-    if (pts.length) { draw.items.push({ name: it.name, points: pts }); added++; }
-  }
-  if (!added) { updateStatus(`${from.label} 周期的绘图不在当前数据范围内`); return; }
-  const shown = draw.restore();
-  await draw.persist();
-  updateStatus(`已从 ${from.label} 周期复制 ${added} 条绘图${shown < added ? '（部分在当前视图外）' : ''}`);
-  closeCtx();
-}
-
-/** 正在画图（折线取点中 / 普通工具已落部分点）时，右键应该“结束/取消绘制”，不弹菜单 */
-function abortDrawingIfAny() {
-  const d = state.draw;
-  if (!d) return false;
-  const done = () => { state._suppressCtxUntil = Date.now() + 500; renderTools(); };
-  if (d._poly) { d.endPolyline(true); done(); return true; }
-  if (d.pending) { d.cancelPending(); done(); return true; }
-  return false;
-}
-
-/** 右键收尾绘制后，紧跟的 contextmenu 要吞掉，否则会连带弹出图表菜单 */
-function ctxSuppressed() { return Date.now() < (state._suppressCtxUntil || 0); }
-
-function wireContextMenu() {
-  // 右键：整页都拦掉浏览器原生菜单（只放过输入框/文本域），
-  // 只有落在图表区域里才弹我们自己的菜单。
-  const editable = (el) => !!(el && el.closest && el.closest('input, textarea, [contenteditable="true"]'));
-  const inChart = (el) => !!(el && el.closest && el.closest('#chart'));
-  // TAB 条有自己的右键菜单（重命名/关闭/新建），别被图表的全局拦截吃掉
-  const inTabs = (el) => !!(el && el.closest && el.closest('#tabList, #tabMenu'));
-
-  // 注：菜单只在 contextmenu 里打开（mousedown 只负责拦默认行为 + 收尾绘制），
-  // 否则同一次右键里“点外部关闭菜单”的监听会把刚打开的菜单立刻关掉。
-  const onRightDown = (e) => {
-    if (e.button !== 2) return;
-    if (inTabs(e.target)) return;
-    if (editable(e.target)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    abortDrawingIfAny();                  // 绘制中：右键 = 收尾
-    if (!inChart(e.target)) closeCtx();
-  };
-  const onCtx = (e) => {
-    if (inTabs(e.target)) return;
-    if (editable(e.target)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (abortDrawingIfAny()) return;
-    if (ctxSuppressed()) return;
-    if (inChart(e.target)) openCtx(e.clientX, e.clientY);
-    else closeCtx();
-  };
-
-  // 挂 document（capture），图表/工具栏/状态栏任何位置右键都不会再弹浏览器菜单
-  document.addEventListener('mousedown', (e) => { if (e.button === 2) onRightDown(e); }, true);
-  document.addEventListener('contextmenu', onCtx, true);
-
-  $('ctxMenu').querySelectorAll('.mi').forEach(item => {
-    item.addEventListener('mouseenter', () => {
-      const sub = item.dataset.sub;
-      if (sub === 'layout') { syncLayoutUI(); openSub('layoutPanel', item); }
-      else if (sub === 'draw') { renderCopyDrawList(); openSub('copyDrawPanel', item); }
-      else closeSubs();
-    });
-    item.addEventListener('click', () => {
-      const act = item.dataset.act;
-      if (act === 'reset') { resetChartView(); closeCtx(); }
-      else if (act === 'copy') { copyChartImage(); closeCtx(); }
-      else if (item.dataset.sub === 'layout') { syncLayoutUI(); openSub('layoutPanel', item); }
-      else if (item.dataset.sub === 'draw') { renderCopyDrawList(); openSub('copyDrawPanel', item); }
-    });
-  });
-
-  $('closeLayout').onclick = () => { $('layoutPanel').hidden = true; };
-  $('lyDone').onclick = () => { $('layoutPanel').hidden = true; };
-  $('closeCopyDraw').onclick = () => { $('copyDrawPanel').hidden = true; };
-
-  // 版面设置控件
-  [...$('bgMode').children].forEach(b => {
-    b.onclick = () => commitLayout({ bgMode: b.dataset.mode });
-  });
-  $('lyBg').oninput = (e) => commitLayout({ bg: e.target.value, bgMode: 'custom' });
-  $('lyGrid').onchange = (e) => commitLayout({ grid: e.target.checked });
-  $('lyGridColor').oninput = (e) => commitLayout({ gridColor: e.target.value });
-  $('lyUp').oninput = (e) => commitLayout({ up: e.target.value });
-  $('lyDown').oninput = (e) => commitLayout({ down: e.target.value });
-  $('lyUpBorder').oninput = (e) => commitLayout({ upBorder: e.target.value });
-  $('lyDownBorder').oninput = (e) => commitLayout({ downBorder: e.target.value });
-  $('lyBorderAuto').onchange = (e) => {
-    const on = e.target.checked;
-    commitLayout(on ? { borderAuto: true } : { borderAuto: false, upBorder: state.layout.up, downBorder: state.layout.down });
-  };
-  $('lyReset').onclick = () => {
-    state.layout = normalize(null);
-    applyThemePaneLayout();
-    syncLayoutUI();
-    saveLayout(state.layout);
-  };
-
-  // 点外面 / Esc 关闭
-  document.addEventListener('mousedown', (e) => {
-    if ($('ctxMenu').hidden) return;
-    if ($('ctxMenu').contains(e.target) || $('layoutPanel').contains(e.target) || $('copyDrawPanel').contains(e.target)) return;
-    closeCtx();
-  }, true);
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('ctxMenu').hidden) closeCtx();
-  });
 }
 
 /* ---------------- Pine 指标 ---------------- */
@@ -3624,212 +2359,6 @@ function wirePine() {
   $('closeStrat').onclick = () => { $('stratPanel').hidden = true; };
 }
 
-/* ---------------- 数据管理 ---------------- */
-
-async function renderProfiles() {
-  const ul = $('profileList');
-  ul.innerHTML = '';
-  if (!state.profiles.length) { ul.innerHTML = '<li class="muted">（空）先导入数据</li>'; return; }
-  for (const p of state.profiles) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span><strong>${p.symbol}</strong> <span class="tag">1m</span>
-      <div class="meta">${p.bars.toLocaleString()} 根 · ${MB(p.importedBytes || p.bytes)} MB · ${fmtDay(p.first)} → ${fmtDay(p.last)}</div></span>`;
-    const box = document.createElement('span');
-    const use = document.createElement('button');
-    use.textContent = state.profile?.id === p.id ? '加载中' : '加载';
-    use.onclick = () => loadProfile(p);
-    const del = document.createElement('button');
-    del.textContent = '删除';
-    del.className = 'ghost';
-    let armed = false, timer = null;
-    del.onclick = async () => {
-      if (!armed) {
-        armed = true; del.textContent = '再点一次';
-        timer = setTimeout(() => { armed = false; del.textContent = '删除'; }, 3000);
-        return;
-      }
-      clearTimeout(timer);
-      await deleteProfile(p.id);
-      if (state.profile?.id === p.id) { state.profile = null; state.app?.dispose(); state.app = null; }
-      await refresh();
-    };
-    box.append(use, del);
-    li.appendChild(box);
-    ul.appendChild(li);
-  }
-}
-
-async function renderAvail() {
-  const ul = $('availList');
-  ul.innerHTML = '';
-  if (!state.manifest) { ul.innerHTML = '<li class="muted">无 manifest</li>'; return; }
-  for (const p of state.manifest.profiles) {
-    const li = document.createElement('li');
-    const tooBig = p.bytes > MAX_IMPORT_BYTES;
-    li.innerHTML = `<span><strong>${p.symbol}</strong> <span class="tag">1m</span>
-      <div class="meta">${p.bars.toLocaleString()} 根 · ${MB(p.bytes)} MB · ${fmtDay(p.first)} → ${fmtDay(p.last)}
-      ${p.zeroVolume ? ' · volume 全 0' : ''}</div></span>`;
-    const btn = document.createElement('button');
-    btn.textContent = tooBig ? '超 1 GB' : '导入';
-    btn.disabled = tooBig;
-    btn.onclick = () => doImport(p);
-    li.appendChild(btn);
-    ul.appendChild(li);
-  }
-}
-
-async function renderUsage() {
-  const est = await storageEstimate();
-  const local = state.profiles.reduce((s, p) => s + (p.importedBytes || p.bytes), 0);
-  const shots = await store.shotBytes();
-  $('usage').textContent = est
-    ? `行情 ${MB(local)} MB · 截图 ${MB(shots)} MB · 浏览器已用 ${est.usageMB} MB / 配额 ${est.quotaMB} MB`
-    : `行情 ${MB(local)} MB · 截图 ${MB(shots)} MB`;
-}
-
-async function doImport(profile) {
-  if (state.importing) return;
-  const ac = new AbortController();
-  state.importing = ac;
-  $('progWrap').hidden = false;
-  $('cancel').onclick = () => ac.abort();
-  msg(`准备导入 ${profile.symbol} …`);
-  const t0 = performance.now();
-  try {
-    const saved = await importProfile(profile, {
-      signal: ac.signal,
-      onProgress: ({ phase, file, fileIndex, fileCount, doneBytes, totalBytes }) => {
-        $('prog').value = totalBytes ? (doneBytes / totalBytes * 100) : 0;
-        $('progText').textContent = `${phase === 'fetch' ? '读取' : '写入'} ${file} (${fileIndex + 1}/${fileCount}) · ${MB(doneBytes)}/${MB(totalBytes)} MB`;
-      }
-    });
-    msg(`导入完成：${saved.bars.toLocaleString()} 根 · ${MB(saved.importedBytes)} MB · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-    await refresh();
-    await loadProfile(saved);
-  } catch (err) {
-    if (err.name === 'AbortError') msg('已取消导入，本次写入的分片已回滚');
-    else msg(`导入失败：${err.message}（本次写入已回滚）`, true);
-  } finally {
-    state.importing = null;
-    $('progWrap').hidden = true;
-  }
-}
-
-
-/* ---------------- 从 ZIP / CSV 直接导入 ---------------- */
-
-function csvMsg(text, isErr = false) {
-  const el = $('csvMsg');
-  if (!el) return;
-  el.textContent = text;
-  el.classList.toggle('err', !!isErr);
-}
-
-/** 把选中的 File 列表摊平成 [{name, getText}]，zip 里的每个 csv 算一个源 */
-async function collectCsvSources(files) {
-  const { listZipEntries, csvEntries, readZipEntry } = await import('./zip.js');
-  const { decodeText } = await import('./csvparse.js');
-  const sources = [];
-  for (const f of files) {
-    if (/\.zip$/i.test(f.name)) {
-      const entries = csvEntries(await listZipEntries(f));
-      if (!entries.length) throw new Error(`${f.name} 里没有 csv/txt`);
-      for (const e of entries) {
-        sources.push({
-          name: `${f.name}/${e.name}`,
-          getText: async () => decodeText(await readZipEntry(f, e))
-        });
-      }
-    } else if (/\.(csv|txt|tsv)$/i.test(f.name)) {
-      sources.push({ name: f.name, getText: async () => decodeText(new Uint8Array(await f.arrayBuffer())) });
-    }
-  }
-  return sources;
-}
-
-async function doCsvImport(fileList) {
-  if (state.csvImporting) return;
-  const files = [...fileList];
-  if (!files.length) return;
-  const ac = new AbortController();
-  state.csvImporting = ac;
-  $('csvProgWrap').hidden = false;
-  $('csvProg').value = 0;
-  $('csvText').textContent = '准备中…';
-  $('csvCancel').onclick = () => ac.abort();
-  csvMsg('');
-  const t0 = performance.now();
-
-  try {
-    const sources = await collectCsvSources(files);
-    csvMsg(`解析 ${sources.length} 个文件…`);
-    const { importCsvSources } = await import('./ingest.js');
-    const saved = await importCsvSources(sources, {
-      symbol: $('csvSymbol').value.trim() || undefined,
-      signal: ac.signal,
-      onProgress: ({ phase, file, fileIndex, fileCount, rows }) => {
-        if (phase === 'parse') {
-          $('csvProg').value = fileCount ? (fileIndex / fileCount) * 45 : 0;
-          $('csvText').textContent = `解析 ${file || ''} (${fileIndex + 1}/${fileCount}) · ${(rows || 0).toLocaleString()} 行`;
-        } else if (phase === 'sort') {
-          $('csvProg').value = 50;
-          $('csvText').textContent = `排序 ${(rows || 0).toLocaleString()} 行…`;
-        } else if (phase === 'write') {
-          $('csvProg').value = 55 + (fileCount ? ((fileIndex + 1) / fileCount) * 45 : 0);
-          $('csvText').textContent = `写入分片 ${file} (${fileIndex + 1}/${fileCount})`;
-        }
-      }
-    });
-    $('csvProg').value = 100;
-    $('csvText').textContent = '完成';
-    csvMsg(`导入完成：${saved.symbol} · ${saved.bars.toLocaleString()} 根 · ${MB(saved.bytes)} MB · ${fmtDay(saved.first)} → ${fmtDay(saved.last)} · 用时 ${((performance.now() - t0) / 1000).toFixed(1)} s`
-      + (saved.dupeTimestamps ? ` · 去重 ${saved.dupeTimestamps} 行` : '')
-      + (saved.skipped ? ` · 跳过 ${saved.skipped} 行` : ''));
-    await refresh();
-    await loadProfile(saved);
-  } catch (err) {
-    if (err.name === 'AbortError') csvMsg('已取消，本次写入的分片已回滚');
-    else csvMsg(`导入失败：${err.message}`, true);
-  } finally {
-    state.csvImporting = null;
-    setTimeout(() => { $('csvProgWrap').hidden = true; }, 1200);
-  }
-}
-
-function wireCsvImport() {
-  const drop = $('csvDrop');
-  const input = $('csvFile');
-  if (!drop || !input) return;
-  let pending = null;                       // 选完文件先不导，等用户点「导入」
-
-  const setPending = (files) => {
-    pending = [...files];
-    drop.querySelector('.dz-main').textContent = pending.length
-      ? `${pending.map(f => f.name).join('、').slice(0, 60)}（${pending.length} 个文件）`
-      : '把 .zip（内含多个 csv）或 .csv 拖到这里';
-  };
-
-  $('csvPick').onclick = () => input.click();
-  input.onchange = () => { setPending(input.files); };
-
-  for (const ev of ['dragenter', 'dragover']) {
-    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('on'); });
-  }
-  for (const ev of ['dragleave', 'drop']) {
-    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('on'); });
-  }
-  drop.addEventListener('drop', (e) => {
-    const files = [...(e.dataTransfer?.files || [])];
-    if (files.length) setPending(files);
-  });
-
-  $('csvGo').onclick = () => {
-    const files = pending && pending.length ? pending : [...input.files];
-    if (!files.length) { csvMsg('先选一个 .zip 或 .csv', true); return; }
-    doCsvImport(files).then(() => setPending([]));
-  };
-}
-
 /* ---------------- 装配 ---------------- */
 
 
@@ -3880,8 +2409,8 @@ async function loadProfile(profile) {
   window.__BOOT_STAGE__ = 'mounted'; window.__BOOT_TICK__ = Date.now();
   await state.app.waitLoaded();
   state.app.applyPrecisionFromData();
-  updateAsOf();
-  detectVolume();
+  TRADE.updateAsOf();
+  TRADE.detectVolume();
   window.__BOOT_STAGE__ = 'loaded'; window.__BOOT_TICK__ = Date.now();
 
   // 十字光标跨图同步（默认开，开关在布局菜单里）
@@ -3904,13 +2433,13 @@ async function loadProfile(profile) {
   hideOvBar();
 
   const savedTrades = null;   // 交易真值改由场次承载（session.trades），不再单独存 trades:<symbol>
-  state.trade = new TradeSim({ onChange: onTradeChange });
-  await ensureSession(profile.symbol);
+  state.trade = new TradeSim({ onChange: TRADE.onTradeChange });
+  await SESS.ensureSession(profile.symbol);
   state.indPrefs = await loadIndPrefs();       // 指标参数/颜色偏好
   try { const lg = await kvGet('ui:legend'); state.legendOpen = lg ? lg.open !== false : true; } catch { state.legendOpen = true; }
   state.trade.trades = [...(state.session.trades || [])];
   state.trade.realized = state.trade.trades.reduce((s, t) => s + t.pnl, 0);
-  renderTrade(state.trade.snapshot());
+  TRADE.renderTrade(state.trade.snapshot());
   await renderLib();
 
   $('date').value = new Date(profile.last).toISOString().slice(0, 10);
@@ -3920,15 +2449,15 @@ async function loadProfile(profile) {
   // 有存档就按存档恢复（主题/版面/吸附/绘图样式/模板/工具栏/周期）
   const _snap = await loadConfigSnapshot();
   if (_snap) await applyWorkspaceSnapshot(_snap);
-  renderTools();
-  renderReplay();
+  TBOX.renderTools();
+  RPL.renderReplay();
   renderPineApplied();
   updateIndBadge();
   syncLayoutMenu();
-  placeTools();
+  TBOX.placeTools();
   window.__BOOT_STAGE__ = 'periods'; window.__BOOT_TICK__ = Date.now();
   updateStatus(`已加载 ${profile.symbol}（${fmtDay(profile.first)} → ${fmtDay(profile.last)}）`);
-  await renderProfiles();
+  await DATA.renderProfiles();
   await restorePineIndicators();
   // 回放开关：默认关（只留一个入口，打开才出回放控件）
   let replayPref = false;
@@ -3968,8 +2497,8 @@ async function loadProfile(profile) {
 
 async function refresh() {
   state.profiles = await getProfiles();
-  await renderProfiles();
-  await renderUsage();
+  await DATA.renderProfiles();
+  await DATA.renderUsage();
 }
 
 function showBootError(err) {
@@ -4017,7 +2546,7 @@ function paintLive(s = {}) {
     state._liveSig = sig;
     if (on || s.err) updateStatus(`实时 · ${bits.join(' · ')}`);
   }
-  try { updateAsOf(); } catch {}
+  try { TRADE.updateAsOf(); } catch {}
 }
 
 /** 窗口末根离实时多远还算“贴着实时”（超过就当用户停在历史，不自动拽） */
@@ -4057,7 +2586,7 @@ async function startLiveFeed() {
       const had = await ch.refreshLive();
       const last = bars[bars.length - 1];
       const tail = ch.lastTs?.();
-      try { updateAsOf(); } catch {}
+      try { TRADE.updateAsOf(); } catch {}
       if (!had || !last || state.replayMode) return;
       const behind = tail ? last.timestamp - tail : Infinity;
       if (behind <= 2 * 60_000) {
@@ -4278,16 +2807,16 @@ async function boot() {
   state.indFavs = await loadFavs();
   state.indCombos = await loadCombos();
   state.indCat = IND_CATS.some(c => c.key === state.indCat) ? state.indCat : 'key';
-  registerExtensionOverlays();
+  TBOX.registerExtensionOverlays();
   registerSegmentOverlay(window.klinecharts, () => state.app?.chart || null);
   bindModifierKeys();
-  wireModifierNudge();
+  SESS.wireModifierNudge();
   state.theme = await loadTheme();
   applyThemeMode(state.theme);
-  updateThemeButton();
+  THEME.updateThemeButton();
   try { state.manifest = await loadManifest(); }
   catch (err) { msg(`manifest 读取失败：${err.message}`, true); }
-  await renderAvail();
+  await DATA.renderAvail();
   await refresh();
   // 没有任何行情 → 图表区给一句人话（exe 首次启动、换了数据空间都会遇到）
   const ce = $('chartEmpty');
@@ -4304,35 +2833,35 @@ async function boot() {
 
   window.__BOOT_STAGE__ = 'ui:bind';
   wireTabs();
-  wireReplay();
-  wireTrade();
-  wireSession();
+  RPL.wireReplay();
+  TRADE.wireTrade();
+  SESS.wireSession();
   wirePine();
-  wireContextMenu();
+  COPYDRAW.wireContextMenu();
   wireIndicatorPanel();
   wireIndSettings();
   wireLegendHover();
   wireLayoutMenu();
-  wireTools();
-  wireDrawStylePanel();
+  TBOX.wireTools();
+  TBOX.wireDrawStylePanel();
   window.__renderOvMenu__ = () => { renderOvMenu(); };
   window.__TT_RENDER_STRAT__ = (sum, name) => renderStratPanel(sum, name);
   window.__TT_RENDER_ALERTS__ = (list, name) => renderAlerts(list, name);
   window.__TT_EXPORT_REPORT__ = (sess) => exportSessionReport(sess);
   window.__TT_RENDER_DRAWMGR__ = () => renderDrawMgr();
-  window.__TT_RENDER_SESSION__ = () => { try { renderTrade(state.trade.snapshot()); } catch {} };
+  window.__TT_RENDER_SESSION__ = () => { try { TRADE.renderTrade(state.trade.snapshot()); } catch {} };
   wireOverlayBar();
-  wireThemeMenu();
+  THEME.wireThemeMenu();
   wireSaveButton();
-  wireArchive();
-  wireCsvImport();
+  ARCH.wireArchive();
+  CSV.wireCsvImport();
   import('./download.js').then(m => m.wireDownload()).catch(() => {});
   // 下载完成后走跟 ZIP 导入一样的收尾
   window.__TT_AFTER_IMPORT__ = async (saved) => { await refresh(); await loadProfile(saved); };
   window.__TT_LOAD_PROFILE__ = (p) => loadProfile(p);   // 自检可切换档案
   window.__TT_RENDER_IND__ = () => renderIndicatorPanel();   // 调试/自检用
   window.__TT_REFRESH_PINE__ = () => refreshPine();
-  window.__TT_RENDER_SESSION_FULL__ = () => renderSession();
+  window.__TT_RENDER_SESSION_FULL__ = () => SESS.renderSession();
   startBuildWatch();
   window.__UI_READY__ = true;          // 全部事件已绑好（自检要等这个，不是 __APP_READY__）
   $('btnData').onclick = () => {
@@ -4443,7 +2972,7 @@ function wireTransfer() {
     $('startAt').value = fmtLocalInput(ts);
     if (state.draw) await state.draw.load();
     updateStatus(`定位 ${v}（UTC）· ${Math.round(performance.now() - t0)} ms`);
-    schedulePineRefresh();
+    RPL.schedulePineRefresh();
   };
   window.__BOOT_STAGE__ = 'ready'; window.__BOOT_TICK__ = Date.now();
 }
@@ -4474,6 +3003,18 @@ async function seedForTest() {
 }
 
 if (new URLSearchParams(location.search).get('seed') === '1') await seedForTest();
+
+
+/* --- 拆分出去的模块装配（按依赖排序） --- */
+const CSV = install_CSV({ $, MB, fmtDay, loadProfile, refresh, state });
+const DATA = install_DATA({ $, MAX_IMPORT_BYTES, MB, deleteProfile, fmtDay, importProfile, loadProfile, msg, refresh, state, storageEstimate, store });
+const TBOX = install_TBOX({ $, KEXT, OV_LABELS, TOOLS, TOOL_ACTIONS, hideOvBar, isMagnetOn, kvSet, markDirty, openDrawMgr, placeAt, state, toggleMagnet, updateStatus, FIB_DEFAULT_LEVELS, FIB_PRESETS, LINE_STYLE_OPTIONS, SIZE_OPTIONS, defaultDrawStyles, normalizeDrawStyles, saveDrawStyles, themeLineColor });
+const COPYDRAW = install_COPYDRAW({ $, PERIODS, TBOX, applyThemePaneLayout, closeCtx, closeSubs, commitLayout, copyChartImage, kvGet, normalize, openCtx, openSub, resetChartView, saveLayout, state, syncLayoutUI, updateStatus, renderTools: TBOX.renderTools });
+const THEME = install_THEME({ $, THEMES, applyChartThemeAll, applyThemeMode, applyThemePaneLayout, markDirty, migrateLayoutColors, placeAt, saveLayout, saveTheme, state, syncLayoutUI, themeMeta, updateStatus });
+const SESS = install_SESS({ $, MB, fmtDay, fmtPrice, fmtTs, state, store, computeStats, download, sessionToJson, tradesToCsv });
+const TRADE = install_TRADE({ $, SESS, fmtPrice, fmtTs, logErr, state, store, updateStatus, CSV, captureChart, renderSession: SESS.renderSession, renderShotList: SESS.renderShotList });
+const ARCH = install_ARCH({ $, SESS, TRADE, exportSessionReport, fmtDay, fmtLocalInput, fmtPrice, fmtTs, renderPeriods, state, store, updateStatus, download, sessionToJson, renderSession: SESS.renderSession, renderStats: SESS.renderStats, renderTrade: TRADE.renderTrade });
+const RPL = install_RPL({ $, TBOX, fmtLocalInput, fmtTs, markDirty, refreshPine, renderLegend, state, store, updateStatus, renderTools: TBOX.renderTools });
 boot().catch(showBootError);
 
 // 启动阶段的异步异常（例如 IndexedDB 被另一个窗口占用）也要看得见，而不是白屏转圈
