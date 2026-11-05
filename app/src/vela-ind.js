@@ -174,7 +174,8 @@ export function registerSmcLayers() {
   const { registerRendererLayer } = V() || {};
   if (typeof registerRendererLayer !== 'function') return 0;
   let n = 0;
-  for (const type of ['TT_SMC_FVG', 'TT_SMC_ICT', 'TT_SMC_HTF', 'TT_SMC_MST']) {
+  for (const type of ['TT_SMC_FVG', 'TT_SMC_ICT', 'TT_SMC_HTF', 'TT_SMC_MST',
+                      'TT_FLOW_VP', 'TT_FLOW_WALL', 'TT_FLOW_DEPTH']) {
     try {
       registerRendererLayer({
         id: type,
@@ -190,6 +191,7 @@ export function registerSmcLayers() {
             ctx2.setTransform(cv2.clientWidth ? cv2.width / cv2.clientWidth : 1, 0, 0, cv2.clientWidth ? cv2.width / cv2.clientWidth : 1, 0, 0);
             ctx2.clearRect(0, 0, cv2.width, cv2.height);
             // [R14] 载荷走 window 全局表（0.9.3 的 pushData→scene.nativeData 通了，但层 args.data 装配拿不到）
+            if (TYPE.indexOf('TT_FLOW') === 0) { paintFlow(TYPE, args, cv2); return; }   // flow 像素画派
             const d = (window.__TT_LAYER_DATA || {})[TYPE];
             if (!d?.items?.length) return;
             const co = args.coords;
@@ -279,6 +281,102 @@ export function registerSmcLayers() {
   return n;
 }
 
+/* ---------------- FLOW_VP/WALL/DEPTH：像素画派（右缘锚定剖面/订单墙/量差） ----------------
+   载荷 = flow 模板的 calc __smc（prof/walls），绘制按语义在层内解析像素：
+   右缘 = 画布 CSS 宽 - 价格轴余量；Y = args.scale/bounds 手工映射（R14 同款）。 */
+const FLOW_C = { WARN: '#ffc36b', ICE: 'rgba(172,234,255,.9)', BULL: '#5fe3c0', BEAR: '#ff6f85' };
+
+function paintFlow(TYPE, args, cv2) {
+  const payload = (window.__TT_FLOW_DATA || {})[TYPE];
+  window.__FLOW_TRACE = window.__FLOW_TRACE || [];
+  if (window.__FLOW_TRACE.length < 3) window.__FLOW_TRACE.push({ type: TYPE, hasPayload: !!payload, hasSc: !!args.scale, hasBd: !!args.bounds, scMinMax: args.scale ? [Math.round(args.scale.min), Math.round(args.scale.max)] : null, cvW: cv2.width, cw: cv2.clientWidth });
+  if (!payload) return;
+  const ctx2 = cv2.getContext('2d');
+  const dpr = cv2.clientWidth ? cv2.width / cv2.clientWidth : 1;
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx2.clearRect(0, 0, cv2.width, cv2.height);
+  const W = cv2.clientWidth, H = cv2.clientHeight;
+  const sc = args.scale, bd = args.bounds;
+  if (!sc || !bd || max(sc) === min(sc)) return;
+  const Y = (v) => {
+    const lo = sc.min, hi = sc.max;
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi === lo) return NaN;
+    let f = (v - lo) / (hi - lo);
+    if (sc.log) { const lv = Math.log(Math.max(v, 1e-9)); f = (lv - Math.log(Math.max(lo, 1e-9))) / ((Math.log(Math.max(hi, 1e-9)) - Math.log(Math.max(lo, 1e-9))) || 1); }
+    if (sc.invert) f = 1 - f;
+    return bd.top + (1 - f) * bd.height;
+  };
+  const line = (x1, y1, x2, y2, color, dash, w) => {
+    ctx2.strokeStyle = color; ctx2.lineWidth = w ?? 1; ctx2.setLineDash(dash || []);
+    ctx2.beginPath(); ctx2.moveTo(x1, y1); ctx2.lineTo(x2, y2); ctx2.stroke(); ctx2.setLineDash([]);
+  };
+  const chip = (x, y, text, color, align = 'left') => {
+    ctx2.font = '10px ui-monospace, Menlo, Consolas, monospace';
+    const w = ctx2.measureText(text).width + 8;
+    const x0 = align === 'right' ? x - w : x;
+    ctx2.fillStyle = color; ctx2.fillRect(x0, y - 8, w, 14);
+    ctx2.fillStyle = '#0b1a26'; ctx2.fillText(text, x0 + 4, y + 3);
+  };
+  const axisW = 62;
+
+  if (TYPE === 'TT_FLOW_VP') {
+    const { prof, hasVolume } = payload;
+    if (!prof?.rows?.length) return;
+    const width = Math.min(120, Math.max(70, W * 0.12));
+    const xRight = W - axisW;
+    const weight = hasVolume ? (r) => r.vol : (r) => r.time;
+    for (const r of prof.rows) {
+      const y = Y(r.price);
+      if (!Number.isFinite(y) || y < 0 || y > H) continue;
+      const w = Math.max(1, (weight(r) / prof.max) * width);
+      ctx2.fillStyle = r.price === prof.poc ? 'rgba(255,195,107,.75)' : 'rgba(172,234,255,.34)';
+      ctx2.fillRect(xRight - w, y - 1.8, w, 3.6);
+    }
+    for (const [price, label, color] of [[prof.poc, 'POC', FLOW_C.WARN], [prof.vah, 'VAH', FLOW_C.ICE], [prof.val, 'VAL', FLOW_C.ICE]]) {
+      const y = Y(price);
+      if (!Number.isFinite(y)) continue;
+      line(xRight - width - 6, y, xRight, y, color, [4, 3], 1);
+      chip(xRight - 2, y - 1, `${label} ${price.toFixed(2)}`, color, 'right');
+    }
+    chip(xRight, 14, hasVolume ? 'VP·VOL' : 'VP·TIME', 'rgba(190,205,220,.85)', 'right');
+  } else if (TYPE === 'TT_FLOW_WALL') {
+    const { walls, hasVolume } = payload;
+    const x0 = W * 0.46, x1 = W - axisW - (window.__TT_FLOW_DATA?.TT_FLOW_VP ? 112 : 0);
+    for (const w of walls || []) {
+      const y = Y(w.price);
+      if (!Number.isFinite(y) || y < 0 || y > H) continue;
+      const color = w.side > 0 ? FLOW_C.BULL : w.side < 0 ? FLOW_C.BEAR : FLOW_C.WARN;
+      line(x0, y, x1, y, color, [2, 2], 1.4);
+      chip(x0 + 4, y - 8, `WALL ×${w.mult.toFixed(1)}${hasVolume ? '' : ' 触及'}`, color, 'left');
+    }
+  } else if (TYPE === 'TT_FLOW_DEPTH') {
+    const { prof, hasVolume, last } = payload;
+    if (!prof?.rows?.length) return;
+    const shift = (window.__TT_FLOW_DATA?.TT_FLOW_VP) ? 118 : 0;
+    const width = Math.min(90, Math.max(56, W * 0.09));
+    const xMid = W - 6 - axisW - shift;
+    for (const r of prof.rows) {
+      const y = Y(r.price);
+      if (!Number.isFinite(y) || y < 0 || y > H) continue;
+      const diff = r.up - r.down;
+      const w = Math.max(1, (Math.abs(diff) / prof.maxDiff) * width);
+      ctx2.fillStyle = diff >= 0 ? 'rgba(95,227,192,.5)' : 'rgba(255,111,133,.5)';
+      ctx2.fillRect(xMid - w, y - 1.2, w, 2.4);
+    }
+    line(xMid - width, 4, xMid - width, H - 4, 'rgba(255,255,255,.12)', [], 1);
+    if (last != null) {
+      const yLast = Y(last);
+      if (Number.isFinite(yLast)) {
+        line(xMid - width - 4, yLast, xMid, yLast, FLOW_C.WARN, [3, 2], 1);
+        chip(xMid - width - 6, yLast, last.toFixed(2), FLOW_C.WARN, 'right');
+      }
+    }
+    chip(xMid, 14, hasVolume ? 'DEPTH·量差' : 'DEPTH·时间差', 'rgba(190,205,220,.85)', 'right');
+  }
+}
+function min(sc) { return sc?.min; }
+function max(sc) { return sc?.max; }
+
 /* ---------------- host 侧 SMC 计算（喂给自绘层） ---------------- */
 const HOST_THROTTLE = new Map();
 
@@ -308,6 +406,23 @@ export function updateSmcLayers(app) {
       if (items.length) { window.__TT_LAYER_DATA[type] = { items }; wrote = true; }
     } catch (e) { console.warn('[vela-smc:host]', tpl.name, e?.message); }
   }
+  // FLOW_VP/WALL/DEPTH：像素层载荷（原始 __smc 直接给画派）
+  for (const tpl of FLOW_INDS) {
+    if (tpl.name === 'FLOW_VOL') continue;
+    const type = 'TT_' + tpl.name;
+    if (!present.has(type)) continue;
+    const key = type + ':' + app.periodKey;
+    const now = performance.now();
+    if (now - (HOST_THROTTLE.get(key) || 0) < 200) continue;
+    HOST_THROTTLE.set(key, now);
+    const bars = app.bars.allBars().map(b => ({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume || 0 }));
+    const params = (tpl.calcParams || []).map(d => d);
+    try {
+      const rows = tpl.calc(bars, { params, calcParams: params }) || [];
+      const payload = rows.__smc || null;
+      if (payload) { (window.__TT_FLOW_DATA = window.__TT_FLOW_DATA || {})[type] = payload; wrote = true; }
+    } catch (e) { console.warn('[vela-flow:host]', tpl.name, e?.message); }
+  }
   // 载荷更新后主动触发一帧（静态图无数据帧，层不会自发重绘）
   if (wrote) { try { app.chart.resize?.(); } catch {} }
 }
@@ -332,7 +447,6 @@ export function registerSmcVelaIndicators() {
   let n = 0;
   for (const tpl of [...SMC_INDS, ...FLOW_INDS]) {
     if (tpl.name === 'SMC_DASH') continue;                 // DOM 面板：暂缓
-    if (tpl.name === 'FLOW_VP' || tpl.name === 'FLOW_WALL' || tpl.name === 'FLOW_DEPTH') continue;  // 像素层：暂缓
     const isSmc = tpl.name.startsWith('SMC_');
     try {
       registerNativeIndicator({
