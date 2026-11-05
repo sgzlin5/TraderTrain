@@ -1084,3 +1084,66 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .tab-menu .mi .k{font:var(--fs-2xs)/1 var(--mono);color:var(--dimmer);letter-spacing:.5px}
 /* 名字可改的暗示：激活 tab 悬停时出现虚线下划线 */
 .tab.on:hover .tab-name{text-decoration:underline dotted;text-underline-offset:3px}
+
+/* 图表区空状态（没有行情时的第一屏） */
+#chartEmpty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:var(--chart-bg);z-index:6;pointer-events:none}
+#chartEmpty .ce-card{pointer-events:auto}
+#chartEmpty[hidden]{display:none}
+#chartEmpty .ce-card{max-width:420px;padding:26px 28px;border:1px solid var(--line);border-radius:10px;
+  background:var(--panel);text-align:center}
+#chartEmpty b{display:block;font:600 var(--fs-lg)/1.4 var(--sans);margin-bottom:8px}
+#chartEmpty p{margin:0 0 16px;color:var(--sub);font:var(--fs-sm)/1.7 var(--sans)}
+#chartEmpty .btn-primary{padding:8px 18px;border:0;border-radius:6px;background:var(--accent);
+  color:var(--accent-ink);font:600 var(--fs-sm)/1 var(--sans);cursor:pointer}
+
+/* 实时采集按钮 */
+.latest-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
+.latest-btn .lt-txt{font:var(--fs-sm)/1 var(--sans)}
+.latest-btn svg{opacity:.85}
+.latest-btn:hover svg{opacity:1}
+.replay-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
+.replay-btn .rp-txt{font:var(--fs-sm)/1 var(--sans)}
+.replay-btn .rp-ico{font-size:13px;line-height:1;opacity:.85}
+.replay-btn.on{color:var(--accent)}
+.replay-btn.on .rp-ico{opacity:1}
+/* 回放关闭时，回放相关的所有控件都不出现（data-on 由 JS 维护） */
+#replayBar[data-on="0"]{display:none}
+.live-btn{display:inline-flex;align-items:center;gap:6px;padding:0 9px}
+.live-btn .live-txt{font:var(--fs-sm)/1 var(--sans)}
+.live-btn .live-dot{width:7px;height:7px;border-radius:50%;background:var(--dimmer);box-shadow:none}
+.live-btn.on{color:var(--up)}
+.live-btn.on .live-dot{background:var(--up);animation:livePulse 1.8s ease-in-out infinite}
+.live-btn.err{color:var(--down)}
+.live-btn.err .live-dot{background:var(--down)}
+@keyframes livePulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.8)}}
+@media (prefers-reduced-motion:reduce){.live-btn.on .live-dot{animation:none}}
+
+/* 下载区：行内勾选项（启动自动补缺口） */
+.chk-inline{display:inline-flex;align-items:center;gap:6px;font:var(--fs-sm)/1.2 var(--sans);color:var(--muted-fg);cursor:pointer;user-select:none}
+.chk-inline input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer}
+.chk-inline:hover{color:var(--fg)}
+
+/* SMC 结构/趋势面板（悬浮在图表右下角，随指标显示/隐藏） */
+.smc-panel{position:absolute;right:14px;bottom:16px;z-index:6;padding:8px 10px 6px;min-width:186px;cursor:grab;
+  background:rgba(6,12,20,.9);border:1px solid var(--line,rgba(255,255,255,.12));border-radius:6px;
+  font:var(--fs-sm)/1.5 var(--sans);color:var(--fg,#cddae6);pointer-events:auto;user-select:none;backdrop-filter:blur(2px)}
+.smc-panel.dragging{cursor:grabbing;opacity:.92}
+.smc-panel.collapsed table,.smc-panel.collapsed .smc-foot{display:none}
+.smc-panel .smc-head{display:flex;justify-content:space-between;gap:10px;margin-bottom:4px;font-weight:600}
+.smc-panel table{width:100%;border-collapse:collapse}
+.smc-panel th{font:500 var(--fs-xs)/1.6 var(--sans);color:var(--muted-fg,#8fa0b0);text-align:left;font-weight:500}
+.smc-panel td{padding:1px 0;white-space:nowrap}
+.smc-panel .smc-foot{display:flex;justify-content:space-between;margin-top:4px;border-top:1px solid rgba(255,255,255,.1);padding-top:4px;color:var(--muted-fg,#8fa0b0)}
+.smc-panel .pos{color:var(--up,#5fe3c0)}
+.smc-panel .neg{color:var(--down,#ff6f85)}
+.smc-panel .flat{color:var(--muted-fg,#8fa0b0)}
+
+/* 快捷键帮助（? 弹出） */
+.help-panel{position:fixed;right:18px;bottom:56px;z-index:80;width:320px;padding:10px 12px 8px;
+  background:rgba(6,12,20,.96);border:1px solid var(--line,rgba(255,255,255,.14));border-radius:8px;
+  box-shadow:0 12px 32px rgba(0,0,0,.45);font:var(--fs-sm)/1.6 var(--sans);color:var(--fg,#cddae6)}
+.help-panel header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.help-panel table{width:100%;border-collapse:collapse}
+.help-panel td{padding:2px 0;vertical-align:top}
+.help-panel td:first-child{width:104px;color:var(--muted-fg,#8fa0b0);font-family:ui-monospace,Menlo,Consolas,monospace}

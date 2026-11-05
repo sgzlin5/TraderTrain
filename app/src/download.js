@@ -8,14 +8,14 @@ const DL = {
   picked: null,
   jobId: null,
   timer: null,
-  abort: null
+  abort: null,
+  notify: null            // 自动补缺口时把进度镜像到状态栏（手动模式下为 null）
 };
 
 function dlMsg(text, isErr = false) {
   const el = document.getElementById('dlMsg');
-  if (!el) return;
-  el.textContent = text || '';
-  el.classList.toggle('err', !!isErr);
+  if (el) { el.textContent = text || ''; el.classList.toggle('err', !!isErr); }
+  try { DL.notify?.(text || '', isErr); } catch {}
 }
 
 async function dlInstruments() {
@@ -100,7 +100,7 @@ async function dlSyncAppendBtn() {
     : `${isoDay(lastDay)} → ${isoDay(y)}（已有 ${prev.bars.toLocaleString()} 根）`;
 }
 
-async function dlAppend() {
+async function dlAppend(opts = {}) {
   if (DL.jobId) return;
   const code = DL.picked?.code;
   if (!code) { dlMsg('先搜索并选择一个标的', true); return; }
@@ -111,8 +111,8 @@ async function dlAppend() {
     dlMsg('下载接口不可用：请用 start.bat 重启（会启用 tools/serve.py）', true);
     return;
   }
-  const fromDay = utcDay(new Date(prev.last));      // 含最后一天（可能是不完整的边界 K 线）
-  const toDay = yesterdayUTC();
+  const fromDay = opts.from ? utcDay(new Date(opts.from)) : utcDay(new Date(prev.last));  // 含最后一天（边界 K 线可能不完整）
+  const toDay = opts.to ? utcDay(new Date(opts.to)) : yesterdayUTC();
   if (fromDay >= toDay) { dlMsg(`已是最新：最后一天 ${isoDay(fromDay)}`, false); return; }
 
   DL.appendMode = true;
@@ -236,9 +236,32 @@ async function dlFinish(job) {
     try { await fetch(`/api/job/${DL.jobId}`, { method: 'DELETE' }); } catch {}
     DL.jobId = null;
     DL.appendMode = false;
+    DL.notify = null;
     dlStop();
     dlSyncAppendBtn();
   }
+}
+
+/** 启动时自动补缺口：历史尾部 → UTC 昨天。返回 {started, reason, from, to} */
+export async function autoGapFill(code, opts = {}) {
+  if (DL.jobId) return { started: false, reason: 'busy' };
+  if (!code) return { started: false, reason: 'no-symbol' };
+  const { getProfile } = await import('./db.js');
+  const prev = await getProfile(`${code}-1m`);
+  if (!prev) return { started: false, reason: 'no-profile' };
+  if (!(await dlApiReady())) return { started: false, reason: 'no-api' };
+  const fromDay = opts.from ? utcDay(new Date(opts.from)) : utcDay(new Date(prev.last));
+  const toDay = opts.to ? utcDay(new Date(opts.to)) : yesterdayUTC();
+  if (fromDay >= toDay) return { started: false, reason: 'up-to-date' };
+
+  DL.picked = { code, source: 'dukascopy' };
+  DL.notify = (t, err) => { try { opts.onStatus?.(t, err); } catch {} };
+  const f = document.getElementById('dlFrom'), t = document.getElementById('dlTo');
+  if (f) f.value = isoDay(fromDay);
+  if (t) t.value = isoDay(toDay);
+  if (f) f.dataset.auto = '1';
+  await dlAppend({ from: fromDay, to: toDay });
+  return { started: !!DL.jobId, from: isoDay(fromDay), to: isoDay(toDay) };
 }
 
 export function wireDownload() {
@@ -261,6 +284,16 @@ export function wireDownload() {
     box.hidden = true;
   }, true);
 
+  const autoGap = document.getElementById('dlAutoGap');
+  if (autoGap) {
+    // 事件先同步挂上（读取初始值可以慢，但不能让用户点了没反应）
+    autoGap.onchange = () => {
+      import('./db.js').then(({ kvSet }) => kvSet('ui:autogap', !!autoGap.checked)).catch(() => {});
+    };
+    import('./db.js')
+      .then(async ({ kvGet }) => { autoGap.checked = (await kvGet('ui:autogap')) !== false; })   // 默认开，用户手动取消才是关
+      .catch(() => {});
+  }
   document.getElementById('dlStart').onclick = () => dlStart();
   document.getElementById('dlAppend').onclick = () => dlAppend();
   dlSyncAppendBtn();

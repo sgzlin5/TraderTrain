@@ -1,6 +1,7 @@
 // klinecharts 10.1.0 装配：单一品种 / 多周期聚合 / 向更早翻页
 import { PERIODS, periodSpanMs } from './aggregate.js';
 import { BarSource } from './source.js';
+const logWarn = (w, e) => console.warn(`[${w}]`, e?.message || e);
 import { decimalsFor } from './instruments.js';
 
 const K = window.klinecharts;
@@ -155,7 +156,9 @@ export class ChartApp {
     this.profile = profile;
     this.source = new BarSource(profile);
     this.periodKey = '1m';
-    this.anchor = profile.last;
+    // 有实时段时默认锚在实时边缘，否则锚在历史末尾（开盘即最新）
+    const liveEnd = profile.live?.last || 0;
+    this.anchor = liveEnd > (profile.last || 0) ? liveEnd : profile.last;
     this.earliest = null;
     this.chart = null;
     this.stats = { loads: 0, lastMs: 0, lastCount: 0 };
@@ -204,6 +207,7 @@ export class ChartApp {
             callback(bars, { forward: bars.length === page, backward: false });
             this._markLoaded(bars.length);
             if (this._onInit) { const f = this._onInit; this._onInit = null; f(bars.length); }
+            this._warmPrev(spanMs, page);
           } else if (type === 'forward') {
             const end = (timestamp ?? this.earliest) - 1;
             const bars = await this.source.frame(end, spanMs, page);
@@ -225,6 +229,38 @@ export class ChartApp {
     };
   }
 
+  /** 空闲时把上一屏读进缓存（年块解码一次，之后往回翻就不再等） */
+  _warmPrev(spanMs, page) {
+    if (this._warmFor === this.anchor) return;
+    this._warmFor = this.anchor;
+    const run = () => {
+      try {
+        const to = (this.earliest ?? this.anchor) - 1;
+        this.source.frame(to, spanMs, page).catch((e) => logWarn('warm', e));
+      } catch (e) { logWarn('warm', e); }
+    };
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 1500 });
+    else setTimeout(run, 400);
+  }
+
+  /** 图表当前最后一根的时间戳（没有就 null） */
+  lastTs() {
+    try { const l = this.chart?.getDataList?.() || []; return l.length ? l[l.length - 1].timestamp : null; } catch { return null; }
+  }
+
+  /** 实时数据落库后刷新「有实时段」的标志，让窗口读取把 live 并进来 */
+  async refreshLive() {
+    try {
+      const { getProfile } = await import('./db.js');
+      const p = await getProfile(this.profile.id);
+      if (p) {
+        this.profile = { ...this.profile, ...p };
+        this.source.hasLive = !!(p.live && (p.live.days || []).length);
+      }
+      return !!this.source.hasLive;
+    } catch { return false; }
+  }
+
   /** 推一根（回放用） */
   pushBar(bar) {
     if (this.subCb) this.subCb(bar);
@@ -238,17 +274,30 @@ export class ChartApp {
   /** 把窗口右端定到 ts 并重载（回放起点 / 跳转 / 回退共用） */
   async seek(ts) {
     this.anchor = ts;
-    this.chart.resetData();
+    // 丢掉上一次没被消费的 init 回调：否则残留的 _onInit 会被这次 resetData 立即兑现，
+    // seek 秒回但图表数据没换（表现：游标/锚点已经到最新，图还是旧窗口，且再也不会追）。
+    this._onInit = null;
     const wait = this.waitInit();
+    this.chart.resetData();
     this.chart.setSymbol({ ticker: this.profile.symbol, pricePrecision: decimalsFor(this.profile.symbol, this.profile.lastClose ?? null), volumePrecision: 0 });
-    return wait;
+    const got = await wait.catch(() => this.lastTs());
+    // 校验：窗口末尾没变（说明 init 没真正落数据）就强刷一次
+    const tail = this.lastTs();
+    if (tail == null || tail < ts - 90 * 60_000) {
+      this._onInit = null;
+      const again = this.waitInit();
+      this.chart.setDataLoader(this.buildLoader());
+      this.chart.setSymbol({ ticker: this.profile.symbol, pricePrecision: decimalsFor(this.profile.symbol, this.profile.lastClose ?? null), volumePrecision: 0 });
+      await again.catch(() => {});
+    }
+    return got;
   }
 
   /** 等一次由 setSymbol/setPeriod 触发的 init 回调真正落地 */
   waitInit(timeout = 8000) {
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('加载超时')), timeout);
-      this._onInit = (n) => { clearTimeout(timer); resolve(n); };
+      const timer = setTimeout(() => { this._onInit = null; reject(new Error('加载超时')); }, timeout);
+      this._onInit = (n) => { clearTimeout(timer); this._onInit = null; resolve(n); };
     });
   }
 

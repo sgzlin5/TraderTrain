@@ -141,6 +141,15 @@ async function buildFromSources(sources, { symbol, onProgress = () => {}, signal
 }
 
 /** 两个同年的有序分片按 ts 归并；同 ts 用新的一根（可能是被修正的边界 K 线） */
+/** 把视图裁成真正的 ArrayBuffer —— subarray 的 .buffer 是整块 backing buffer，
+ *  直接 putChunk(buf.buffer) 会把未使用容量（全 0 记录）一起写进分片，
+ *  表现为：chunk 末尾一堆 ts=0 的假记录、meta.last 变 0、按时间二分读不到数据。 */
+function exactBuffer(buf) {
+  if (!(buf instanceof Uint8Array)) return buf;
+  if (buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength) return buf.buffer;
+  return buf.slice().buffer;
+}
+
 function mergeYearBuffers(oldBuf, newBuf) {
   const rec = RECORD_BYTES;
   // 兼容两种入参：ArrayBuffer（IndexedDB 取出）与 Uint8Array（本轮新数据）
@@ -153,15 +162,19 @@ function mergeYearBuffers(oldBuf, newBuf) {
   const out = new Uint8Array((nOld + nNew) * rec);
   let i = 0, j = 0, o = 0;
   const copy = (arr, idx) => { out.set(arr.subarray(idx * rec, idx * rec + rec), o); o += rec; };
+  const tsOld = (i) => Number(dvOld.getBigInt64(i * rec, true));
+  const tsNew = (j) => Number(dvNew.getBigInt64(j * rec, true));
   while (i < nOld && j < nNew) {
-    const a = Number(dvOld.getBigInt64(i * rec, true));
-    const b = Number(dvNew.getBigInt64(j * rec, true));
+    const a = tsOld(i);
+    const b = tsNew(j);
+    if (a <= 0) { i++; continue; }          // 旧分片里的 ts=0 占位直接丢弃
+    if (b <= 0) { j++; continue; }          // 新数据里的占位同理
     if (a < b) { copy(oArr, i); i++; }
     else if (b < a) { copy(nArr, j); j++; }
-    else { copy(nArr, j); i++; j++; }
+    else { copy(nArr, j); i++; j++; }       // 同 ts 以新数据为准
   }
-  while (i < nOld) { copy(oArr, i); i++; }
-  while (j < nNew) { copy(nArr, j); j++; }
+  while (i < nOld) { const a = tsOld(i); if (a > 0) copy(oArr, i); i++; }
+  while (j < nNew) { const b = tsNew(j); if (b > 0) copy(nArr, j); j++; }
   return o === out.byteLength ? out : out.subarray(0, o);
 }
 
@@ -202,7 +215,7 @@ export async function importCsvSources(sources, opt = {}) {
       const y = built.years[i];
       const buf = built.bufs.get(y);
       const key = chunkKey(built.id, y, importId);
-      await putChunk(key, buf.buffer);
+      await putChunk(key, exactBuffer(buf));
       written.push(key);
       saved.chunks.push({
         year: y, bytes: buf.byteLength, bars: built.counts.get(y), key,
@@ -259,7 +272,7 @@ export async function appendCsvSources(sources, opt = {}) {
       }
       if (signal?.aborted) throw new DOMException('用户取消续传', 'AbortError');
       const key = chunkKey(built.id, y, importId);
-      await putChunk(key, buf.buffer);
+      await putChunk(key, exactBuffer(buf));
       written.push(key);
       const meta = chunkMeta(buf);
       chunks.push({ year: y, bytes: buf.byteLength, bars: meta.bars, key, first: meta.first, last: meta.last });

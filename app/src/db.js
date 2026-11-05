@@ -1,6 +1,6 @@
 // IndexedDB 封装：chunks（按 年份分片存 ArrayBuffer）+ kv（清单/设置/统计）
 const DB_NAME = 'trader-train';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 export const MAX_IMPORT_BYTES = 1024 * 1024 * 1024;   // 单次导入上限 1 GB
 
 let _db = null;
@@ -14,6 +14,7 @@ export function openDB() {
       if (!db.objectStoreNames.contains('chunks')) db.createObjectStore('chunks');
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
       if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs');
+      if (!db.objectStoreNames.contains('live')) db.createObjectStore('live');
     };
     rq.onsuccess = () => { _db = rq.result; resolve(_db); };
     rq.onerror = () => reject(rq.error);
@@ -61,8 +62,27 @@ export async function saveProfile(p) {
 }
 export async function deleteProfile(id) {
   await deleteChunkKeys(id);
+  await deleteLiveKeys(id);
   const all = (await getProfiles()).filter(p => p.id !== id);
   await kvSet('profiles', all);
+}
+
+/** 实时分片（store 'live'）的键：`<profileId>|<YYYYMMDD>`，与 chunks 的 importId 命名空间完全分开 */
+export const liveKey = (profileId, yyyymmdd) => `${profileId}|${yyyymmdd}`;
+
+export async function putLive(key, buffer) { const db = await openDB(); return reqp(tx(db, 'live', 'readwrite').put(buffer, key)); }
+export async function getLive(key) { const db = await openDB(); return reqp(tx(db, 'live', 'readonly').get(key)); }
+export async function delLive(key) { const db = await openDB(); return reqp(tx(db, 'live', 'readwrite').delete(key)); }
+export async function listLiveKeys(profileId) {
+  const db = await openDB();
+  const all = await reqp(tx(db, 'live', 'readonly').getAllKeys());
+  const p = profileId + '|';
+  return all.filter(k => typeof k === 'string' && k.startsWith(p));
+}
+export async function deleteLiveKeys(profileId) {
+  const keys = await listLiveKeys(profileId);
+  for (const k of keys) await delLive(k);
+  return keys.length;
 }
 
 /** 截图等二进制：blobs 库（key -> Blob/ArrayBuffer） */

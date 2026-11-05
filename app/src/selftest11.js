@@ -14,15 +14,18 @@ export async function run(state) {
     const btn = document.getElementById('randomStart');
     const input = document.getElementById('startAt');
 
+    // 等启动收尾（快照恢复可能还在跑 setStart，抢第一下会白点）
+    await wait(1200);
+    const hiBound = Math.max(prof.last, state.profile?.live?.last || 0);   // 有实时段时上界要跟着延长
     const picks = [];
     for (let i = 0; i < 4; i++) {
-      btn.click();
+      document.getElementById('randomStart').click();
       await wait(900);
       const list = app.chart.getDataList();
       const cursor = rp.cursor;
       picks.push({
         cursor,
-        inRange: cursor >= prof.first && cursor <= prof.last,
+        inRange: cursor >= prof.first && cursor <= hiBound,
         windowEnd: list.length ? list[list.length - 1].timestamp : null,
         bars: list.length,
         input: input.value,

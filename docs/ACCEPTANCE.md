@@ -1305,3 +1305,285 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 
 注：全局 `contextmenu` 是 capture + `stopPropagation`，会把 tab 的处理器一起吃掉的 —— 加了 `inTabs()` 判断放行 `#tabList / #tabMenu`。
 回归 `?selftest=1..37`（36 项）全绿。
+
+## 内置指标：ZLEMA 零延迟均线（2026-11-04，`?selftest=38` 3.9 s）
+
+`ZLEMA = EMA(2×close − close[lag], N)`，`lag = floor((N−1)/2)`，SMA 种子；前 `lag` 根退化成收盘价。
+
+| 判据 | 实测 |
+|---|---|
+| 注册进内核 | `getSupportedIndicators()` 含 `ZLEMA` = **true** |
+| 指标库条目 | `通用` 分类、`overlay=true`、名「零延迟均线 ZLEMA」、星级 4.5 |
+| 挂到主图 | `paneId = candle_pane`，`calcParams=[20]`，`result.length = 1200 = 数据根数` |
+| 数值正确性 | 与独立参考实现逐点对比 **1,181 点，最大差 0**（< 1e-6） |
+| 退化口径 | `period=1` → `lag=0, k=1` ⇒ 与收盘价最大差 **0** |
+| 多线 | `[9,20,50]` 三条线末值 `4089.69 / 4085.03 / 4078.11`，全部有限 |
+| 指标库面板 | 「通用」下 28 条，找到该行、按钮显示「已添加」 |
+| 移除 | `removeIndicator({name})` 后不在 `getIndicators()` |
+
+顺带修的真问题：**图例把未使用的参数线显示成 `n/a`**（ZLEMA 只设 1 个周期时出现 `ZLEMA2: n/a / ZLEMA3: n/a`）。`renderLegend()` 改成「同一指标里只要有线有值，就把恒为 null 的线过滤掉」，并按原始 figure 序号取颜色（否则过滤后线色串位）。BOLL/MACD 这类一条参数多条线的指标不受影响（它们三线都有值）。
+
+回归 `?selftest=1..38`（37 项）全绿；其中 31（截屏）在 reload 后首帧偶发「图表还没画出来」，`Page.bringToFront` + 重跑即通过，属已知 flake。
+
+## 换机迁移：配置 / 行情 导出导入（2026-11-04，`?selftest=39` 0.6 s）
+
+`04 数据` 面板新增「换机迁移」四项，配套 `app/src/transfer.js`。
+
+| 判据 | 实测 |
+|---|---|
+| 面板/按钮 | 抽屉可开；四键文案 `导出配置 / 导入配置 / 导出行情 / 导行情包`；`window.__TT_TRANSFER__` 就绪 |
+| 配置导出 | 5 个键 / 698 B；`app=TraderTrain, type=config`；含探针键；**不含 `profiles`**（避免覆盖目标机行情清单） |
+| 配置导入 | 删掉探针后导入 → 值逐字节还原；`profiles` 保持数组未被动 |
+| 行情导出（小样） | 假品种 2 个分片：`chunks=2`、进度回调 2 次到 100%、包 714 B |
+| 包头校验 | `type=data`、profiles=1、chunks=2、payload 字节数 == 包长 − 头偏移 |
+| 行情导入（小样） | 删除后导入：分片 2 个重建、字节逐一相等、清单回填 `bars=5` |
+| 坏包提示 | 8 字节垃圾 → `不是 TraderTrain 行情包（.ttdata）` |
+| **真数据往返** | 4,016,034 根 / 107.2 MB / 12 分片：导出 **866 ms**、导入 **634 ms**；清单 `bars/first/last/bytes` 与各分片长度**完全一致**，堆 45 MB |
+
+回归 `?selftest=1..39`（38 项）：31（截屏）与 37 在无前置 `Page.bringToFront` 的连跑里各挂一次，单独重跑均通过 —— 是已知的自动化 flake（canvas 就绪/焦点），不是功能回归。
+
+## 实时数据落库（方案 A′，2026-11-04，`?selftest=40` 0.24 s + 真源联调）
+
+独立 store `live`（键 `<profileId>|<YYYYMMDD>`）+ `profile.live` 摘要 + 读窗口合并 + 导出时并入年份分片。
+
+| 判据（selftest40） | 实测 |
+|---|---|
+| 追加写入 | 10 根 → 1 个日分片；live 键 `ZZLIVE40-1m|20260105` |
+| 命名空间隔离 | chunks 键仍是 `ZZLIVE40-1m/2026`；**chunks 里不含 `|`**（leaksIntoChunks=false） |
+| 读合并 | 窗口 15 根，升序无重复；第 0 根来自历史、末根 = 实时最新 |
+| **历史优先** | 重叠区（5..9 分钟）读到的是历史价 2000+i，不是实时 3000+i |
+| 实时尾部 | 10..14 分钟读到实时价 3000+i |
+| 聚合窗口 | 5m 桶 = `[0, 5, 10]`，末桶含实时段 |
+| 导航 | `nextBars(9min,3)` = `[10,11,12]`；`prevBar(12min)` = 11（实时段） |
+| 导出合并 | 包头 `version=2`、只剩 1 个历史键、`bars=15`、`mergedLiveDays=1`、清单里**没有 `live` 字段** |
+| 导入还原 | 15 根、重叠区仍是历史值、末根仍是实时值、live store 为空（无孤儿） |
+| 删除清理 | `deleteProfile` 后 live 键 0 |
+
+**真源联调（biquote → 本地）**：
+
+| 项 | 实测 |
+|---|---|
+| `/api/live?symbol=XAUUSD&limit=3` | 200，返回 4 根（含 `open=true` 那根），`tickVolume` 85–162 |
+| 符号映射 | `BTCUSDT → BTCUSD` ✓ |
+| 回补 300 根 | **1,079 ms**，落到 2 个 UTC 日分片（20261103: 61 / 20261104: 239） |
+| 读窗口（实时段） | `frame1m(now,100)` → 100 根，02:22→04:01 UTC，末价 3937.57 |
+| 5m 聚合 | 03:40 / 03:45 / 03:50 / 03:55 / 04:00 五个桶 |
+| 状态栏 | `数据截至 2026-11-04 04:11 UTC · 含实时` |
+| 轮询写入 | 20 s 一轮，`published=6 根`、`errors=0` |
+
+**顺手修的两个真问题**：
+1. **多 feed 并发**：同一品种重复点「实时」会起第二个 feed，两边互相覆盖 live 分片（表现为回补永远只写 1 根）。加了单实例保护 + 切品种/关页面时停采。
+2. **剪贴板写在无焦点时会永久挂起**：`navigator.clipboard.write()` 在没有焦点/被拒时不 settle，表现为「点截屏没反应」。加 3 s 超时并退回下载 + 如实文案（`剪贴板不可用（…），已下载 PNG`）。
+
+**字段命名坑**：`/api/live` 返回的 bar 里 `open` 是**开盘价**、`isOpen` 才是“正在走”，映射到前端必须叫 `forming`——第一版把两者混用，回补永远筛出 0 根。
+
+回归 `?selftest=1..40`（39 项）全绿（31 在无焦点时偶发，已由上面的超时修复兜住）。
+
+## 实时提速 / 历史补齐 / 回放开关（2026-11-04 第二轮）
+
+| 项 | 改前 | 改后 | 实测 |
+|---|---|---|---|
+| 轮询间隔 | 20 s | **3 s** | `polls` 每 ~3 s +1，`lagSec=0` |
+| 每轮取数 | 3 根 | **15 根** | 短暂断线自愈 |
+| 缺口自愈 | 无 | 落后 >2 min 追加 120 根 | `GAP_MIN=2 / GAP_FETCH_LIMIT=120` |
+| 启动回补 | 300 根 | **1000 根** | biquote 1m 上限 |
+| flush | 30 s / 20 根 | **5 s / 20 根** | — |
+| 状态栏 | 无延迟 | `延迟 Ns` | 只随“状态/错误”变化写一行，不再每 3 s 冲掉用户提示 |
+
+**历史空洞（129.7 天＝186,785 分钟）**：`2026-06-27 05:58 → 2026-11-03 23:03`。
+补法：`04 数据 → 选 XAUUSD → 补到昨天`（`GET /api/job?...&from=2026-06-27&to=2026-11-03`）。
+
+| 项 | 实测 |
+|---|---|
+| 新增 | **124,500 根**（下载 124,500，重叠去重后入库） |
+| 总量 | 4,016,034 → **4,140,534 根** |
+| 截止 | 2026-06-27 05:58 → **2026-11-03 23:59** |
+| 合并窗口 | 1200 根 `2026-11-03 08:36 → 2026-11-04 05:34`，只剩 **1 处 60 分钟**（XAUUSD 22:00 休市，非缺失） |
+| 接缝校验 | 11-03 23:03 历史 3931.24 vs 实时 3931.70（差 0.01%，两源一致） |
+| 补数据点位抽查 | 2026-09-15 12:00 = 4284.52，前后连续 |
+
+**默认实时**：启动时 `liveSourceReady(symbol)` 探 `/api/live`（3.5 s 超时）→ 有数据就自动开；`ui:live === false`（用户手动关过）则跳过。
+
+**回放开关**：`#btnReplay` 默认关，`#replayBar[data-on="0"]` 隐藏起点/设为起点/随机时间/回退/播放/前进/速度；关的瞬间先 pause 再把画面送回最新一根；状态存 `ui:replay`。
+
+**顺带修的三个真问题**：
+1. `liveSourceReady / applyReplayMode / startLiveFeed / stopLiveFeed / paintLive / wireLive` 原来全部**嵌套在 `boot()` 里**，`loadProfile` 调用它们必抛 `ReferenceError`（被 try/catch 吞掉）→ “上次开着实时自动恢复”从来没生效过。已整体提到模块顶层。
+2. `paintLive` 每轮都写状态栏 → 用户看到的「随机起点 …」「已下载 PNG」3 s 内被冲掉。改为按 `state|err` 签名节流。
+3. tick 计数被当成成交量注入图表 → `无成交量` 标签与 VP/订单墙退化路径自相矛盾（`?selftest=25/37` 直接红）。现在 `volumeKind==='tickCount'` 时读路径与 push 都归零。
+
+回归：`?selftest=1..40`（39 项）**全绿**。
+
+## 启动自动补缺口（2026-11-04 第三轮，`?selftest=41` 14.5 s）
+
+| 判据 | 实测 |
+|---|---|
+| 勾选框 | `#dlAutoGap` 存在；勾选 → `ui:autogap=true`；取消 → `false` |
+| 无缺口 | `autoGapFill()` → `{started:false, reason:'up-to-date'}`，不发请求 |
+| 有缺口（指定 2026-10-31 → 11-03） | `started:true`，下载 2,762 根，入库 **新增 0 根**（重叠去重） |
+| 幂等 | 补完 `profile.bars` 不变（4,140,534），再问 → `up-to-date` |
+| 启动分支 | `ui:autogap=true` 时 `state._gapTried === true`（分支执行过）；一次生命周期只试一次 |
+
+**顺带修掉的数据写入 bug（重要）**：`ingest.appendCsvSources` 原来 `putChunk(key, buf.buffer)`，而 `buf` 常是 `subarray` 视图 —— 写进库的是**整块 backing buffer**，尾部未使用容量变成 `ts=0` 的假记录。实测 2026 分片：307,553 条记录里有 **11,048 条 ts=0**，`chunkMeta` 读到 `last=0`，按时间二分读不到 10-31 之后的数据；续传每次还会再加 2,762 条。
+
+- 修复：新增 `exactBuffer()`（`byteOffset/byteLength` 不一致时 `slice()`），两处 `putChunk` 都走它；`mergeYearBuffers` 合并时丢弃 `ts<=0`。
+- 数据修复：按 `ts>0` 过滤 + 按 ts 去重 + 排序重写 2026 分片 → **307,553 → 296,505 条**（丢弃 11,048 条），`profile.bars` 回到 **4,140,534**，`last = 2026-11-03 23:59`，10-31/11-02/11-03 连续可读。
+
+**自检适配（不削弱断言）**：
+- `selftest2/3/23`：`__TT_LOAD_PROFILE__` 后等一次新的 `__APP_READY__`（否则会跟启动的“回到实时边缘”抢窗口）；`selftest2` 的起点断言改为等帧后再比。
+- `selftest37`：b2 同时清 `state.trade.trades`（面板渲染的那份），c2 的成交量标签断言改成与 `hasVolume` 一致（`tagVisible === !hasVolume`）。
+- `selftest41`：开头把档案切回 XAUUSD（顺序无关）。
+
+回归：`?selftest=1..41`（40 项）逐条单独跑全绿；批次连跑时 29/41 曾因上一个用例的重活出现一次抖动，加断言前置条件后 37→41、29→41 均通过。
+
+## 回放时的实时采集边界（2026-11-04 第四轮）
+
+| 场景 | 实测 |
+|---|---|
+| 回放停在 2024-03-20，实时开着，观察 2 分钟 | `live.written` 0→1→2、`liveLast` 07:32→07:33 **持续推进**（采集没停） |
+| 同一时段回放窗口 | `chartLast` 始终 `2024-03-20T00:00`、`bars` 始终 1200（**没有被 2026 的 bar 污染**） |
+| 关闭回放回到实时边缘，观察 100 s | `chartLast` 07:32→07:35→07:36→07:37、`written` 2→4→5→6（恢复推送） |
+| 打开回放开关瞬间 | 游标自动贴到最右一根（07:36 → 07:38 = `lastTs`），`播放` 不会从几分钟前跳回 |
+
+**修的问题**：`onClosed` 只看 `last.timestamp > tail` 就 `pushBar`，回放停在历史时会把实时 bar 塞进回放窗口（实测 `bars` 1200→1202→1203、右端跳到今天）。现在与 `onForming` 同判据：距离 ≤2 根且非播放中才推。
+
+## 启动自动补缺口：默认开（2026-11-04 第五轮）
+
+判据：`ui:autogap` 为 `null`（从未点过）→ 视为**开**；显式 `false` → 关。
+
+| kv 值 | 勾选框 | 启动分支 `_gapTried` | 说明 |
+|---|---|---|---|
+| `null` | checked ✓ | true | 新装/从没点过就是开 |
+| `true` | checked ✓ | true | 手动勾过 |
+| `false` | unchecked ✓ | false | 手动取消后不再自动补 |
+
+无缺口时 `_gapTried` 仍为 true（分支跑过），但不发请求、不写状态栏。
+
+## 跳到最新 K 线（2026-11-04 第六轮，`?selftest=42` 4.2 s）
+
+| 判据 | 实测 |
+|---|---|
+| 按钮 | `#btnLatest` 存在，title=「跳到最新 K 线：退出回放、回到实时边缘」 |
+| 跳前（回放开 + 停在 2024-03-20） | `replayMode=true`、`#replayBar[data-on]='1'`、cursor=chartLast=2024-03-20 |
+| 点一下 | `replayMode=false`、`data-on='0'`（回放条收起）、**live=live**（采集已拉起） |
+| 定位 | cursor = chartLast = `2026-11-04 08:05:00Z`（对齐到真实 bar，不是分钟中间的 ms） |
+| 状态栏 | `已跳到最新 K 线 · 实时中 · 2026-11-04 08:05 UTC` |
+| 实时没开时 | 若 `/api/live` 可取到数据，顺带 `startLiveFeed()`；取不到则提示「实时源不可用」 |
+
+**顺带**：`jumpToLatest()` 里 `setStart()` 之后把 `replay.cursor` 对齐到 `app.lastTs()` —— 否则游标落在分钟中间的毫秒上，接着按「播放」起点不干净。
+
+## 实时“静默停采”根因与修复（2026-11-04 第七轮）
+
+**现象**：`ui:live=true`、状态正常，但实时不再写入；图表停在旧位置。
+
+**取证**：
+- 直连服务端 `GET /api/live?symbol=XAUUSD&limit=2` → 200，0.82 s，返回最新 bar（上游正常）
+- `%LOCALAPPDATA%\TraderTrain\server.log` 出现 `ConnectionAbortedError: [WinError 10053] 你的主机中的软件中止了一个已建立的连接` —— 客户端在 3.5 s 主动 abort
+- 用 WebView2 远程调试（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333`）读真实窗口：
+  `kvLive=true`、`state.live === null`（`__TT_LIVE__.status()` 只剩 `{state:'idle'}`）、`profile.live.last` 停在启动那一刻
+
+**根因**：启动时的探活 `liveSourceReady()` 超时 3.5 s，冷启动第一次连 biquote（含 TLS 握手）可能超过该值 → 探不通 → 直接 `console.warn('[live] 源不可用，跳过自动开启')`，**而 `ui:live` 仍是 true，界面没有任何提示**；此后没有任何重试。第二次 `loadProfile`（快照恢复/切档案后）同样走这条路径，于是 feed 永远没起来。
+
+**修复**：
+1. 启动不再预探活：`pref !== false && !state.live` 就直接 `startLiveFeed()`，上游慢由 feed 每 3 s 重试并体现在状态栏
+2. `liveSourceReady()` 放宽到 8 s × 2 次（`jumpToLatest` 等显式场景仍会用它判断）
+3. 30 s 看门狗：`!feed || !feed.running || now - lastPollAt > 60 s` → 停掉重建并 `console.warn('[live] 看门狗重启…')`
+
+**修复后实测（exe 实例，WebView2 窗口）**：
+
+| 项 | 值 |
+|---|---|
+| 启动后 | `state=live`、`kvLive=true`、`profile.live.last` 跟随当前分钟 |
+| 轮询 | `polls` 5 → 9（20 s 内），间隔 ≈3 s |
+| 写入 | `written=4`、`lagSec=0`、`errors=0` |
+| 回归 | 2 / 11 / 12 / 31 / 41 / 42 全绿（跑在 exe 自带服务上） |
+
+**环境副作用（已消除）**：此前我用 `tools/serve.py` 占着 8731，exe 启动时只能“端口已在服务中，直接开窗”，窗口连的是我的开发服务器；现已停掉开发服务器，exe 自己绑 8731（PID 变更、`server.log` 记录 `server ready on 8731`）。另外 16:12 曾有两个 exe 实例并存，也已清理。
+
+## 实时刷新提速（2026-11-04 第八轮）
+
+**问题**：感觉比别的实时插件慢。实测发现慢的不是采集，而是**图表只在整分钟换 bar 时才动**。
+
+| 项 | 改前 | 改后 | 实测 |
+|---|---|---|---|
+| 轮询间隔 | 3 s（且周期=间隔+请求耗时≈3.9 s） | **1 s 固定节拍**（扣掉请求耗时） | 20 s 内 37 次轮询 |
+| 未收盘那根 | 同 ts 推送被 2 分钟窗口判据挡掉；窗口一旦掉队 >2 分钟就**永久不动** | 每秒原地更新 close/high/low | **20 s 内 19 次价格变化，平均 1,052 ms** |
+| 窗口掉队 | 无恢复 | ≤10 分钟自动增量补齐（>120 根整窗重载） | 掉队 4 分钟 → 补 5 根，追平 |
+| 停在历史 | 会被实时推送拽走 | 落后 >10 分钟视为“用户停在历史”，不干预 | `selftest=11/42` 复跑通过 |
+
+**取证**：25 s 采样最后一根 bar → `priceChanges=0`（完全不动）而 `polls=18`、数据在入库；
+`app.pushBar()` 手动推同 ts 能改价（说明图表 API 没问题），问题在推送判据 + `seek` 的 `_onInit` 残留。
+
+**顺带修的两个底层 bug**：
+1. `chart.seek()` 里 `_onInit` 残留导致 `setStart()` 4 ms 就返回、窗口数据却没换（锚点已到最新、图还是旧窗口且永不追）——现在 start 前清 `_onInit`、超时也清，并在窗口没换时强制 `setDataLoader` 重刷一次。
+2. `waitInit()` 超时不清 `_onInit`，后续 init 会兑现到早已超时的 Promise 上。
+
+**自检**：`selftest=2/11/42` 全绿（42 的断言放宽为 `chartLast ≥ cursor`，因为跳完实时还会继续走到下一根）。
+
+## 均线三件套 EMA / RMA / ZLEMA（2026-11-04 第九轮，`?selftest=43` 5.5 s）
+
+按 LuxAlgo / Pine 口径实现（`ta.ema`、`ta.rma` 都是「前 N 根 SMA 起头 + 递推」，和多数库不同），并在指标库新增「均线」分类。
+
+| 判据 | 实测 |
+|---|---|
+| 注册 | `getSupportedIndicators()` 含 `EMA` / `RMA` / `ZLEMA`（`EMA` 覆盖内核同名指标，入口不变） |
+| 分类 | 元数据 `cat=均线` → 库分类 `ma`；`IND_CATS` 新增 `{ key:'ma', label:'均线' }` |
+| 不重复 | 库列表中三者各出现 1 次（共 3 条），内核 EMA 被元数据过滤掉 |
+| 数值 | 与参考实现逐点比对：`EMA 4043.876583` / `RMA 4043.665334` / `ZLEMA 4044.351822`，**diff = 0**（20 周期，末根） |
+| 上图 | 三个都能 `createIndicator(name, true)` 并出现在 `getIndicators()`；移除正常 |
+| 面板 | 打开指标库 → 点「均线」→ 3 行（指数均线 EMA / 怀尔德平滑 RMA / 零延迟均线 ZLEMA），星级 4.5/4/4.5 |
+
+**顺带修**：
+- `selftest38`（ZLEMA）原先断言分类为 `general`、面板点 `data-cat="general"` —— ZLEMA 迁到「均线」后同步改为 `ma`（保留 `general` 回退）
+- 打包漏了 `tools/fixtures`，导致 `selftest37` 的 ZIP64 段在 exe 里取不到 `TTZ64.zip` → `build.sh` 增加 `--add-data "../tools/fixtures;tools/fixtures"`
+
+## SMC / 结构趋势面板 可视化修复（2026-11-04 第十轮，`?selftest=44` 7.7 s）
+
+**问题**：`Smart Money Concepts (SMC)`、`Structure & Trend Dashboard` 挂在图上什么都不画。
+
+**取证**：给指标模板包一层 draw 计数后重新注册再创建 → `calls = 0`；反查内核 bundle 只有
+`drawIndicator / drawFigure`，没有 `.draw?.()` —— **klinecharts v10 不再调用 indicator.draw**。
+
+**方案**：图形改走 overlay，面板改走 DOM（`app/src/smcRender.js`，1.2 s 同步一次，按 payload 签名增量重建）
+- MST：`horizontalSegment`（BOS/CHoCH/EQH/EQL）+ `rect`（订单块）+ `simpleAnnotation`（标签）
+- DASH：右下角 `#smcPanel` 悬浮面板（HTF/LTF 两列 + 对齐 + 全周期对齐判定）
+- 摘掉指标 → overlay 全删、面板隐藏（`selftest44` 的 cleared 段）
+
+| 判据 | 实测 |
+|---|---|
+| 初始 | overlays 0、面板隐藏 |
+| 挂 SMC_MST | **29 个 overlay**（2 个订单块矩形 + 结构虚线 + 标签） |
+| 挂 SMC_DASH | 面板可见、**3 行** HTF/LTF、含「全周期对齐 / 不同步」 |
+| 都摘掉 | overlays 0、面板重新隐藏 |
+
+**遗留**：`FVG / IFVG`、`ICT 杀区`、`波段 & 中期结构` 三个仍用 `draw`，在当前内核下同样不可见，需按同一路子改造。
+
+## SMC 三个遗留指标改造（2026-11-04 第十一轮，`?selftest=45` 12.9 s）
+
+`FVG / IFVG`、`ICT 杀区工具箱`、`波段 & 中期结构` 与 MST/DASH 同因：v10 不调 `draw`。
+现在全部改走 overlay（`smcRender.js` 的 PAINTERS 表，按 payload 签名增量重建）：
+
+| 指标 | overlay 组成 | 单挂实测 |
+|---|---|---|
+| SMC_FVG | `rect` 缺口 + `simpleAnnotation`（FVG/IFVG） | **16 个** |
+| SMC_ICT | 四大杀区竖带（用可见价格范围撑满）+ 未填补 FVG | **10 个** |
+| SMC_HTF | 摆动线（SH/SL）+ BOS/CHoCH + 订单块 | **7 个** |
+| 五个全挂 | 结构 + 面板 | **69 个 overlay**，面板 3 行 |
+| 全摘 | — | overlay 0、面板隐藏 |
+
+`smc.js` 里 5 个指标的 `draw` 全部删除（不再有死代码），`check_js` 84 文件通过。
+
+## 2026-11-08 四类优化（第一批）
+
+| 判据 | 方法 | 结果 |
+|---|---|---|
+| SSE 单例订阅 | 两个 curl 同时连 `/api/live/stream`，5 s 内各收 6 条 | 通过（一份上游流量） |
+| 客户端走流 | `__TT_LIVE__.status()` | `streamTicks=18 / streamErr=0 / polls=4 / lastStreamAgo=644ms` |
+| 轮询降频 | 同上 | 流健康时 `polls` 增速比 1 s 时慢 5 倍 |
+| 自检隔离 | `run_selftests.py --fresh` | 修复了 3/9/31/32；设置类用例（5/18/19/23/24/28/35）仍需干净库，属已知边界 |
+| 统一错误出口 | `?debug=1` 下 console.error 出现堆栈 | 通过 |
+| exe 退出留痕 | 启动后 `server.log` 出现 `start`；退出出现 `exit; pid` | 通过 |
+| Pine isconfirmed | 表达式替换为 `(bar_index < n-1)` | 通过（29/37 复跑） |
+| SMC 标签可见 | `simpleAnnotation` 必须传 `extendData` | 截图确认 BOS/OB 文字 |
+| SMC 面板可拖 | `pointer-events` 由 none 改 auto | `auto` |
+| 快捷键表 | 按 `?` | `#helpPanel` 显示 |
+| exe 瘦身 | `--exclude-module` + 锁 6.22.3 | 17,343,282 → 17,133,295 B |

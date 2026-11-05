@@ -31,6 +31,8 @@ import sys
 import threading
 import time
 import urllib.error
+import queue
+import threading
 import urllib.parse
 import urllib.request
 import zipfile
@@ -47,6 +49,85 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.dukascopy.com/swiss/english/marketwatch/historical/",
 }
+
+# ---------------------------------------------------------------- 实时源（biquote）
+BIQUOTE_BASE = "https://biquote.io/api"
+BIQUOTE_ALIAS = {                      # 我们的代码 → biquote ticker
+    "BTCUSDT": "BTCUSD", "ETHUSDT": "ETHUSD", "SOLUSDT": "SOLUSD",
+    "BNBUSDT": "BNBUSD", "XRPUSDT": "XRPUSD", "DOGEUSDT": "DOGEUSD",
+}
+
+
+_LIVE_STREAMS = {}
+_LIVE_STREAM_LOCK = threading.Lock()
+
+
+def _live_stream_for(symbol):
+    """每个品种一个后台轮询线程；所有 SSE 客户端共享同一份上游流量。"""
+    sym = (symbol or "").upper()
+    with _LIVE_STREAM_LOCK:
+        st = _LIVE_STREAMS.get(sym)
+        if st:
+            return st
+        st = {"subs": [], "bars": None, "err": None, "stop": False}
+        _LIVE_STREAMS[sym] = st
+
+    def loop():
+        ticker = _biquote_ticker(sym)
+        while not st["stop"]:
+            t0 = time.time()
+            bars, err = _biquote_ohlc(ticker, "1m", 5)
+            if bars is not None:
+                st["bars"] = bars
+                st["err"] = None
+                payload = json.dumps({"symbol": sym, "ticker": ticker, "source": "biquote",
+                                      "at": int(time.time() * 1000), "bars": bars[-3:]}, ensure_ascii=False)
+                for q in list(st["subs"]):
+                    try:
+                        q.put_nowait(payload)
+                    except Exception:
+                        pass
+            else:
+                st["err"] = err
+            dt = 1.0 - (time.time() - t0)
+            time.sleep(max(0.15, dt))
+
+    threading.Thread(target=loop, daemon=True, name=f"live-{sym}").start()
+    return st
+
+
+def _biquote_ticker(code):
+    code = (code or "").upper()
+    if code in BIQUOTE_ALIAS:
+        return BIQUOTE_ALIAS[code]
+    if code.endswith("USDT"):
+        return code[:-1]                       # XXXUSDT → XXXUSD
+    return code
+
+
+def _biquote_ohlc(ticker, interval="1m", limit=5, attempts=3, timeout=8):
+    """取最近 N 根（含正在走的那根，isOpen=true）。返回 (bars, error)"""
+    url = f"{BIQUOTE_BASE}/{ticker}/ohlc?interval={interval}&limit={max(1, min(1000, limit))}"
+    last = None
+    for _ in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                obj = json.loads(r.read())
+            out = []
+            for b in obj.get("bars", []):
+                ts = int(datetime.fromisoformat(b["openTime"].replace("Z", "+00:00")).timestamp() * 1000)
+                out.append({
+                    "t": ts, "o": b["open"], "h": b["high"], "l": b["low"], "c": b["close"],
+                    "v": b.get("tickVolume") or 0, "open": bool(b.get("isOpen")),
+                })
+            out.sort(key=lambda x: x["t"])      # biquote 返回是倒序，统一升序
+            return out, None
+        except Exception as e:
+            last = f"{type(e).__name__}: {e}"
+            time.sleep(0.6)
+    return None, last
+
 
 # ---------------------------------------------------------------- 标的表
 INSTRUMENTS = [
@@ -428,6 +509,13 @@ def _months_between(d0, d1):
 
 # ---------------------------------------------------------------- HTTP
 class Handler(SimpleHTTPRequestHandler):
+    def handle_one_request(self):
+        # SSE / 长连接客户端断开时 http.server 会抛 ConnectionResetError，别刷日志
+        try:
+            super().handle_one_request()
+        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError):
+            self.close_connection = True
+
     server_version = "TraderTrain/1.0"
 
     def log_message(self, fmt, *args):
@@ -463,6 +551,63 @@ class Handler(SimpleHTTPRequestHandler):
                 if "=" in kv:
                     k, v = kv.split("=", 1)
                     query[k] = urllib.parse.unquote(v)
+
+        if path == "/api/live/stream":
+            code = (query.get("symbol") or "").upper()
+            if not code:
+                return self._json({"error": "缺少 symbol"}, 400)
+            st = _live_stream_for(code)
+            q = queue.Queue(maxsize=8)
+            st["subs"].append(q)
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("X-Accel-Buffering", "no")
+                self.end_headers()
+                if st["bars"]:
+                    snap = json.dumps({"symbol": code, "source": "biquote", "at": int(time.time() * 1000),
+                                       "bars": st["bars"][-3:]}, ensure_ascii=False)
+                    self.wfile.write(b"data: " + snap.encode("utf-8") + b"\n\n")
+                    self.wfile.flush()
+                last = time.time()
+                while True:
+                    try:
+                        item = q.get(timeout=1.0)
+                        self.wfile.write(b"data: " + item.encode("utf-8") + b"\n\n")
+                        self.wfile.flush()
+                        last = time.time()
+                    except queue.Empty:
+                        if time.time() - last > 15:
+                            self.wfile.write(b": ping\n\n")
+                            self.wfile.flush()
+                            last = time.time()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                pass
+            finally:
+                try:
+                    st["subs"].remove(q)
+                except ValueError:
+                    pass
+            return
+
+        if path == "/api/live":
+            code = (query.get("symbol") or "").upper()
+            if not code:
+                return self._json({"error": "缺少 symbol"}, 400)
+            try:
+                limit = int(query.get("limit") or 5)
+            except ValueError:
+                limit = 5
+            ticker = _biquote_ticker(code)
+            bars, err = _biquote_ohlc(ticker, "1m", limit)
+            if bars is None:
+                return self._json({"error": f"上游取数失败：{err}", "symbol": code, "ticker": ticker}, 503)
+            return self._json({
+                "symbol": code, "ticker": ticker, "source": "biquote",
+                "at": int(time.time() * 1000), "bars": bars
+            })
 
         if path == "/api/instruments":
             return self._json([{"code": c, "name": n, "category": cat, "point": p, "source": src}

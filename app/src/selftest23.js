@@ -8,7 +8,7 @@ export async function run(state) {
     for (let i = 0; i < 80 && !window.__UI_READY__; i++) await wait(100);
     if (state.profile?.id !== 'XAUUSD-1m' && window.__TT_LOAD_PROFILE__) {
       const t = (state.profiles || []).find(p => p.id === 'XAUUSD-1m');
-      if (t) { await window.__TT_LOAD_PROFILE__(t); await wait(400); }
+      if (t) { await window.__TT_LOAD_PROFILE__(t); if (window.__APP_READY__) await window.__APP_READY__; await wait(400); }
     }
     const chart = state.app?.chart;
     if (!chart) throw new Error('应用未就绪');

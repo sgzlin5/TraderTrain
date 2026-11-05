@@ -1,0 +1,14 @@
+{
+  "name": "tradertrain",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "eslint app/src tools --ext .js",
+    "check": "bash tools/check_js.sh",
+    "test": "python tools/run_selftests.py --tests 1-45 --fresh"
+  },
+  "devDependencies": {
+    "eslint": "^9.13.0"
+  }
+}

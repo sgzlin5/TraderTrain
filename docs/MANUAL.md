@@ -156,6 +156,45 @@ INDICATOR LIBRARY                    ✕
 | `ORB` 开盘区间 | 当天开盘后 N 分钟的最高/最低 | 分钟数，默认 30 |
 | `AVWAP` 锚定 VWAP | 日锚定成交量加权均价；无量数据退化均价 | 1=按日，0=按周 |
 
+##### SMC 两个主指标（可视化已重做）
+
+| 指标 | 画什么 | 参数 |
+|---|---|---|
+| `FVG / IFVG` | 缺口矩形（填补后转 IFVG，反向着色）+ 标签 | 显示个数（默认 8） |
+| `Smart Money Concepts (SMC)` · 聪明钱概念 | BOS/CHoCH 虚线 + 标签、订单块矩形、EQH/EQL | 摆动回看（默认 5） |
+| `ICT 杀区工具箱` | 四大 Killzone 竖带（ASIA/LONDON/NY AM/NY PM）+ 未填补 FVG | 小时跨度（默认 1） |
+| `波段 & 中期结构` | 摆动线（SH/SL）+ BOS/CHoCH + 订单块 | 高周期小时数（默认 1） |
+| `Structure & Trend Dashboard` · 结构&趋势面板 | 右下角悬浮面板：三组 HTF/LTF 趋势 + 对齐判定 | 结构周期 / 三组对齐周期 / FVG 上限 / 扫单 / 染色 |
+
+> klinecharts v10 不再调用 indicator 的 `draw` 回调，SMC 这几个指标原来"挂在图上但什么都不画"。
+> 现在结构图形改由 overlay 渲染（`smcRender.js`，每 1.2 s 按 payload 同步），面板改由 DOM 渲染；
+> 摘掉指标会自动清场（overlay 全删、面板隐藏）。
+
+![SMC 结构 + 面板](ui-smc.jpg)
+
+##### 自建均线指标（分类「均线」）
+
+按 LuxAlgo / Pine 口径实现，和 `ta.ema` / `ta.rma` 逐点一致（前 N 根用 SMA 起头，不是“首根就递推”）：
+
+| 指标 | 算法 | 参数 |
+|---|---|---|
+| `EMA` 指数均线 | `alpha = 2/(N+1)`，SMA 种子 | 周期，默认 `20,50,200`；最多 3 条 |
+| `RMA` 怀尔德平滑 | `alpha = 1/N`，SMA 种子（RSI/ATR/DMI 的内核平滑） | 周期，默认 `14,50,200`；最多 3 条 |
+| `ZLEMA` 零延迟均线 | `EMA(2×收盘 − 收盘[lag], N)`，`lag=floor((N−1)/2)` | 周期，默认 `20,50,200`；最多 3 条 |
+
+> 这三个都在「均线」分类里，`EMA` 覆盖了内核自带的同指标（同一名字、同一入口，算法换成 Pine 口径）。
+
+![指标库-均线](ui-ma-cats.jpg)
+
+##### 自建通用指标（分类「通用」）
+
+| 指标 | 说明 | 参数 |
+|---|---|---|
+| `ZLEMA` 零延迟均线 | 去滞后 EMA：`EMA(2×收盘 − 收盘[lag], N)`，`lag=(N−1)/2`。同一周期下拐头比 EMA 早，价格贴着走 | 周期，默认 20；最多 3 条（如 `9,20,50`） |
+
+- 种子用前 N 根的 SMA（与内核 EMA 一致），前 `lag` 根没有参考点就退化成原始收盘价，所以开头不会一大段空白。
+- 只设 1 个周期时图例只显示 `ZLEMA1`，不会出现 `ZLEMA2: n/a`（图例已按“有值才显示”过滤）。
+
 ##### SMC / ICT 指标
 
 口径参考 TradingView 上 LuxAlgo Smart Money Concepts、ICT Killzones 一类开源脚本，用 K 线 OHLC 自算，不依赖 Pine 运行时。
@@ -608,6 +647,65 @@ Pine 编辑器里的「回测」按钮：跑一次脚本 → 读 PineTS 的 `ctx
 
 ![历史数据下载](ui-download.jpg)
 
+
+### 跳到最新 K 线
+
+顶栏第二行「»| 最新」按钮（`#btnLatest`）：一键回到实时边缘。
+
+- **会退出回放**：如果回放开关是开着的，点它等于关掉回放（回放条收起、播放停止），游标对齐到最新一根 bar；
+- **会切回实时**：如果实时没在跑且 `/api/live` 能取到数据，顺手把采集拉起来；
+- 状态栏提示 `已跳到最新 K 线 · 实时中 · <时间>`；
+- 解决「打开程序停在上一位置」：不用管上次停在哪，点一下就到最新。
+
+![跳到最新 K 线](ui-latest.jpg)
+
+### 回放模式开关
+
+顶栏第二行最左「⟲ 回放」按钮（`#btnReplay`）是回放功能的**唯一入口**：
+
+- **默认关闭**：不打开时，起点输入、设为起点、随机时间、回退/播放/前进、速度选择**全部不出现**（`#replayBar[data-on="0"]` → `display:none`），画面就是实时视图，锚在最晚一根。
+- **点开后**回放条才出现；关掉的瞬间会先暂停，再把画面送回最新一根，避免停在半路。
+- 状态记在 `ui:replay`，下次启动按上次的选择恢复。
+- 关闭状态下键盘 `空格/←/→` 仍可用（按钮只是藏起来，不是禁用），需要纯看图时不会误触。
+
+![回放关：只有实时](ui-replay-off.jpg)
+
+![回放开：起点/播放/步进/速度就位](ui-replay-on.jpg)
+
+### 启动自动补缺口
+
+`04 数据` 下载区有一个勾选框「启动自动补缺口」（**默认开**，记在 `ui:autogap`；手动取消后不再自动补）。
+
+打开后，每次启动会做一次检查：**历史尾部 → UTC 昨天**之间有空洞就自动跑一次 Dukascopy 下载并合并入库，跑完自动刷新图表；没有空洞就直接跳过（不发请求、不弹提示）。同一页面生命周期只试一次，避免导入后 `loadProfile` 递归触发。
+
+- 只补**日线级历史**：实时段（当天）由 biquote 负责，5 小时以外的空洞 Dukascopy 才有（T+1 发布）。
+- 补的过程可继续看图，状态栏会显示 `自动补缺口：…`；完成后提示 `已续传 X 根`。
+- 幂等：同一段日期重复补，第二次是 `新增 0 根`（重叠部分去重）。
+
+这条链路同时修掉了一个真 bug —— 续传时把 `subarray` 的**整块 backing buffer** 写进分片，尾部未使用的容量变成一批 `ts=0` 的假记录（实测一次 2,762 条），表现为分片末尾时间戳为 0、`meta.last` 变 0、按时间二分读不到数据。现在写库前统一裁成精确 `ArrayBuffer`，并在合并时丢弃 `ts<=0` 的脏尾巴。
+
+### 实时（biquote）
+
+顶栏第二行「● 实时中」按钮（`#btnLive`）：开着的时候每 **1 s** 拉一次 biquote 的 1 分钟线，**收盘那根自动入库**。
+
+- 数据源：`biquote.io`（免费、无 key，聚合 MT5 经纪商报价）。服务端经 `GET /api/live?symbol=XAUUSD&limit=N` 代理，避开 CORS。
+- **只落已收盘的 bar**：正在走的那根（`isOpen=true`）只用来更新画面；`isOpen=false` 才写库。
+- 写入节奏：内存攒 30 s 或 20 根，一次事务写进独立 store `live`（键 `<profileId>|<YYYYMMDD>`，一天一个分片）。
+- **不污染历史分片**：`chunks` 的 `<profile>@<importId>/<year>` 命名空间完全不动，读窗口时把 live 段按 ts 并进来。
+- **同 ts 以历史为准**（Dukascopy > biquote）：Dukascopy 补齐后，那天的 live 分片可以删掉。
+- `volume` 字段存的是 biquote 的 `tickVolume`（tick 计数，不是真实成交量），profile 里有 `volumeKind: 'tickCount'` 标记。
+- 启动时**回补**最近 1000 根（biquote 的 1m 上限，约 5 小时）；运行中如果本地最新那根落后超过 **2 分钟**（断线/休眠/关过页面），下一轮自动多拉 120 根补齐。
+- **tick 计数不当成交量**：biquote 给的是 `tickVolume`，不是真成交量，所以在图里成交量维度一律是 0（「无成交量」标签、VP/订单墙的退化路径都照旧），原始 tick 数仍留在 live 分片里。
+- **回放期间实时照常采集**：轮询、收盘入 live 分片都不受回放影响；只是**不会往图上推**——只有窗口就在实时边缘（距最后一根 ≤2 根 K）时才 append，回放停在 2024 时窗口不会被拽到今天。回到实时边缘后自动续上。
+- **启动不预探活**：只要「实时」不是手动关的，启动就直接开采集；连上游慢/短暂失败由 feed 每 3 s 自己重试，错误会显示在状态栏（延迟 / 错误）。**没有任何一次探测失败会导致实时被静默关掉。**
+- **30 s 看门狗**：设置是“开”但没在采集（feed 丢了、轮询卡住超过 60 s，例如休眠唤醒后 timer 停了）→ 自动重启采集并写一条 `[live] 看门狗重启` 到控制台。
+- **刷新节奏**：1 s 轮询（固定节拍，扣掉请求耗时）+ 未收盘那根**原地更新**收盘价，实测「价格变化」平均间隔 **1.05 s**。上游 biquote 本身就是 1 s 一档（`quoteAgeSeconds` 0–1），再快没有意义；biquote 限流 15,000 次/分钟，我们只用 60 次。
+- **窗口掉队自动追赶**：图表末根落后实时不超过 **10 分钟**时，会把缺的 bar 增量补进去（落后 >120 根才整窗重载）；落后更多说明你是主动停在历史，程序不会把你拽回来——点「最新」或开回放再定位。
+- **进入程序默认实时**：如果 `/api/live` 能取到数据且用户没手动关过（`ui:live !== false`），启动后自动开；关掉一次就记住，下次不再自动开。
+- 状态栏「数据截至」会自动变成 `… · 含实时`；按钮 hover 显示最近一根时间 / 待写 / 已入库根数。
+
+![实时采集](ui-live.jpg)
+
 ## 19. 从 ZIP / CSV 导入（本地文件）
 
 「04 数据」面板里有一块 **从 ZIP / CSV 导入**：把 `.zip`（可含多个 csv）或单个 `.csv` 拖进去（或点「选择文件」），点「导入」即可，**不需要先跑 Python 工具**。
@@ -633,6 +731,22 @@ Pine 编辑器里的「回测」按钮：跑一次脚本 → 读 PineTS 的 `ctx
 离线批量转换仍可用：`tools/csv2bin.py` + `tools/make_manifest.py`（产物在 `data/bin/`，由「可导入」列表导入）。
 
 ![数据面板](ui-data-import.jpg)
+
+### 换机迁移（配置 / 行情）
+
+`04 数据` 面板底部「换机迁移」四项：
+
+| 按钮 | 产物 | 内容 |
+|---|---|---|
+| 导出配置 | `trader-train-config-YYYYMMDD-HHMM.json` | 除行情清单外的全部 `kv`：主题、版面、TAB、指标偏好/收藏/组合、绘图样式与条目、场次、复盘档案索引、Pine 库 |
+| 导入配置 | 同上 json | 覆盖同名键；**不动行情清单**（不会把目标机已导入的品种清空），完成后自动重载 |
+| 导出行情 | `trader-train-data-YYYYMMDD-HHMM.ttdata` | 已导入全部品种的 K 线二进制（28 B/根，不压缩）+ 行情清单 |
+| 导行情包 | 同上 `.ttdata` | 写入分片并合并清单；同 id 以包内为准，完成后自动重载 |
+
+- `.ttdata` 结构：`"TTDATA1\n"`（8 B）+ `uint32` 头长度（小端）+ JSON 头（`profiles` / `chunks[{key,bytes}]`）+ 各分片原始字节顺序拼接。导入会先校验魔数与长度，包被截断会直接报错而不是写一半。
+- 单包上限 1.4 GB（超过就让分品种导）。实测 4,016,034 根 / 107.2 MB：**导出 866 ms、导入 634 ms**。
+- 换机顺序：**先导配置 → 再导行情包**（配置里不含清单，顺序反了也不会丢，但清单以包内为准）。
+- 端口仍是命根子：新机器必须还是 `http://127.0.0.1:8731`，否则 origin 变了读不到旧数据。
 
 ## 20. 数据格式（28 B/根，小端）
 
@@ -705,7 +819,7 @@ uv run --with pillow python tools/icon_sheet.py
 - 源时间非 UTC（每天缺 06:00 整点、周一 07:00 开）；当前按原时间直读，日线聚合按 UTC 00:00 切。
 - 2023 年数据偏薄（308,752 根，正常约 353k），该区间不宜做精确统计。
 - 单次导入上限 1 GB（应用层）；总容量取决于浏览器配额（本机实测 10,309 MB）。
-- Pine 只支持 `indicator()`：`request.security` 返回 null、`syminfo.mintick` 为 NaN、`barstate.isconfirmed` 恒 false。
+- Pine 只支持 `indicator()`：`request.security` 返回 null、`syminfo.mintick` 为 NaN、`barstate.isconfirmed` 现按 `bar_index < n-1` 判定（最后一根不算确认）。
 - Pine 计算范围是**当前窗口**（1200–1280 根），切周期/暂停时重算（约 51 ms），不是全历史序列。
 - 截图依赖图表可见；后台标签页可能抓到空图（已加就绪等待与重试）。
 - 删除操作都是「连点两次」而非弹窗确认（原生 `confirm/prompt` 在 WebView 下会阻塞页面）。
@@ -725,3 +839,56 @@ uv run --with pillow python tools/icon_sheet.py
 - 刷新：`bash tools/sync-design-refs.sh`
 - 逐条比对结论：`docs/UI-AUDIT-2026-11-03.md`
 - 已落地：按资产定小数位（`instruments.js → decimalsFor/fmtPrice/fmtQty`，`chart.js` 建图与载入后各设一次精度）、数字等宽 `tabular-nums` 覆盖成交/持仓/统计/状态栏
+
+## 26. 稳定性与工程化
+
+### 实时推送（SSE，2026-11 起）
+
+`/api/live/stream?symbol=XAUUSD` 是 `text/event-stream`：服务端**每个品种只跑一个**后台轮询线程
+（1 s 一次 biquote），把结果推给所有打开的窗口 —— 三个图窗只消耗一份上游流量。
+
+客户端 `live.js`：
+
+| 层 | 行为 |
+|---|---|
+| 快路径 | `EventSource` 收到 `bars` 直接走 `_ingest()`，实测延迟 < 1 s（`streamTicks` 计数） |
+| 兜底 | 轮询仍在，但流健康时降到 **5 s** 一次（`POLL_MS_SAFE`） |
+| 断流 | `onerror` ×3 关掉 ES 回到 1 s 轮询；下一轮 poll 成功自动重开 |
+
+`GET /api/live` 保留原样（一次性拉取，供补洞与探活用）。
+
+### 错误日志
+
+`logErr(where, e)` 是统一出口：默认 `console.warn`，URL 加 `?debug=1` 升级成 `console.error`（带堆栈）。
+排查“某功能静默失效”时先开 `?debug=1`。
+
+### exe 退出原因
+
+`packaging/trader_train.py` 注册了 `atexit` / `sys.excepthook` / `threading.excepthook` / `faulthandler`：
+
+- `%LOCALAPPDATA%\TraderTrain\server.log` → 正常退出 `exit; pid=…`，未捕获异常 `FATAL:` + 堆栈
+- `%LOCALAPPDATA%\TraderTrain\crash.log` → 原生崩溃（faulthandler）的 C 栈
+
+### 自检怎么跑
+
+```bash
+# 单个用例：浏览器开 http://127.0.0.1:8731/app/index.html?selftest=45
+# 全部用例（需要 Chrome 带 --remote-debugging-port=9222）
+python tools/run_selftests.py --port 9222 --tests 1-45 --fresh --json report.json
+```
+
+`--fresh` 会在每个用例前执行 `resetForTest()`：清成交、提醒、图上绘图与落盘绘图、SMC 指标、
+绘图样式/模板（`ui:drawStyles`/`ui:drawTemplates`）、Pine 库与映射、回放开关。
+
+**已知边界**：这是“运行态”清理，不是“干净库”。依赖**默认设置**的用例（5 绘图样式、18/19 指标配置、
+23 指标库、24 SMC、28 结构面板、35 Pine 矩阵）要求 IndexedDB 里没有旧偏好；连续跑它们时仍可能因为
+上一个用例写入的偏好而失败 —— 单独跑或先清站点数据即可。真正的隔离做法是换 origin
+（`python tools/serve.py --port 8732`，IndexedDB 按 host:port 隔离）再导入 fixtures。`window.__UI_READY__` 是页面就绪标志，`window.__RESULT__` 是用例结果。
+
+### 快捷键表
+
+按 `?` 打开、`Esc` 关闭（`#helpPanel`）。
+
+### SMC 面板
+
+右下角面板现在可**拖动**（指针拖动，位置存 kv `ui:smcPanel`）、**双击折叠/展开**。

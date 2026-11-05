@@ -98,7 +98,87 @@ const AVWAP = {
   }
 };
 
-export const CUSTOM_INDS = [PDHL, ORB, AVWAP];
+/* ---------------- 4. 均线三件套：EMA / RMA / ZLEMA（LuxAlgo 口径） ---------------- */
+// Pine 的 ta.ema / ta.rma 都是「SMA 起头 + 递推」，和多数库的“首根就递推”不同，
+// 这里按 Pine 口径实现，保证跟 LuxAlgo 的库算出来逐点一致。
+
+/** 指数均线：alpha = 2/(N+1)，前 N 根用 SMA 做种子（ta.ema） */
+function emaSeries(src, period) {
+  const p = Math.max(1, Math.floor(Number(period) || 20));
+  const k = 2 / (p + 1);
+  const out = new Array(src.length).fill(null);
+  let sum = 0, prev = null;
+  for (let i = 0; i < src.length; i++) {
+    const v = src[i];
+    if (v == null || !Number.isFinite(v)) { out[i] = prev; continue; }
+    if (i < p - 1) { sum += v; continue; }
+    if (prev === null) { sum += v; prev = sum / p; }
+    else prev = v * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+/** 怀尔德平滑：alpha = 1/N，同样 SMA 种子（ta.rma，RSI/ATR/DMI 用的就是它） */
+function rmaSeries(src, period) {
+  const p = Math.max(1, Math.floor(Number(period) || 14));
+  const k = 1 / p;
+  const out = new Array(src.length).fill(null);
+  let sum = 0, prev = null;
+  for (let i = 0; i < src.length; i++) {
+    const v = src[i];
+    if (v == null || !Number.isFinite(v)) { out[i] = prev; continue; }
+    if (i < p - 1) { sum += v; continue; }
+    if (prev === null) { sum += v; prev = sum / p; }
+    else prev = v * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+/** 零延迟均线：EMA(2*close − close[lag])，lag = floor((N−1)/2)（Ehlers / LuxAlgo） */
+function zlemaSeries(dataList, period) {
+  const p = Math.max(1, Math.floor(Number(period) || 20));
+  const lag = Math.floor((p - 1) / 2);
+  const src = dataList.map((b, i) => (i >= lag ? 2 * b.close - dataList[i - lag].close : b.close));
+  return emaSeries(src, p);
+}
+
+const closesOf = (dataList) => dataList.map(b => b.close);
+const paramList = (indicator, dflt) => (indicator?.calcParams || dflt)
+  .slice(0, 3)
+  .map(v => Math.max(1, Math.floor(Number(v) || dflt[0])));
+
+function maLike(name, shortName, dflt, colors, calcFn) {
+  return {
+    name,
+    shortName,
+    series: 'price',
+    precision: 2,
+    calcParams: dflt,
+    figures: colors.map((c, i) => ({ key: `z${i + 1}`, title: `${name}${i + 1}: `, type: 'line', styles: () => ({ color: c, size: 1.4 }) })),
+    calc: (dataList, indicator) => {
+      const params = paramList(indicator, dflt);
+      const cols = params.map(p => calcFn(dataList, p));
+      return dataList.map((_, i) => ({
+        z1: cols[0] ? cols[0][i] : null,
+        z2: cols[1] ? cols[1][i] : null,
+        z3: cols[2] ? cols[2][i] : null
+      }));
+    }
+  };
+}
+
+const EMA = maLike('EMA', '指数均线', [20, 50, 200], ['#7fd1ff', '#f0b25b', '#c9a0ff'],
+  (dataList, p) => emaSeries(closesOf(dataList), p));
+
+const RMA = maLike('RMA', '怀尔德平滑', [14, 50, 200], ['#ffb270', '#7fd1ff', '#9fe3b0'],
+  (dataList, p) => rmaSeries(closesOf(dataList), p));
+
+const ZLEMA = maLike('ZLEMA', '零延迟均线', [20, 50, 200], ['#aceaff', '#f0b25b', '#c9a0ff'],
+  (dataList, p) => zlemaSeries(dataList, p));
+
+export const CUSTOM_INDS = [PDHL, ORB, AVWAP, EMA, RMA, ZLEMA];
 
 export const CUSTOM_META = {
   PDHL: { label: '前日高/低/收 PDH·PDL·PDC', cat: '关键位', overlay: true,
@@ -107,16 +187,22 @@ export const CUSTOM_META = {
     desc: '开盘后 N 分钟高/低 · 突破/回踩观察' },
   AVWAP: { label: '锚定 VWAP', cat: '关键位', overlay: true,
     desc: '日锚定成交量加权均价 · 无量退化均价' },
+  EMA: { label: '指数均线 EMA', cat: '均线', overlay: true,
+    desc: 'LuxAlgo/Pine ta.ema 口径：alpha=2/(N+1)，前 N 根用 SMA 起头 · 比 MA 更贴价' },
+  RMA: { label: '怀尔德平滑 RMA', cat: '均线', overlay: true,
+    desc: 'LuxAlgo/Pine ta.rma 口径：alpha=1/N，SMA 起头 · RSI/ATR/DMI 的内核平滑' },
+  ZLEMA: { label: '零延迟均线 ZLEMA', cat: '均线', overlay: true,
+    desc: '去滞后 EMA：EMA(2×收盘 − 收盘[lag])，lag=(N−1)/2 · 拐头比同周期 EMA 更快' },
   SMC_FVG: { label: 'FVG / IFVG', cat: 'SMC', overlay: true,
     desc: '延伸至填补 · 收盘穿越后反转' },
-  SMC_MST: { label: '聪明钱概念', cat: 'SMC', overlay: true,
-    desc: '内部/摆动结构 · BOS / CHoCH · 订单块 · EQH/EQL' },
+  SMC_MST: { label: 'Smart Money Concepts (SMC) · 聪明钱概念', cat: 'SMC', overlay: true,
+    desc: 'LuxAlgo 同源思路：内部/摆动结构 · BOS / CHoCH · 订单块 · EQH/EQL（参数=摆动回看）' },
   SMC_ICT: { label: 'ICT 杀区工具箱', cat: 'SMC', overlay: true,
     desc: '四大 Killzone · 未填补 FVG（UTC 时区）' },
   SMC_HTF: { label: '波段 & 中期结构', cat: 'SMC', overlay: true,
     desc: '当前周期内部结构 + 可选 1 小时外部结构与 OB' },
-  SMC_DASH: { label: '结构 & 趋势面板', cat: 'SMC', overlay: true,
-    desc: '多周期结构对齐 · BOS/CHoCH · 扫单 · FVG · 面板' },
+  SMC_DASH: { label: 'Structure & Trend Dashboard · 结构&趋势面板', cat: 'SMC', overlay: true,
+    desc: 'LuxAlgo 同源思路：三组多周期结构对齐 · BOS/CHoCH · 扫单 · FVG 上限 · 蜡烛染色' },
   FLOW_VOL: { label: '成交量', cat: '订单流', overlay: false,
     desc: '按当前周期聚合显示 · 无量数据源为空' },
   FLOW_VP: { label: '综合 VP', cat: '订单流', overlay: true,

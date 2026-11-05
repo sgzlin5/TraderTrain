@@ -101,7 +101,7 @@ export function preprocessPine(src, bars) {
   return src
     .replace(/\bbarstate\.islastconfirmedhistory\b/g, 'true')
     .replace(/\bbarstate\.islast\b/g, `(bar_index >= ${n - 1})`)
-    .replace(/\bbarstate\.isconfirmed\b/g, 'true')
+    .replace(/\bbarstate\.isconfirmed\b/g, `(bar_index < ${n - 1})`)   // 最后一根是正在走的那根，不算确认
     .replace(/\bbarstate\.isnew\b/g, 'true')
     .replace(/\bbarstate\.isfirst\b/g, '(bar_index == 0)');
 }

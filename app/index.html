@@ -91,6 +91,18 @@
   <span class="tb2-label">图表操作</span>
   <span class="spacer"></span>
   <nav class="nav tb2-acts" aria-label="图表操作">
+    <button aria-label="回放模式开关" id="btnReplay" class="icon-btn replay-btn" title="回放模式：打开后显示起点 / 播放 / 步进 / 速度" aria-pressed="false">
+      <span class="rp-ico" aria-hidden="true">⟲</span><span class="rp-txt">回放</span>
+    </button>
+    <button aria-label="跳到最新 K 线（并退出回放切回实时）" id="btnLatest" class="icon-btn latest-btn" title="跳到最新 K 线：退出回放、回到实时边缘">
+      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+        <path d="M2.2 3.4l4.6 4.6-4.6 4.6"/><path d="M7.6 3.4l4.6 4.6-4.6 4.6"/><path d="M14 3v10"/>
+      </svg>
+      <span class="lt-txt">最新</span>
+    </button>
+    <button aria-label="实时采集（biquote，1 分钟）" id="btnLive" class="icon-btn live-btn" title="实时采集（biquote）：每 3 s 拉一次，收盘那根自动入库" aria-pressed="false">
+      <span class="live-dot" aria-hidden="true"></span><span class="live-txt">实时</span>
+    </button>
     <button aria-label="保存配置到本地（Ctrl+S）" id="btnSave" class="icon-btn save-btn" title="保存配置到本地（Ctrl+S）">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
         <path d="M2.6 2.6h8.2l2.6 2.6v8.2H2.6z"/><path d="M5.2 2.6h5v3.6h-5z"/><path d="M4.6 9.4h6.8v3.9H4.6z"/>
@@ -121,6 +133,13 @@
 <div id="main">
   <aside id="tools" class="toolbar" aria-label="绘图工具"></aside>
     <main id="chart"></main>
+    <div id="chartEmpty" hidden>
+      <div class="ce-card">
+        <b>还没有行情数据</b>
+        <p>这个窗口的数据空间是空的。去「04 数据」下载一段（外汇/黄金走 Dukascopy，加密走 Binance），或导入本地 CSV / ZIP。</p>
+        <button id="ceGoData" class="btn-primary">打开数据面板</button>
+      </div>
+    </div>
   <div id="chartLegend" class="chart-legend"></div>
 
   <aside id="tradePanel" class="panel" hidden>
@@ -157,7 +176,7 @@
   </aside>
 </div>
 
-<div id="replayBar">
+<div id="replayBar" class="replay-only" data-on="0">
   <div class="group">
     <span class="lbl">起点</span>
     <input type="datetime-local" id="startAt" step="60" title="回放起点（UTC）">
@@ -182,6 +201,19 @@
   <span id="cursorInfo" class="readout">-</span>
   <span class="spacer"></span>
   <span id="toolHint" class="hintline"></span>
+</div>
+
+<div id="helpPanel" class="help-panel" hidden>
+  <header><b>快捷键</b><button aria-label="关闭" id="helpClose" class="icon" title="关闭">✕</button></header>
+  <table>
+    <tr><td>空格</td><td>播放 / 暂停回放</td></tr>
+    <tr><td>← / →</td><td>回放回退 / 前进一根</td></tr>
+    <tr><td>R / Shift+R</td><td>设为起点 / 随机起点</td></tr>
+    <tr><td>Ctrl+S</td><td>保存配置</td></tr>
+    <tr><td>1 2 3 4 5 6 7</td><td>切换周期（1m/5m/15m/30m/1h/4h/1d）</td></tr>
+    <tr><td>Esc</td><td>关闭当前面板 / 取消选择</td></tr>
+    <tr><td>?</td><td>打开 / 关闭这张表</td></tr>
+  </table>
 </div>
 
 <footer id="status">
@@ -327,6 +359,9 @@
     <div class="dl-row">
       <button id="dlStart" class="btn">下载并导入</button>
       <button aria-label="把已有档案续到今天之前（UTC 昨天），只补缺失部分" id="dlAppend" class="btn ghost" title="把已有档案续到今天之前（UTC 昨天），只补缺失部分">补到昨天</button>
+      <label class="chk-inline" title="启动时若“历史尾部 → UTC 昨天”之间有缺口，自动跑一次 Dukascopy 补齐（默认关；biquote 只留 5 小时，停机造成的空洞只能这么补）">
+        <input type="checkbox" id="dlAutoGap" checked> 启动自动补缺口
+      </label>
       <button id="dlCancel" class="btn ghost" hidden>取消</button>
     </div>
     <div id="dlProgWrap" hidden>
@@ -356,6 +391,26 @@
     <p id="csvMsg" class="msg"></p>
     <p class="hint">只认 1 分钟基础数据；表头需含 open/high/low/close（时间列名 datetime/time/date 均可）；
       同时间戳去重、按年切片、直接写 IndexedDB。</p>
+  </section>
+
+  <section>
+    <h3>换机迁移 <small>配置 / 行情</small></h3>
+    <div class="dl-row">
+      <button id="xferCfgExport" class="btn ghost" title="主题/版面/TAB/指标偏好/绘图/场次/档案 打包成一个 json">导出配置</button>
+      <button id="xferCfgImport" class="btn ghost" title="从另一台机器导出的 json 还原配置">导入配置</button>
+      <input id="xferCfgFile" type="file" accept=".json,application/json" hidden>
+    </div>
+    <div class="dl-row">
+      <button id="xferDataExport" class="btn ghost" title="把已导入的 K 线打包成 .ttdata（28 B/根，不压缩）">导出行情</button>
+      <button id="xferDataImport" class="btn ghost" title="读取 .ttdata，把行情与清单一起装回本机">导行情包</button>
+      <input id="xferDataFile" type="file" accept=".ttdata,.bin,application/octet-stream" hidden>
+    </div>
+    <div id="xferProgWrap" hidden>
+      <progress id="xferProg" value="0" max="100"></progress>
+      <div class="prog-line"><span id="xferText"></span></div>
+    </div>
+    <p id="xferMsg" class="msg"></p>
+    <p class="hint">配置不含行情；行情包自带清单，导入后即可回放。换机顺序：先导配置 → 再导行情包 → 页面自动重载。</p>
   </section>
 
   <section>
@@ -587,6 +642,6 @@
 </aside>
 
 <script src="vendor/klinecharts.min.js"></script>
-<script type="module" src="src/main.js?v=20261104w"></script>
+<script type="module" src="src/main.js?v=20261108c"></script>
 </body>
 </html>

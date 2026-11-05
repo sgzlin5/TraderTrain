@@ -15,3 +15,12 @@ desktop.ini
 
 # 依赖（本项目不引入构建链，留个兜底）
 node_modules/
+
+# 打包（v0.1 exe）：venv / PyInstaller 中间物 / 产物 / 构建戳
+packaging/.venv/
+packaging/build/
+packaging/dist/
+app/BUILD
+packaging/*.spec
+__pycache__/
+*.pyc

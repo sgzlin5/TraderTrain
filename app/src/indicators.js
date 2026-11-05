@@ -54,6 +54,7 @@ export const IND_CATS = [
   { key: 'flow', label: '订单流' },
   { key: 'key', label: '关键位' },
   { key: 'smc', label: 'SMC' },
+  { key: 'ma', label: '均线' },
   { key: 'general', label: '通用' },
   { key: 'pine', label: 'Pine / 自编' }
 ];
@@ -64,7 +65,7 @@ const RATE = {
   SAR: 3.5, BBI: 3.5, DMI: 3.5, OBV: 3.5, WR: 3.5, CCI: 3.5, BIAS: 3,
   TRIX: 3, ROC: 3, MTM: 3, DMA: 3, CR: 3, PSY: 3, VR: 3, AO: 3, EMV: 3, PVT: 3,
   AVP: 3, SMA: 3.5,
-  PDHL: 4.5, ORB: 4.5, AVWAP: 4,
+  PDHL: 4.5, ORB: 4.5, AVWAP: 4, ZLEMA: 4.5, EMA: 4.5, RMA: 4,
   SMC_FVG: 4.5, SMC_MST: 4.5, SMC_ICT: 4, SMC_HTF: 4, SMC_DASH: 4.5,
   FLOW_VOL: 3.5, FLOW_VP: 4.5, FLOW_WALL: 4.5, FLOW_DEPTH: 4.5,
   PINE: 4
@@ -93,7 +94,7 @@ export function builtinList() {
     rate: RATE[name] ?? 3.5
   }));
   for (const [name, m] of Object.entries(CUSTOM_META)) {
-    const catMap = { SMC: 'smc', '订单流': 'flow', '关键位': 'key' };
+    const catMap = { SMC: 'smc', '订单流': 'flow', '关键位': 'key', '均线': 'ma', '通用': 'general' };
     list.push({ name, label: m.label, overlay: m.overlay !== false, cat: catMap[m.cat] || 'key',
       desc: m.desc, custom: true, rate: RATE[name] ?? 4 });
   }

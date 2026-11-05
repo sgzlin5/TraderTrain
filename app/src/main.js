@@ -6,6 +6,7 @@ import { fmtPrice, fmtQty } from './instruments.js';
 import { ChartApp } from './chart.js';
 import { importProfile, loadManifest } from './loader.js';
 import { deleteProfile, getProfiles, storageEstimate, MAX_IMPORT_BYTES, kvGet, kvSet } from './db.js';
+import { startSmcRender } from './smcRender.js';
 import { Replay } from './replay.js';
 import { DrawLayer, TOOLS, TOOL_ACTIONS } from './draw.js';
 import {
@@ -32,6 +33,7 @@ import {
 } from './pine.js';
 import { DEFAULT_LAYOUT, normalize, loadLayout, saveLayout, applyLayout as chartApplyLayout, loadTheme, saveTheme, applyThemeMode, migrateLayoutColors, THEMES, themeMeta } from './theme.js';
 import { buildChartTheme, indicatorPalette } from './chart.js';
+import { fmtTs, fmtTsShort, fmtDay, fmtLocalInput } from './fmt.js';
 import {
   builtinList, activeNames, toggleBuiltin, PANE_LAYOUTS, paneCount, applyPaneLayout, LABELS as IND_LABELS, CUSTOM_META,
   loadIndPrefs, saveIndPrefs, applyIndPrefs, OVERLAY_INDS,
@@ -41,10 +43,6 @@ import {
 const $ = (id) => document.getElementById(id);
 const MB = (n) => +(n / 1048576).toFixed(1);
 // 全站统一时间口径：UTC，显式带时区（审计 P1-B3）
-const fmtTs = (ts) => ts ? new Date(ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '-';
-const fmtTsShort = (ts) => ts ? new Date(ts).toISOString().slice(5, 16).replace('T', ' ') : '-';
-const fmtDay = (ts) => ts ? new Date(ts).toISOString().slice(0, 10) : '-';
-const fmtLocalInput = (ts) => ts ? new Date(ts).toISOString().slice(0, 16) : '';
 
 const store = new SessionStore();
 
@@ -60,6 +58,45 @@ const state = {
 };
 window.__APP__ = state;
 state.store = store;
+
+const DEBUG = new URLSearchParams(location.search).has('debug');
+
+/** 自检用：把会互相污染的运行态清干净（?fresh=1 时每个用例前执行） */
+/** 超时兜不住就当它没完成（自检重置不能让页面卡死） */
+function withTimeout(p, ms, tag) {
+  return Promise.race([
+    Promise.resolve(p).catch((e) => logErr(tag, e)),
+    new Promise((res) => setTimeout(() => { logErr(tag, '超时 ' + ms + 'ms'); res(null); }, ms))
+  ]);
+}
+
+async function resetForTest() {
+  try {
+    // 清“会被上一个用例改掉”的状态：绘图样式/模板、Pine 库与映射、回放开关
+    // （主题、页签、布局属于用户偏好，不动）
+    const keys = ['ui:replay', 'ui:drawStyles', 'ui:drawTemplates', 'pine:lib', 'pine:active', 'pine:map'];
+    for (const k of keys) { try { await kvSet(k, null); } catch (e) { logErr('reset:kv', e); } }
+    // 画在图上/已落盘的绘图（draw:<symbol>:<period>）
+    try {
+      const dm = state.draw || state.app?.draw;
+      if (dm) { dm.items = []; if (dm.persist) await withTimeout(dm.persist(), 1500, 'reset:draw'); }
+    } catch (e) { logErr('reset:draw', e); }
+    if (state.session) state.session.trades = [];
+    if (state.trade) { state.trade.trades = []; state.trade.realized = 0; try { state.trade.orders?.forEach?.(o => (o.done = true)); } catch {} }
+    try { window.__TT_RENDER_ALERTS__?.([], 'selftest'); } catch (e) { logErr('reset:alerts', e); }
+    try { state.app?.chart?.getOverlays?.()?.forEach(o => { try { state.app.chart.removeOverlay({ id: o.id }); } catch {} }); } catch {}
+    for (const n of ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF', 'SMC_DASH']) { try { state.app?.chart?.removeIndicator({ name: n }); } catch {} }
+    try { window.__TT_RENDER_SESSION__?.(); } catch {}
+    if (state.app?.chart) await withTimeout(applyReplayMode(false, { silent: true }), 2000, 'reset:replay');
+  } catch (e) { logErr('reset', e); }
+}
+
+/** 统一错误出口：默认 warn，?debug=1 时升级成 error（别再让 catch {} 把真 bug 吃掉） */
+function logErr(where, e) {
+  const text = `[${where}] ${(e && (e.stack || e.message)) || e}`;
+  if (DEBUG) console.error(text); else console.warn(text);
+  return text;
+}
 
 function msg(text, bad = false) {
   const el = $('importMsg');
@@ -1236,10 +1273,21 @@ function renderTradeMarks(s) {
       if (id) state.marks.push(id);
     } catch {}
   };
-  // 入场线不带价格标签（右侧已有最新价标签），SL/TP 用价格线保留标签
-  add('horizontalStraightLine', pos.entry, pos.side === 'long' ? '#5fe3c0' : '#ff6f85');
+  // 入场线 + 箭头标签（多/空 + 手数），SL/TP 用价格线保留右侧标签
+  const bull = pos.side === 'long';
+  add('horizontalStraightLine', pos.entry, bull ? '#5fe3c0' : '#ff6f85');
   if (pos.sl != null) add('priceLine', pos.sl, '#ff6f85');
   if (pos.tp != null) add('priceLine', pos.tp, '#5fe3c0');
+  // 入场点的方向标记（v10 不支持 draw，这里用 overlay 注解代替箭头）
+  try {
+    const id = chart.createOverlay({
+      name: 'simpleAnnotation',
+      points: [{ dataIndex: idx, value: pos.entry }],
+      extendData: `${bull ? '▲ 多' : '▼ 空'} ${pos.qty}`,
+      styles: { text: { color: bull ? '#5fe3c0' : '#ff6f85', size: 11, family: 'ui-monospace, Menlo, Consolas, monospace', backgroundColor: 'rgba(6,12,20,.72)' } }
+    });
+    if (id) state.marks.push(id);
+  } catch (e) { logErr('trade:标记', e); }
 }
 
 function renderTrade(snap) {
@@ -1296,7 +1344,10 @@ function updateAsOf() {
   const el = $('stAsOf');
   if (!el) return;
   const p = state.profile;
-  el.textContent = p?.last ? `数据截至 ${fmtTs(p.last)}` : '数据截至 -';
+  // 有实时段时“数据截至”要跟着实时走（profile.last 只是导入时的历史截止）
+  const liveLast = state.live?.lastTs || p?.live?.last || null;
+  const last = liveLast && (!p?.last || liveLast > p.last) ? liveLast : p?.last;
+  el.textContent = last ? `数据截至 ${fmtTs(last)}${liveLast ? ' · 含实时' : ''}` : '数据截至 -';
 }
 
 function lastPrice() {
@@ -1985,17 +2036,22 @@ function renderLegend() {
     const res = idx >= 0 ? ind.result?.[idx] : null;
     const given = ind.styles?.lines || [];
     // 自建指标可能没有 figures（自己 draw 线），退化成展示 result 里的前几个数值
-    const figs = (ind.figures || []).length
+    // 用 {f, k} 保留原始下标：下面是“按值过滤”，颜色仍要按原始序号取，否则线色会串位
+    const figsAll = (ind.figures || []).length
       ? (ind.figures || [])
           .filter(f => f.type === 'line' || f.type === 'bar' || f.type === 'circle')
           .filter(f => (f.title || '').trim())          // 纯占位 figure（SMC 这类自己 draw 的不带数据）不进图例
+          .map((f, k) => ({ f, k }))
       : Object.keys(res || {}).filter(k => typeof res[k] === 'number').slice(0, 3)
-          .map(k => ({ key: k, title: `${k.toUpperCase()}: `, type: 'line' }));
-    const vals = figs
-      .slice(0, 8)
-      .map((f, k) => {
+          .map((key, k) => ({ f: { key, title: `${key.toUpperCase()}: `, type: 'line' }, k }));
+    const rawOf = (f) => (res && Object.prototype.hasOwnProperty.call(res, f.key) ? res[f.key] : null);
+    // 只有一部分线有值时，把恒为 null 的线隐掉（ZLEMA 只设 1 个周期时不该出现 “ZLEMA2: n/a”）
+    const hasVal = figsAll.some(({ f }) => rawOf(f) != null);
+    const shown = (hasVal ? figsAll.filter(({ f }) => rawOf(f) != null) : figsAll).slice(0, 8);
+    const vals = shown
+      .map(({ f, k }) => {
         const color = given[k]?.color || palette[k % palette.length];
-        const raw = res && Object.prototype.hasOwnProperty.call(res, f.key) ? res[f.key] : null;
+        const raw = rawOf(f);
         const title = (f.title || f.key || '').trim() || f.key;
         return `<span class="lg-val" style="color:${transparentColor(color) ? 'var(--dimmer)' : color}">${title} ${fmtLegendValue(raw, ind.precision ?? 2)}</span>`;
       }).join('');
@@ -3088,12 +3144,18 @@ async function copyWindowShot() {
       stamp: last ? `游标 ${fmt(state.replay?.cursor || last)}` : ''
     });
     if (!blob) { updateStatus('截屏失败：图表还没画出来', true); return; }
+    // 剪贴板写入要设超时：窗口没有焦点/权限弹窗挂着时，clipboard.write() 会永不 settle，
+    // 表现就是“点了截屏没反应”。超时或失败一律退回下载，并如实报文案。
+    const withTimeout = (pr, ms) => Promise.race([
+      pr,
+      new Promise((_, rej) => setTimeout(() => rej(new Error('clipboard timeout')), ms))
+    ]);
     try {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+      await withTimeout(navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]), 3000);
       updateStatus(`窗口截图已复制到剪贴板（${MB(blob.size)} MB）`);
     } catch (e) {
       saveBlob(`window-${p?.symbol || 'shot'}-${Date.now()}.png`, blob);
-      updateStatus('剪贴板不可用，已下载 PNG');
+      updateStatus(`剪贴板不可用（${e.message}），已下载 PNG`);
     }
   } catch (e) {
     updateStatus(`截屏失败：${e.message}`, true);
@@ -3778,6 +3840,7 @@ function resetTabs() {
 }
 
 async function loadProfile(profile) {
+  try { if (state.live) { await state.live.stop(); state.live = null; paintLive({ state: 'idle' }); } } catch {}
   window.__BOOT_STAGE__ = 'loadProfile:start';
   // 自检/外部脚本的等待点：loadProfile 全部装完才 resolve
   window.__APP_READY__ = new Promise((res) => { state._appReady = res; });
@@ -3857,6 +3920,38 @@ async function loadProfile(profile) {
   updateStatus(`已加载 ${profile.symbol}（${fmtDay(profile.first)} → ${fmtDay(profile.last)}）`);
   await renderProfiles();
   await restorePineIndicators();
+  // 回放开关：默认关（只留一个入口，打开才出回放控件）
+  let replayPref = false;
+  try { replayPref = (await kvGet('ui:replay')) === true; } catch {}
+
+  // 实时：用户没明确关过、且源能取到数据，就默认开着
+  try {
+    const pref = await kvGet('ui:live');          // null=没选过 / true / false
+    // 不预探活：冷启动第一次连上游可能要好几秒，探不通就直接放弃会把“实时”永久关掉。
+    // 交给 feed 自己每 3 s 重试，出错会体现在状态栏（延迟/错误）。
+    if (state.profile && pref !== false && !state.live) await startLiveFeed();
+  } catch (e) { logErr('live:恢复', e); }
+
+  // 启动自动补缺口（默认关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
+  try {
+    if (state.profile && !state._gapTried && (await kvGet('ui:autogap')) !== false) {
+      state._gapTried = true;
+      const { autoGapFill } = await import('./download.js');
+      const sym = state.profile.symbol;
+      const r = await autoGapFill(sym, {
+        onStatus: (t, err) => {
+          if (err || /已续传|导入失败|下载失败|已取消/.test(t)) updateStatus(`自动补缺口：${t}`, !!err);
+        }
+      });
+      if (r.started) updateStatus(`自动补缺口：${r.from} → ${r.to} 开始下载（图表可先用，完成后自动刷新）`);
+      else if (r.reason === 'up-to-date') console.info('[gap] 无缺口');
+      else console.warn('[gap] 跳过：', r.reason);
+    }
+  } catch (e) { logErr('gap:自动补', e); }
+
+  // 图表/回放对象就绪后再落实回放开关状态（这时 seek 才有意义）
+  try { await applyReplayMode(replayPref === true, { silent: true }); } catch (e) { logErr('replay:恢复', e); }
+
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
 }
@@ -3884,6 +3979,262 @@ function showBootError(err) {
     box.textContent = '启动失败：' + msg + '\n\n按 Ctrl+R 重试；若反复出现，把这段发给维护者。';
   } catch {}
   try { const sb = document.getElementById('stMsg'); if (sb) sb.textContent = '启动失败：' + msg.slice(0, 120); } catch {}
+}
+
+/* ---------------- 实时采集（biquote → live store） ---------------- */
+function liveBtn() { return $('btnLive'); }
+
+function paintLive(s = {}) {
+  const b = liveBtn(); if (!b) return;
+  const on = s.state === 'live';
+  b.classList.toggle('on', on);
+  b.classList.toggle('err', !!s.err);
+  b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const t = b.querySelector('.live-txt');
+  if (t) t.textContent = on ? '实时中' : '实时';
+  const bits = [];
+  if (s.symbol) bits.push(s.symbol);
+  if (s.last) bits.push(`最近 ${new Date(s.last).toISOString().slice(11, 16)}Z`);
+  if (s.lagSec != null) bits.push(`延迟 ${s.lagSec}s`);
+  if (s.pending) bits.push(`待写 ${s.pending}`);
+  if (s.written) bits.push(`已入库 ${s.written} 根`);
+  if (s.backfilled) bits.push(`回补 ${s.backfilled} 根`);
+  if (s.err) bits.push(`错误 ${String(s.err).slice(0, 60)}`);
+  b.title = on ? `实时采集中：${bits.join(' · ')}` : '实时采集（biquote）：每 3 s 拉一次，收盘那根自动入库';
+  // 状态栏只在“状态/错误”变化时写一行；每轮轮询都写会把用户的提示（随机起点/截屏…）冲掉
+  const sig = `${on}|${s.err ? 1 : 0}`;
+  if (sig !== state._liveSig) {
+    state._liveSig = sig;
+    if (on || s.err) updateStatus(`实时 · ${bits.join(' · ')}`);
+  }
+  try { updateAsOf(); } catch {}
+}
+
+/** 窗口末根离实时多远还算“贴着实时”（超过就当用户停在历史，不自动拽） */
+const NEAR_LIVE_MS = 10 * 60_000;
+
+async function startLiveFeed() {
+  const p = state.profile;
+  if (!p) { updateStatus('实时：还没有行情数据'); return; }
+  // 单实例：同一品种已经在采就不要再起一个（两个 feed 会互相覆盖 live 分片）
+  if (state.live && state.live.running && state.live.profile?.id === p.id) {
+    paintLive(state.live.status());
+    return;
+  }
+  if (state.live) await state.live.stop();
+  const { LiveFeed } = await import('./live.js');
+  state.live = new LiveFeed({
+    profile: p,
+    onForming: (bar) => {
+      // 贴边就原地更新；落后超过 2 分钟说明窗口已经掉队（休眠/断线/我方的假 bar 等），
+      // 直接整窗重载到最新——否则原来的「距离 ≤2 根」判断会让它永远追不上，表现就是“图表不动但数据在写”
+      const ch = state.app;
+      if (!ch || state.replayMode) return;
+      const last = ch?.lastTs?.();
+      const behind = last ? bar.timestamp - last : Infinity;
+      if (behind <= 2 * 60_000) {
+        if (bar.timestamp >= (last || 0)) {
+          try { ch.pushBar({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}
+        }
+      } else if (behind <= NEAR_LIVE_MS) {
+        catchUpLive(bar.timestamp);          // 窗口还贴着实时（≤10 分钟），补齐掉队的几根
+      }
+      // 更远说明用户主动停/跳到历史，等「最新」或回放开关把他带回来，别去拽窗口
+    },
+    onClosed: async (bars) => {
+      const ch = state.app;
+      if (!ch) return;
+      const had = await ch.refreshLive();
+      const last = bars[bars.length - 1];
+      const tail = ch.lastTs?.();
+      try { updateAsOf(); } catch {}
+      if (!had || !last || state.replayMode) return;
+      const behind = tail ? last.timestamp - tail : Infinity;
+      if (behind <= 2 * 60_000) {
+        if (last.timestamp > (tail || 0)) {
+          try { ch.pushBar({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}
+        }
+      } else if (behind <= NEAR_LIVE_MS) {
+        catchUpLive(last.timestamp);
+      }
+    },
+    onStatus: (s) => paintLive(s)
+  });
+  await state.live.start();
+  await kvSet('ui:live', true).catch(() => {});
+  paintLive(state.live.status());
+
+  // 历史与实时之间的空洞要明说（不自欺：图上那一大段空白不是渲染问题）
+  try {
+    const LS = await import('./liveStore.js');
+    const meta = await LS.getLiveMeta(p.id);
+    const firstLive = meta.days?.[0]?.first;
+    if (p.last && firstLive && firstLive - p.last > 86400000) {
+      const days = Math.round((firstLive - p.last) / 86400000);
+      updateStatus(`实时已开 · 历史止于 ${fmtTs(p.last)}，与实时之间缺 ${days} 天 · 用「补到昨天」补齐`, true);
+    }
+  } catch {}
+}
+
+async function stopLiveFeed() {
+  if (state.live) { await state.live.stop(); state.live = null; }
+  await kvSet('ui:live', false).catch(() => {});
+  paintLive({ state: 'idle' });
+  updateStatus('实时已停止');
+}
+
+/** 源探活：能取到 1 根已收盘 bar 就算“源可用”（3 s 超时） */
+async function liveSourceReady(symbol, { timeout = 8000, tries = 2 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), timeout);
+      const res = await fetch(`/api/live?symbol=${encodeURIComponent(symbol)}&limit=2`, { cache: 'no-store', signal: ctl.signal });
+      clearTimeout(timer);
+      if (res.ok) {
+        const j = await res.json();
+        if (Array.isArray(j.bars) && j.bars.length > 0) return true;
+      }
+    } catch (e) { /* 冷启动上游慢，再来一次 */ }
+    if (i + 1 < tries) await new Promise(r => setTimeout(r, 800));
+  }
+  return false;
+}
+
+/** 回放模式开关：关着的时候回放相关控件全部不出现 */
+async function applyReplayMode(on, opts = {}) {
+  state.replayMode = !!on;
+  const bar = $('replayBar');
+  if (bar) bar.dataset.on = on ? '1' : '0';
+  const btn = $('btnReplay');
+  if (btn) {
+    btn.classList.toggle('on', !!on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.title = on ? '回放模式：开（点一下收起回放控件）' : '回放模式：打开后显示起点 / 播放 / 步进 / 速度';
+  }
+  document.body.classList.toggle('replay-on', !!on);
+  // 打开回放时把游标贴到当前最右一根，免得“播放”从几分钟前跳回去
+  if (on) {
+    try {
+      const t = state.app?.lastTs?.();
+      if (t && state.replay) { state.replay.cursor = t; state.replay.emit?.(); }
+    } catch {}
+  }
+  if (!on) {
+    try { state.replay?.pause?.(); } catch {}
+    if (opts.noSeek) { if (!opts.silent) await kvSet('ui:replay', false).catch(() => {}); return; }
+    // 收起回放后回到最新一根（历史与实时取更晚者），避免画面停在半路
+    try {
+      const p = state.profile;
+      const newest = Math.max(p?.last || 0, p?.live?.last || 0);
+      if (state.replay && newest) await state.replay.setStart(Math.min(Date.now(), newest + 60000));
+    } catch {}
+  }
+  if (!opts.silent) await kvSet('ui:replay', !!on).catch(() => {});
+}
+
+/**
+ * 实时窗口掉队时追赶：优先「把缺的 bar 一根根补进去」（增量，可靠），
+ * 落后太多（>120 根）才退化成整窗重载。3 s 内只追一次，避免抖动。
+ */
+async function catchUpLive(newestTs) {
+  const now = Date.now();
+  if (state._catchupAt && now - state._catchupAt < 3_000) return;
+  state._catchupAt = now;
+  const ch = state.app;
+  if (!ch || state.replayMode) return;
+  const tail = ch.lastTs();
+  if (!tail) return;
+  const behindBars = Math.ceil(((newestTs || now) - tail) / 60_000);
+  try {
+    if (behindBars > 120) {
+      const at = Math.min(Date.now(), (newestTs || now) + 60_000);
+      await state.replay?.setStart(at);
+      console.info('[live] 落后太多，整窗重载到', new Date(at).toISOString());
+      return;
+    }
+    const bars = await ch.source.frame((newestTs || now), 60_000, behindBars + 2);
+    let pushed = 0;
+    for (const b of bars) {
+      if (b.timestamp <= tail) continue;
+      ch.pushBar({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
+      pushed++;
+    }
+    if (pushed) console.info('[live] 窗口落后 %d 根，已增量补齐 %d 根', behindBars, pushed);
+  } catch (e) { logErr('live:追赶', e); }
+}
+
+/** 跳到最新 K 线：退出回放、回到实时边缘，并把实时采集拉起来 */
+async function jumpToLatest(opts = {}) {
+  const p = state.profile;
+  if (!p) { updateStatus('还没有行情数据', true); return null; }
+  try {
+    // 回放开着就先关掉（内部会 pause + 把游标/窗口送回最新）
+    if (state.replayMode) await applyReplayMode(false, { silent: !!opts.silent });
+  } catch {}
+  // 兜底再定位一次（已经在最新时这一步几乎零成本）
+  let at = null;
+  try {
+    const newest = Math.max(p.last || 0, p.live?.last || 0);
+    if (newest) {
+      at = Math.min(Date.now(), newest + 60_000);
+      await state.replay?.setStart(at);
+      // 游标对齐到真实的那根 bar（否则会落在分钟中间，回放/步进的起点不干净）
+      const t = state.app?.lastTs?.();
+      if (t && state.replay) { state.replay.cursor = t; state.replay.emit?.(); at = t; }
+    }
+  } catch (e) { logErr('latest:定位', e); }
+  // 切回实时：源能取到数据就把采集拉起来
+  try {
+    if (!state.live && (await liveSourceReady(p.symbol))) await startLiveFeed();
+  } catch (e) { logErr('latest:实时', e); }
+  if (!opts.silent) {
+    updateStatus(state.live
+      ? `已跳到最新 K 线 · 实时中${at ? ' · ' + fmtTs(at) : ''}`
+      : `已跳到最新 K 线${at ? ' · ' + fmtTs(at) : ''}（实时源不可用）`);
+  }
+  return { at, live: !!state.live, replayMode: !!state.replayMode };
+}
+
+function wireLive() {
+  liveBtn()?.addEventListener('click', async () => {
+    if (state.live) await stopLiveFeed();
+    else await startLiveFeed();
+  });
+  $('btnLatest')?.addEventListener('click', async () => { await jumpToLatest(); });
+  $('btnReplay')?.addEventListener('click', async () => {
+    await applyReplayMode(!state.replayMode);
+    updateStatus(state.replayMode ? '回放模式：开（起点/播放/步进/速度已就位）' : '回放模式：关（回到实时视图）');
+  });
+  window.__TT_JUMP_LATEST__ = (o) => jumpToLatest(o);
+  window.__TT_RESET__ = () => resetForTest();
+  window.__TT_REPLAY_MODE__ = {
+    on: () => applyReplayMode(true),
+    off: () => applyReplayMode(false),
+    state: () => !!state.replayMode
+  };
+  // 看门狗：设置是“开”但没在采集（feed 丢了 / 轮询卡住 / 睡醒后 timer 停了）→ 重启
+  setInterval(async () => {
+    try {
+      if (!state.profile) return;
+      const pref = await kvGet('ui:live');
+      if (pref === false) return;
+      const f = state.live;
+      const stalled = !f || !f.running || !f.stats?.lastPollAt || (Date.now() - f.stats.lastPollAt > 60_000);
+      if (stalled) {
+        console.warn('[live] 看门狗重启：', f ? (f.running ? '轮询停滞' : 'feed 已停') : '无 feed');
+        if (state.live) { try { await state.live.stop(); } catch {} state.live = null; }
+        await startLiveFeed();
+      }
+    } catch (e) { logErr('live:看门狗', e); }
+  }, 30_000);
+
+  window.__TT_LIVE__ = {
+    start: () => startLiveFeed(),
+    stop: () => stopLiveFeed(),
+    status: () => state.live?.status() || { state: 'idle' },
+    feed: () => state.live
+  };
 }
 
 async function boot() {
@@ -3921,6 +4272,13 @@ async function boot() {
   catch (err) { msg(`manifest 读取失败：${err.message}`, true); }
   await renderAvail();
   await refresh();
+  // 没有任何行情 → 图表区给一句人话（exe 首次启动、换了数据空间都会遇到）
+  const ce = $('chartEmpty');
+  if (ce) {
+    ce.hidden = state.profiles.length > 0;
+    $('ceGoData') && ($('ceGoData').onclick = () => { ce.hidden = true; $('btnData')?.click(); });
+  }
+
   if (state.profiles.length) {
     const lastId = await kvGet('ui:profile').catch(() => null);
     const pick = state.profiles.find(p => p.id === lastId) || state.profiles[state.profiles.length - 1];
@@ -3945,7 +4303,7 @@ async function boot() {
   window.__TT_RENDER_ALERTS__ = (list, name) => renderAlerts(list, name);
   window.__TT_EXPORT_REPORT__ = (sess) => exportSessionReport(sess);
   window.__TT_RENDER_DRAWMGR__ = () => renderDrawMgr();
-  window.__TT_RENDER_SESSION__ = () => { try { renderTrades(); } catch {} };
+  window.__TT_RENDER_SESSION__ = () => { try { renderTrade(state.trade.snapshot()); } catch {} };
   wireOverlayBar();
   wireThemeMenu();
   wireSaveButton();
@@ -3963,6 +4321,98 @@ async function boot() {
     $('btnData').classList.toggle('active', !$('drawer').hidden);
   };
   $('closeDrawer').onclick = () => { $('drawer').hidden = true; $('btnData').classList.remove('active'); };
+  wireTransfer();
+  // 快捷键帮助：? 开关、Esc 关闭
+  const helpEl = $('helpPanel');
+  $('helpClose') && ($('helpClose').onclick = () => { helpEl.hidden = true; });
+  window.addEventListener('keydown', (e) => {
+    const tag = (e.target?.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) return;
+    if (e.key === '?') { e.preventDefault(); helpEl.hidden = !helpEl.hidden; }
+    else if (e.key === 'Escape' && !helpEl.hidden) { helpEl.hidden = true; }
+  });
+  wireLive();
+  try { startSmcRender(state); } catch (e) { logErr('smc:启动', e); }
+/* ---------------- 换机迁移：配置 / 行情 导出导入 ---------------- */
+function wireTransfer() {
+  const msg = $('xferMsg');
+  const wrap = $('xferProgWrap');
+  const prog = $('xferProg');
+  const text = $('xferText');
+  const say = (t, kind = '') => { if (msg) { msg.textContent = t; msg.dataset.kind = kind; } };
+
+  const busy = (on) => {
+    for (const id of ['xferCfgExport', 'xferCfgImport', 'xferDataExport', 'xferDataImport']) {
+      const b = $(id); if (b) b.disabled = on;
+    }
+  };
+  const showProg = (on) => { if (wrap) wrap.hidden = !on; if (on && prog) prog.value = 0; };
+  const onProg = (p) => {
+    if (!prog) return;
+    prog.value = p.pct || 0;
+    if (text) text.textContent = p.total
+      ? `${p.pct}% · ${(p.done / 1048576).toFixed(1)} / ${(p.total / 1048576).toFixed(1)} MB · 分片 ${p.chunk || 0}/${p.chunks || 0}`
+      : '准备中…';
+  };
+
+  $('xferCfgExport')?.addEventListener('click', async () => {
+    busy(true); say('正在打包配置…');
+    try {
+      const T = await import('./transfer.js');
+      const r = await T.exportConfig();
+      T.downloadBlob(r.blob, r.name);
+      say(`配置已导出：${r.keys} 项 · ${T.fmtBytes(r.bytes)} · ${r.name}`, 'ok');
+    } catch (e) { say(`导出配置失败：${e.message}`, 'err'); }
+    finally { busy(false); }
+  });
+
+  $('xferCfgImport')?.addEventListener('click', () => $('xferCfgFile')?.click());
+  $('xferCfgFile')?.addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0]; ev.target.value = '';
+    if (!f) return;
+    busy(true); say(`正在导入配置 ${f.name} …`);
+    try {
+      const T = await import('./transfer.js');
+      const r = await T.importConfig(f);
+      say(`配置已导入：${r.keys} 项 · 页面即将重载…`, 'ok');
+      setTimeout(() => location.reload(), 900);
+    } catch (e) { say(`导入配置失败：${e.message}`, 'err'); busy(false); }
+  });
+
+  $('xferDataExport')?.addEventListener('click', async () => {
+    busy(true); showProg(true); say('正在打包行情…');
+    try {
+      const T = await import('./transfer.js');
+      const r = await T.exportData(onProg);
+      if (!r.chunks) { say('本机还没有可导出的行情（先导入或下载一段）', 'warn'); showProg(false); busy(false); return; }
+      T.downloadBlob(r.blob, r.name);
+      say(`行情已导出：${r.profiles} 个品种 · ${r.chunks} 个分片 · ${T.fmtBytes(r.bytes)} · ${r.name}`, 'ok');
+    } catch (e) { say(`导出行情失败：${e.message}`, 'err'); }
+    finally { showProg(false); busy(false); }
+  });
+
+  $('xferDataImport')?.addEventListener('click', () => $('xferDataFile')?.click());
+  $('xferDataFile')?.addEventListener('change', async (ev) => {
+    const f = ev.target.files?.[0]; ev.target.value = '';
+    if (!f) return;
+    busy(true); showProg(true); say(`正在读取 ${f.name} …`);
+    try {
+      const T = await import('./transfer.js');
+      const peek = await T.peekData(f);
+      say(`包内 ${peek.header.profiles?.length || 0} 个品种 · ${peek.header.chunks?.length || 0} 个分片，开始写入…`);
+      const r = await T.importData(f, onProg);
+      say(`行情已导入：${r.profiles} 个品种（${(r.symbols || []).join(' / ') || '—'}）· ${r.chunks} 个分片 · ${T.fmtBytes(r.bytes)}，页面即将重载…`, 'ok');
+      setTimeout(() => location.reload(), 1200);
+    } catch (e) { say(`导行情包失败：${e.message}`, 'err'); busy(false); showProg(false); }
+  });
+
+  window.__TT_TRANSFER__ = { exportConfig: async () => (await import('./transfer.js')).exportConfig(),
+    importConfig: (f) => import('./transfer.js').then(m => m.importConfig(f)),
+    exportData: (cb) => import('./transfer.js').then(m => m.exportData(cb)),
+    importData: (f, cb) => import('./transfer.js').then(m => m.importData(f, cb)),
+    peekData: (f) => import('./transfer.js').then(m => m.peekData(f)) };
+}
+
   $('goto').onclick = async () => {
     if (!state.app) return;
     const v = $('date').value;
@@ -3982,44 +4432,21 @@ async function boot() {
 boot().catch(showBootError);
 
 // 启动阶段的异步异常（例如 IndexedDB 被另一个窗口占用）也要看得见，而不是白屏转圈
+window.addEventListener('beforeunload', () => { try { state.live?.stop(); } catch {} });
 window.addEventListener('unhandledrejection', (e) => { if (!window.__UI_READY__) showBootError(e.reason); });
 window.addEventListener('error', (e) => { if (!window.__UI_READY__) showBootError(e.message); });
 
 const params = new URLSearchParams(location.search);
-if (params.get('selftest') === '1') import('./selftest.js').then(m => m.run(state));
-if (params.get('selftest') === '2') import('./selftest2.js').then(m => m.run(state));
-if (params.get('selftest') === '3') import('./selftest3.js').then(m => m.run(state));
-if (params.get('selftest') === '4') import('./selftest4.js').then(m => m.run(state));
-if (params.get('selftest') === '5') import('./selftest5.js').then(m => m.run(state));
-if (params.get('selftest') === '6') import('./selftest6.js').then(m => m.run(state));
-if (params.get('selftest') === '7') import('./selftest7.js').then(m => m.run(state));
-if (params.get('selftest') === '8') import('./selftest8.js').then(m => m.run(state));
-if (params.get('selftest') === '9') import('./selftest9.js').then(m => m.run(state));
-if (params.get('selftest') === '10') import('./selftest10.js').then(m => m.run(state));
-if (params.get('selftest') === '11') import('./selftest11.js').then(m => m.run(state));
-if (params.get('selftest') === '12') import('./selftest12.js').then(m => m.run(state));
-if (params.get('selftest') === '13') import('./selftest13.js').then(m => m.run(state));
-if (params.get('selftest') === '14') import('./selftest14.js').then(m => m.run(state));
-if (params.get('selftest') === '15') import('./selftest15.js').then(m => m.run(state));
-if (params.get('selftest') === '16') import('./selftest16.js').then(m => m.run(state));
-if (params.get('selftest') === '17') import('./selftest17.js').then(m => m.run(state));
-if (params.get('selftest') === '18') import('./selftest18.js').then(m => m.run(state));
-if (params.get('selftest') === '19') import('./selftest19.js').then(m => m.run(state));
-if (params.get('selftest') === '20') import('./selftest20.js').then(m => m.run(state));
-if (params.get('selftest') === '21') import('./selftest21.js').then(m => m.run(state));
-if (params.get('selftest') === '22') import('./selftest22.js').then(m => m.run(state));
-if (params.get('selftest') === '23') import('./selftest23.js').then(m => m.run(state));
-if (params.get('selftest') === '24') import('./selftest24.js').then(m => m.run(state));
-if (params.get('selftest') === '25') import('./selftest25.js').then(m => m.run(state));
-if (params.get('selftest') === '26') import('./selftest26.js').then(m => m.run(state));
-if (params.get('selftest') === '27') import('./selftest27.js').then(m => m.run(state));
-if (params.get('selftest') === '28') import('./selftest28.js').then(m => m.run(state));
-if (params.get('selftest') === '29') import('./selftest29.js').then(m => m.run(state));
-if (params.get('selftest') === '30') import('./selftest30.js').then(m => m.run(state));
-if (params.get('selftest') === '31') import('./selftest31.js').then(m => m.run(state));
-if (params.get('selftest') === '32') import('./selftest32.js').then(m => m.run(state));
-if (params.get('selftest') === '33') import('./selftest33.js').then(m => m.run(state));
-if (params.get('selftest') === '34') import('./selftest34.js').then(m => m.run(state));
-if (params.get('selftest') === '35') import('./selftest35.js').then(m => m.run(state));
-if (params.get('selftest') === '36') import('./selftest36.js').then(m => m.run(state));
-if (params.get('selftest') === '37') import('./selftest37.js').then(m => m.run(state));
+const ST = Number(params.get('selftest') || 0);
+if (ST > 0) {
+  (async () => {
+    // ?fresh=1：跑之前先清掉会互相污染的运行态（成交/提醒/绘图/SMC/回放开关）
+    if (params.get('fresh') === '1') {
+      try { await window.__APP_READY__; } catch (e) { logErr('selftest:ready', e); }
+      try { await resetForTest(); } catch (e) { logErr('selftest:reset', e); }
+    }
+    // 1 号用例的文件名是 selftest.js（历史原因），其余是 selftestN.js
+    const mod = await import(ST === 1 ? './selftest.js' : `./selftest${ST}.js`);
+    await mod.run(state);
+  })().catch((e) => { console.error('[selftest] 启动失败', e); });
+}
