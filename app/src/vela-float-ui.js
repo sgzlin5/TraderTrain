@@ -172,6 +172,29 @@ export async function migrateLegacyTemplates(chart) {
   } catch (e) { console.warn('[tt-float:migrate]', e?.message); return 0; }
 }
 
+/** 收藏持久化：drawing:favorites 事件时把 favorites() 存 kv（收藏是图表实例内存态，
+ *  宿主不存就跨会话丢失——与 toolTemplates 同款职责） */
+export function wireFavoritesPersistence(app) {
+  const chart = app.chart;
+  if (!chart?.drawings || chart.__favPersistWired) return;
+  chart.__favPersistWired = true;
+  chart.on('drawing:favorites', () => {
+    try {
+      const favs = chart.drawings.favorites() || [];
+      import('./db.js').then(({ kvSet }) => kvSet('vela:drawingFavorites', favs)).catch(() => {});
+    } catch {}
+  });
+}
+
+/** 收藏恢复（boot 时）：kv → setFavorites */
+export async function restoreFavorites(chart) {
+  try {
+    const { kvGet } = await import('./db.js');
+    const saved = await kvGet('vela:drawingFavorites');
+    if (Array.isArray(saved) && saved.length) chart.drawings.setFavorites(saved);
+  } catch (e) { console.warn('[tt-fav:restore]', e?.message); }
+}
+
 /** 模板持久化恢复（每格图表 mount 后调）：kv 里的 toolTemplates JSON 整体回灌 */
 export async function restoreToolTemplates(chart) {
   try {

@@ -3983,6 +3983,7 @@ async function loadProfile(profile) {
       fm.wireDrawingFloatingUI(cell.app);
       if (!migrated) { await fm.migrateLegacyTemplates(cell.app.chart); migrated = true; }   // [P5] 旧样式模板一次性迁入
       await fm.restoreToolTemplates(cell.app.chart);
+      await fm.restoreFavorites(cell.app.chart);
     }
   } catch (e) { logErr('float-ui', e); }   // [P5] 悬浮属性框 + 收藏工具框 + 模板恢复
   window.__BOOT_STAGE__ = 'ready';
@@ -4283,11 +4284,12 @@ async function boot() {
   window.__VELA_BRANCH__ = true;   // [P5] vela 分支标记：官方原生绘图工具栏
   try {
     window.__A_wireSmc = null;
-    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers } = await import('./vela-ind.js');
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers, wireFavoritesPersistence } = await import('./vela-ind.js');
     registerNativeVelaIndicators();
     registerSmcVelaIndicators();
     registerSmcLayers();        // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
     registerTradeMarksLayer();  // [P5] 交易标记层（入场/SL/TP 线 + 方向 chip）
+    wireFavoritesPersistence(); // [P5] 收藏持久化（favorites 是实例内存态，不存即丢）
     import('./vela-float-ui.js').then((m) => { window.__TT_FLOAT_UI = m; }).catch(() => {});   // [P5] 悬浮框模块（每格 mount 后接线）
     window.__A_wireSmc = wireSmcLayerTriggers;
   } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
