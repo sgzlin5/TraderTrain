@@ -1598,3 +1598,18 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | 页签行内改名 vs 实时重渲染 | 修复后连跑 4 次全绿 |
 | `renderTabs()` 守卫 | 输入框有焦点时跳过重建；`finish()` 先摘输入框再重绘 |
 | 报告内容 | 失败用例带 `falseChecks`（逐条断言路径）+ 4 KB checks 快照 |
+
+## 2026-11-08 行内编辑被刷新打断：全站排查
+
+| 编辑面 | 结论 | 处理 |
+|---|---|---|
+| 页签改名 | 会被 `renderTabs()` 整块重建冲掉 | 焦点守卫 + finish 先摘输入框 |
+| 场次名 / 备注 | 平仓 → `onTradeChange` → `save().then(renderSession)` 直接写 `.value` | 有焦点时不赋值 |
+| Pine 参数 `#pineInputs` | 拖动/缩放/回放/每 120 根实时推进 → `refreshPine()` → `renderInputs()` 重建 | 容器内有焦点时不重建 |
+| Pine 源码 `#pineSrc` | 只在选中条目/加载样例时赋值 | 无需处理 |
+| 指标参数 `#indSetParams` | 只在打开设置面板时赋值 | 无需处理 |
+| 绘图样式 | 无文本输入（select + chip） | 无需处理 |
+| 搜索框 ×3 | 只重建结果列表 | 无需处理 |
+
+验证：探针（聚焦 → 输入 → 触发刷新）场次名保留 `TYPING_备注`、Pine 参数保留 `28`；
+`3/8/32/37` 复跑全绿；整轮 44/45，`#37` 的 `c2.hasVolume` 为实时数据抖动（同一轮重试后通过）。

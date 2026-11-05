@@ -920,6 +920,24 @@ python tools/run_selftests.py --port 9222 --base http://127.0.0.1:8732 --tests 1
 `innerHTML` 重建，输入框连同已输入内容会被冲掉 → 改名丢失、页签栏还可能被冻住。
 现在 `renderTabs()` 在“输入框有焦点”时跳过重建，`finish()` 里先摘掉输入框再重绘。
 
+### 输入框被刷新打断（已排查全站）
+
+周期性刷新（实时推进、图表拖动、平仓回写场次）会重绘面板。凡是“整块重建”或“直接写 `.value`”的地方，
+都会把用户正在输入的内容冲掉。逐个排查结果：
+
+| 编辑面 | 刷新来源 | 处理 |
+|---|---|---|
+| 页签改名（动态 `input`） | 实时状态刷新 → `renderTabs()` 整块 `innerHTML` | 输入框有焦点时跳过重建；`finish()` 先摘掉输入框再重绘 |
+| 场次名 / 备注 `#sessName` `#sessNote` | 平仓 → `onTradeChange` → `save().then(renderSession)`，`renderSession()` 直接写 `.value` | 有焦点时不赋值 |
+| Pine 参数 `#pineInputs` | 拖动/缩放/回放、每 120 根实时推进 → `refreshPine()` → `renderInputs()` 重建 | 容器内有焦点输入框时跳过重建 |
+| Pine 源码 `#pineSrc` | 只在选中条目/加载样例时赋值 | 无需处理（不随刷新触发） |
+| 指标参数 `#indSetParams` | 只在打开设置面板时赋值 | 无需处理 |
+| 绘图样式（线宽/颜色/斐波那契层级） | 改一项就重绘整面板 | 无文本输入态（都是 select 与 chip），改完重绘是预期行为 |
+| 搜索框 `#arSearch` `#dlSearch` `#indSearch` | 只重建结果列表，输入框在容器外 | 无需处理 |
+
+调试钩子：`__TT_RENDER_SESSION_FULL__()`（走 `renderSession`）、`__TT_REFRESH_PINE__()`（走 `refreshPine`），
+可用来复现这类“刷新打断输入”。
+
 ### 快捷键表
 
 按 `?` 打开、`Esc` 关闭（`#helpPanel`）。

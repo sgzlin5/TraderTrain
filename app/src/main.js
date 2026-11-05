@@ -1437,8 +1437,10 @@ async function ensureSession(symbol) {
   if (!ses || ses.symbol !== symbol) ses = await store.create({ symbol });
   state.session = ses;
   state.sessions = await store.list();
-  $('sessName').value = ses.name;
-  $('sessNote').value = ses.note || '';
+  // 正在输入就别覆盖（平仓会自动 renderSession，否则用户刚写的备注被旧值冲掉）
+  const nameEl = $('sessName'), noteEl = $('sessNote');
+  if (document.activeElement !== nameEl) nameEl.value = ses.name;
+  if (document.activeElement !== noteEl) noteEl.value = ses.note || '';
   await renderSession();
   return ses;
 }
@@ -3497,6 +3499,8 @@ function readEditorInputs() {
 function renderInputs(inputs, values = {}) {
   const wrap = $('pineInputsWrap');
   const box = $('pineInputs');
+  // 图表拖动/实时推进会让 refreshPine 周期性重建这里，正在输入的参数不能被冲掉
+  if (box.contains(document.activeElement) && document.activeElement?.dataset?.piname) return;
   if (!inputs.length) { wrap.hidden = true; box.innerHTML = ''; return; }
   wrap.hidden = false;
   box.innerHTML = '';
@@ -4327,6 +4331,8 @@ async function boot() {
   window.__TT_AFTER_IMPORT__ = async (saved) => { await refresh(); await loadProfile(saved); };
   window.__TT_LOAD_PROFILE__ = (p) => loadProfile(p);   // 自检可切换档案
   window.__TT_RENDER_IND__ = () => renderIndicatorPanel();   // 调试/自检用
+  window.__TT_REFRESH_PINE__ = () => refreshPine();
+  window.__TT_RENDER_SESSION_FULL__ = () => renderSession();
   startBuildWatch();
   window.__UI_READY__ = true;          // 全部事件已绑好（自检要等这个，不是 __APP_READY__）
   $('btnData').onclick = () => {
