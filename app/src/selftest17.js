@@ -33,11 +33,11 @@ export async function run(state) {
     })));
   };
   const lastOverlay = () => {
-    const list = state.app.chart.getOverlays();
+    const list = (chart.isVela ? state.app.overlayList() : chart.getOverlays());
     return list[list.length - 1] || null;
   };
   const ohcHit = (p) => {
-    const l = state.app.chart.getDataList();
+    const l = state.app.bars.allBars();
     const b = l.find(x => x.timestamp === p.timestamp);
     if (!b) return { hit: false, v: p.value };
     const v = Math.round(p.value * 1000) / 1000;

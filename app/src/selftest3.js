@@ -19,7 +19,7 @@ export async function run(state) {
 
     const pine = await import('./pine.js');
     const sess = await import('./session.js');
-    const bars = app.chart.getDataList();
+    const bars = app.bars.allBars();
 
     /* ---------- 1. Pine 编译（样例） ---------- */
     const SRC = pine.SAMPLE_PINE;

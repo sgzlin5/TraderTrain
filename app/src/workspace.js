@@ -73,6 +73,7 @@ export class Workspace {
     const prof = profile || this.profile;
     const el = this._mkEl(i);
     const app = new VelaChartApp(el, prof);
+    el.__ttApp = app;   // [vela P5] 主题切换经 DOM 找到每格图表
     await app.mount();
     if (period) await app.switchPeriod(period);
     await app.waitLoaded();

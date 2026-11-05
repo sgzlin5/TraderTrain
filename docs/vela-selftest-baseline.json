@@ -1,0 +1,373 @@
+{
+ "when": "2026-11-05 14:51:08",
+ "results": [
+  {
+   "test": 1,
+   "pass": false,
+   "ms": 20,
+   "errors": [
+    "下载失败 XAUUSD-1m-2015.bin: 404"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 2,
+   "pass": true,
+   "ms": 3084,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 3,
+   "pass": null,
+   "ms": 92047,
+   "state": "TIMEOUT"
+  },
+  {
+   "test": 4,
+   "pass": false,
+   "ms": 4150,
+   "errors": [
+    "chart.getStyles is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 5,
+   "pass": false,
+   "ms": 5766,
+   "errors": [
+    "chart.getDataList is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 6,
+   "pass": false,
+   "ms": 2675,
+   "errors": [
+    "chart.getDataList is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 7,
+   "pass": false,
+   "ms": 3223,
+   "errors": [
+    "chart.getDataList is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 8,
+   "pass": false,
+   "ms": 1961,
+   "errors": [
+    "Cannot read properties of undefined (reading 'getSupportedOverlays')"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 9,
+   "pass": true,
+   "ms": 7705,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 10,
+   "pass": false,
+   "ms": 3609,
+   "errors": [
+    "chart.getStyles is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 11,
+   "pass": true,
+   "ms": 7489,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 12,
+   "pass": true,
+   "ms": 9709,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 13,
+   "pass": true,
+   "ms": 14531,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 14,
+   "pass": true,
+   "ms": 21556,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 15,
+   "pass": true,
+   "ms": 19575,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 16,
+   "pass": false,
+   "ms": 1285,
+   "errors": [
+    "Cannot read properties of undefined (reading 'getSupportedOverlays')"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 17,
+   "pass": false,
+   "ms": 9839,
+   "errors": [
+    "chart.getOverlays is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 18,
+   "pass": false,
+   "ms": 1543,
+   "errors": [
+    "chart.getIndicators is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 19,
+   "pass": false,
+   "ms": 1331,
+   "errors": [
+    "chart(...).getIndicators is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 20,
+   "pass": false,
+   "ms": 5758,
+   "errors": [
+    "TypeError: state.app?.chart.getDataList is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest20.js:98:50)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 21,
+   "pass": false,
+   "ms": 10630,
+   "errors": [
+    "SyntaxError: Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 22,
+   "pass": true,
+   "ms": 1634,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 23,
+   "pass": false,
+   "ms": 6584,
+   "errors": [
+    "TypeError: Cannot read properties of undefined (reading 'getSupportedIndicators')\n    at Module.run (http://127.0.0.1:8731/app/src/selftest23.js:31:43)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 24,
+   "pass": false,
+   "ms": 1386,
+   "errors": [
+    "TypeError: chart.getIndicators is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest24.js:13:27)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 25,
+   "pass": false,
+   "ms": 2731,
+   "errors": [
+    "TypeError: chart.getIndicators is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest25.js:11:27)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 26,
+   "pass": false,
+   "ms": 1636,
+   "errors": [
+    "TypeError: chart.getIndicators is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest26.js:28:27)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 27,
+   "pass": false,
+   "ms": 1573,
+   "errors": [
+    "TypeError: chart.getIndicators is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest27.js:26:27)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 28,
+   "pass": false,
+   "ms": 2416,
+   "errors": [
+    "TypeError: chart.getIndicators is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest28.js:11:27)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 29,
+   "pass": false,
+   "ms": 1384,
+   "errors": [
+    "TypeError: chart.getDataList is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest29.js:12:24)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 30,
+   "pass": false,
+   "ms": 2727,
+   "errors": [
+    "TypeError: chart.getDataList is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest30.js:21:24)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 31,
+   "pass": false,
+   "ms": 5458,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 32,
+   "pass": true,
+   "ms": 17375,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 33,
+   "pass": true,
+   "ms": 27628,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 34,
+   "pass": true,
+   "ms": 7309,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 35,
+   "pass": false,
+   "ms": 2113,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 36,
+   "pass": false,
+   "ms": 8822,
+   "errors": [
+    "TypeError: state.cxSync._apply is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest36.js:42:18)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 37,
+   "pass": false,
+   "ms": 13427,
+   "errors": [
+    "TypeError: chart.getOverlays is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest37.js:114:137)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 38,
+   "pass": false,
+   "ms": 2339,
+   "errors": [
+    "TypeError: chart.getDataList is not a function\n    at Module.run (http://127.0.0.1:8731/app/src/selftest38.js:26:24)\n    at async http://127.0.0.1:8731/app/src/main.js?v=vela-p1a:4465:5"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 39,
+   "pass": true,
+   "ms": 3479,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 40,
+   "pass": true,
+   "ms": 1468,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 41,
+   "pass": false,
+   "ms": 8409,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 42,
+   "pass": true,
+   "ms": 4600,
+   "errors": [],
+   "state": "done"
+  },
+  {
+   "test": 43,
+   "pass": false,
+   "ms": 1397,
+   "errors": [
+    "app.chart.getIndicators is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 44,
+   "pass": false,
+   "ms": 3484,
+   "errors": [
+    "chart.getOverlays is not a function"
+   ],
+   "state": "done"
+  },
+  {
+   "test": 45,
+   "pass": false,
+   "ms": 1536,
+   "errors": [
+    "chart.getOverlays is not a function"
+   ],
+   "state": "done"
+  }
+ ]
+}

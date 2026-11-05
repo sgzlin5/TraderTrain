@@ -8,7 +8,7 @@ export async function run(state) {
     for (let i = 0; i < 80 && !window.__UI_READY__; i++) await wait(100);
     const pine = await import('./pine.js');
     const pd = await import('./pineDraw.js');
-    const bars = state.app.chart.getDataList();
+    const bars = state.app.bars.allBars();
     const sym = state.profile?.symbol || 'XAUUSD';
     const last = (a) => { for (let i = (a || []).length - 1; i >= 0; i--) if (a[i] != null && !Number.isNaN(a[i])) return a[i]; return null; };
     const P = (src) => pine.compilePine(src, bars, null, sym);

@@ -51,7 +51,7 @@ vela 从 `main@7356dc2` 拉出后，main 又前进 **13 个提交**（含实时�
 | **P2 工作区与同步** | **已完成 2026-11-05（按 D9 调整）**：保留 per-TAB Workspace + 每格 VelaChartApp；跨图同步换 `vela-ws.js`（Vela 原生 `setExternalCrosshair`，删 DOM 自绘方案）；MultiReplay 共享时钟收口（step 后各格 cursor 对齐主格）；TAB 驻留 DOM 模型不变 | ~~4~~ 0 | selftest14/15 全绿 |
 | **P3 绘图** | **已完成 2026-11-05**（`vela-draw.js` DrawLayerV：11 工具全映射——Vela 原生就有 polyline/position/freehand，D2 要砍的艾略特本项目工具栏本来就没有；持久化直接存 DrawingsDocument（旧 items 读入时迁移）；undo/redo/磁吸全原生；锚定数据空间 = 跨窗口重载天然持久，旧「窗口内重建」整套删除）；交互放置走真实鼠标（合成事件驱动不了渲染器，自检走编程式 `add()`） | ~~4~~ 0 | selftest2/9 绘图断言全绿 |
 | **P4 指标** | **第一批已完成 2026-11-05**（`vela-ind.js`：①纯 calc 指标通用适配器——PDHL/ORB/AVWAP/EMA/RMA/ZLEMA 复用原 calc 零重写，`registerNativeIndicator` 包装 figures→SeriesSpec；②Pine 桥——`registerEngine('pine')`+D7 预处理+D8 resolver 接 Pine 库，PineManagerV 对齐旧 PineManager 公开面，LuxAlgo Dashboard 实测上图×2 连跑 ok）。**第二批未做**：SMC×5/flow×4（calc 产 overlay 对象池 → 需 boxes/labels 输出分支）、指标面板完整接线、**Pine 大脚本性能**（LuxAlgo Dashboard 8000 根 ~60s/次，P0 探针 300 根 677ms——疑似 fetchSeries/HTF 聚合逐根开销，待剖析） | 4.5→约2.5 | 依赖 P4-a ✅ |
-| **P5 收尾** | 5 套主题 → `VelaTheme`；截图 → `screenshotCanvas()`；快捷键/keymap；`setLocale('zh-Hans')`；全量回归 + 文档 | 3 | 依赖 P1–P4 |
+| **P5 收尾** | **进行中（2026-11-05）**：主题切换已接 `chart.setTheme`（light/sky/amber→light，dark→dark；细 token 映射待做）；`setLocale('zh-Hans')` 已在 mount；**selftest 基线 14/45 全绿**（回放 2/11、工作区 14/15、绘图 2/9 段、实时 42 及 12/22/31~34/39/40 等；31 个待逐个重写——失败根因是 klinecharts 专属断言（createIndicator/getOverlays/Pine 旧管道/交互放置），需按 Vela 语义逐个改写，机械替换已做一轮（9 文件）） | 3→约2 | 依赖 P1–P4 ✅ |
 | 小计 | | **19.5**（19 + 0.5） | |
 
 ## 3. 计划外增量：+5～6 人日

@@ -51,7 +51,7 @@ export async function run(state) {
     });
 
     // 2) 数值对齐（用真实 bar 的收盘价）
-    const bars = app.chart.getDataList().slice(-800);
+    const bars = app.bars.allBars().slice(-800);
     const src = bars.map(b => b.close);
     const N = 20;
     const idx = bars.length - 1;

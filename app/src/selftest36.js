@@ -8,7 +8,7 @@ export async function run(state) {
     for (let i = 0; i < 80 && !window.__UI_READY__; i++) await wait(100);
     const pine = await import('./pine.js');
     const ps = await import('./pineStrategy.js');
-    const bars = state.app.chart.getDataList();
+    const bars = state.app.bars.allBars();
     const sym = state.profile?.symbol || 'XAUUSD';
 
     // ---- A1：重脚本走 Worker，主线程不掉帧 ----

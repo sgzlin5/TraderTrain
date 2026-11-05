@@ -27,7 +27,7 @@ export async function run(state) {
     await wait(150);
     const tradeEmpty = !!document.querySelector('#tradeList .empty-card');
     const drawEmpty = (() => {
-      try { state.app.chart.getOverlays().forEach(o => state.app.chart.removeOverlay({ id: o.id })); } catch {}
+      try { (chart.isVela ? state.app.overlayList() : chart.getOverlays()).forEach(o => state.app.chart.removeOverlay({ id: o.id })); } catch {}
       window.__TT_RENDER_DRAWMGR__();
       return !!document.querySelector('#drawMgrList .empty-card');
     })();
@@ -92,7 +92,7 @@ export async function run(state) {
     // ---------- D2 提醒 ----------
     const pine = await import('./pine.js');
     // 掉最后一根（实时里正在走的那根），freq_once_per_bar_close 只在已收盘 bar 上触发
-    const bars = state.app.chart.getDataList().slice(0, -1);
+    const bars = state.app.bars.allBars().slice(0, -1);
     const ra = await pine.compilePine('//@version=6\nindicator("a")\nif close > open\n    alert("阳线")\nplot(close, "c")', bars, null, state.profile?.symbol);
     window.__TT_RENDER_ALERTS__?.(ra.alerts || [], 'selftest');
     await wait(150);
@@ -111,7 +111,7 @@ export async function run(state) {
     const mgrChecked = document.querySelectorAll('#drawMgrList input:checked').length;
     document.getElementById('drawMgrDel').click();
     await wait(400);
-    log('d3', { rows: mgrRows, emptyCard: mgrEmpty, checked: mgrChecked, overlaysAfter: state.app.chart.getOverlays().length });
+    log('d3', { rows: mgrRows, emptyCard: mgrEmpty, checked: mgrChecked, overlaysAfter: (chart.isVela ? state.app.overlayList() : chart.getOverlays()).length });
 
     // ---------- D1 报告 ----------
     const store = state.store;

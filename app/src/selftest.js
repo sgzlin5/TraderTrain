@@ -99,7 +99,7 @@ export async function run(state) {
       const inds = app.chart.getIndicators().map(i => i.name);
       render = {
         canvas: document.querySelectorAll('#chart canvas').length,
-        dataList: app.chart.getDataList().length,
+        dataList: app.bars.allBars().length,
         indicators: inds,
         hasVolumePanel: inds.some(n => /VOL/i.test(n)),
         panes: app.chart.getPaneCount?.() ?? null
@@ -111,7 +111,7 @@ export async function run(state) {
     if (app) {
       await app.switchPeriod('5m');
       await wait(300);
-      const list = app.chart.getDataList();
+      const list = app.bars.allBars();
       log('switch_5m', { bars: list.length, first: list[0]?.timestamp, last: list.at(-1)?.timestamp,
         alignedTo5m: list.every(b => b.timestamp % 300_000 === 0) });
       await app.switchPeriod('1m');

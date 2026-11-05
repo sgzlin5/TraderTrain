@@ -30,7 +30,7 @@ export async function run(state) {
     i, period: c.app.periodKey, bars: c.app.bars.length,
     w: Math.round(c.el.getBoundingClientRect().width),
     h: Math.round(c.el.getBoundingClientRect().height),
-    overlays: c.app.chart.getOverlays?.() ? c.app.chart.getOverlays().length : 0,
+    overlays: c.app.chart.getOverlays?.() ? (chart.isVela ? state.app.overlayList() : chart.getOverlays()).length : 0,
     key: c.draw.key()
   }));
 
