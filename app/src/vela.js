@@ -219,7 +219,7 @@ export class ReplayV {
   state() {
     const s = this._rs() || {};
     return {
-      cursor: s.cursorTime ?? this.cursor,
+      cursor: this.cursor,              // 1m 分辨率（跨格共享时钟语义；cursorTime 是桶级）
       playing: s.playing ?? this.playing,
       speed: this.speed,
       period: this.app.periodKey,
@@ -255,10 +255,9 @@ export class ReplayV {
     c.on('replay:end', () => { this.playing = false; this._rendered = null; this._tickMap = new Map(); this.emit(); });
     // >1m：每个 tick = 一根 1m 组成（tickSource 按序消费），喂给交易撮合/状态栏
     c.on('replay:tick', ({ cursorTime, index }) => {
-      this.cursor = cursorTime;
       const arr = this._tickMap?.get(cursorTime);
       const b = arr?.[index];
-      if (b) { this.onTick(b, b); this._renderFrom(cursorTime, index, arr); }
+      if (b) { this.cursor = b.timestamp; this.onTick(b, b); this._renderFrom(cursorTime, index, arr); }
       this.emit();
     });
     // 桶完成（最后一个 tick 收敛）：渲染态 = store 里的完整桶
@@ -274,8 +273,8 @@ export class ReplayV {
       if (!s?.active) return;
       const b = payload && payload.bar ? payload.bar : payload;
       if (b && b.time != null) {
-        this.cursor = b.time;
         const bb = toBiz(b);
+        this.cursor = bb.timestamp;
         this._rendered = bb;            // 整根揭示：渲染态 = 揭示的那根
         this.onTick(bb, bb);
       }
@@ -300,7 +299,7 @@ export class ReplayV {
           const rest = inSpan.filter(b => b.timestamp > startTs);
           if (pre.length) {
             const synth = {
-              timestamp: bar.time,
+              timestamp: pre[pre.length - 1].timestamp,   // 游标语义 = 预烤到的最后一根 1m
               open: pre[0].open,
               high: Math.max(...pre.map(b => b.high)),
               low: Math.min(...pre.map(b => b.low)),
@@ -322,9 +321,13 @@ export class ReplayV {
     });
   }
 
-  /** start 的 from 口径：>1m 用 ts-1（起点桶保持隐藏、以 ticks 逐分钟展开 = 旧「部分桶」语义）；
-   *  1m 用 ts（起点根可见，首步揭示下一根 —— 与旧 nextBars 推进一致） */
-  _fromFor(ts) { return this.spanMs > 60_000 ? ts - 1 : ts; }
+  /** start 的 from 口径：>1m 用「起点所在桶的桶边界 - 1」（该桶保持隐藏、以 ticks 逐分钟
+   *  展开 = 旧「部分桶」语义；ts 在桶中间时只减 1ms 藏不掉它 —— 05:58 的 5m 桶 05:55 仍会被
+   *  整根保留，实测踩过）；1m 用 ts（起点根可见，首步揭示下一根 = 旧 nextBars 推进） */
+  _fromFor(ts) {
+    if (this.spanMs <= 60_000) return ts;
+    return Math.floor(ts / this.spanMs) * this.spanMs - 1;
+  }
 
   /** 确保处于回放态（不在则进入：游标落在起点口径上） */
   async _ensureReplay() {
@@ -335,6 +338,19 @@ export class ReplayV {
       await r.start({ from: this._fromFor(this.cursor || this.app.profile.last) });
       this._bindTicks();
     }
+  }
+
+  /** 把起点桶的预置 tick 立刻消费掉（旧模型：部分桶在窗口构建时就已「预烤」在图上，
+   *  不占步数 —— setStart 后图上直接可见起点桶的已走部分，步进从起点下一根开始）。
+   *  守卫：只有「首个隐藏桶包含起点」时才有预烤（起点落在缺口上时下一个桶在起点之后，
+   *  没有已走部分，消费一步反而会多走一根）。 */
+  _prebake() {
+    const r = this.app.chart?.replay;
+    if (!r || this.spanMs <= 60_000 || !r.state.active) return;
+    const nt = r.state.nextTime;
+    const st = this._startTs;
+    if (nt == null || st == null || !(nt <= st && st < nt + this.spanMs)) return;
+    try { r.stepUpdate(); } catch {}
   }
 
   /** 设定回放起点：窗口重建（store 锚到 ts）。回放激活时要先 stop 干净退出 ——
@@ -350,7 +366,11 @@ export class ReplayV {
     if (r && wasActive) { try { r.stop(); } catch {} }
     await this.app.seek(ts).catch(() => {});
     if (r && wasActive) {
-      try { await r.start({ from: this._fromFor(ts) }); this._rendered = null; this._tickMap = new Map(); this._bindTicks(); } catch {}
+      try {
+        await r.start({ from: this._fromFor(ts) });
+        this._rendered = null; this._tickMap = new Map(); this._bindTicks();
+        this._prebake();
+      } catch {}
     }
     this.emit();
   }
@@ -370,8 +390,6 @@ export class ReplayV {
       }
       advanced++;
     }
-    const s = r.state;
-    if (s?.cursorTime) this.cursor = s.cursorTime;
     if (advanced) this.emit();
     return advanced;
   }
@@ -391,6 +409,7 @@ export class ReplayV {
     this._rendered = null;
     this._tickMap = new Map();
     this._bindTicks();
+    this._prebake();
     return true;
   }
 
@@ -453,6 +472,7 @@ export class DrawStub {
   styleFor() { return null; }
   updateOverlayStyle() {}
   removeOverlayById() {}
+  clear() {}
   cancelPending() { this.activeTool = null; this.onChange(); }
 }
 

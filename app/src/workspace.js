@@ -200,6 +200,10 @@ export class MultiReplay {
       const a = await r.step(n);
       advanced = Math.max(advanced, a);
     }
+    // 共享时钟：主格（cells[0]）的 1m 游标就是全工作区的时钟（旧模型各格 cursor 同值）。
+    // 各格原生回放的内部游标（桶级/tick 级）允许有半步差，但对 UI/撮合暴露的 cursor 必须一致。
+    const c = this.primary?.cursor;
+    if (advanced && c != null) this.list.forEach(r => { r.cursor = c; });
     if (advanced) this.emit();
     return advanced;
   }

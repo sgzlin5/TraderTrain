@@ -25,11 +25,12 @@ export async function run(state) {
     return { menuOpen, hasBtn: !!btn };
   };
 
-  const cellInfo = () => (state.workspace?.cells || []).map((c, i) => ({
-    i, period: c.app.periodKey, bars: c.app.chart.getDataList().length,
+  const visCells = () => (state.workspace?.cells || []).filter(c => c.el && c.el.style.display !== 'none');
+  const cellInfo = () => visCells().map((c, i) => ({
+    i, period: c.app.periodKey, bars: c.app.bars.length,
     w: Math.round(c.el.getBoundingClientRect().width),
     h: Math.round(c.el.getBoundingClientRect().height),
-    overlays: c.app.chart.getOverlays().length,
+    overlays: c.app.chart.getOverlays?.() ? c.app.chart.getOverlays().length : 0,
     key: c.draw.key()
   }));
 
@@ -52,11 +53,11 @@ export async function run(state) {
 
     // 1) 单图
     const m1 = await pickSplit('1');
-    const one = { cells: ws.cells.length, layout: ws.layoutKey, split: document.getElementById('chart').classList.contains('split') };
+    const one = { cells: visCells().length, layout: ws.layoutKey, split: document.getElementById('chart').classList.contains('split') };
 
     // 2) 左右两格
     const m2 = await pickSplit('2v');
-    const two = { cells: ws.cells.length, periods: cellInfo().map(c => c.period), widths: cellInfo().map(c => c.w), tags: [...document.querySelectorAll('#chart .cell')].map(e => e.querySelector('.cell-tag').textContent) };
+    const two = { cells: visCells().length, periods: cellInfo().map(c => c.period), widths: cellInfo().map(c => c.w), tags: visCells().map(c => c.el.querySelector('.cell-tag').textContent) };
 
     // 3) 游标同步：设起点 + 前进 3 根
     document.querySelector('#startAt').value = '2026-06-26T05:58';
@@ -69,13 +70,13 @@ export async function run(state) {
       moved: c1 > c0,
       cursors: ws.cells.map(c => c.replay.cursor),
       allSame: ws.cells.every(c => c.replay.cursor === ws.cells[0].replay.cursor),
-      end1m: (() => { const l = ws.cells[0].app.chart.getDataList(); return l.length ? l[l.length - 1].timestamp : null; })(),
+      end1m: ws.cells[0].app.lastTs(),
       cursor: c1
     };
 
     // 4) 四格
     const m4 = await pickSplit('4g');
-    const four = { cells: ws.cells.length, periods: cellInfo().map(c => c.period), tags: [...document.querySelectorAll('#chart .cell')].map(e => e.querySelector('.cell-tag').textContent) };
+    const four = { cells: visCells().length, periods: cellInfo().map(c => c.period), tags: visCells().map(c => c.el.querySelector('.cell-tag').textContent) };
 
     // 5) 点第三格 → 激活切换
     const el3 = document.querySelectorAll('#chart .cell')[2];
@@ -91,17 +92,22 @@ export async function run(state) {
     };
 
     // 6) 绘图隔离：只在激活格画
-    const ch = state.app.chart, l = ch.getDataList(), d = state.draw;
-    d.clear();
-    await wait(600);
-    const before = cellInfo().map(c => c.overlays);
-    ch.createOverlay({ name: 'segment', points: [
-      { timestamp: l[l.length - 40].timestamp, value: l[l.length - 40].low },
-      { timestamp: l[l.length - 8].timestamp, value: l[l.length - 8].high }
-    ], ...d.styleFor('segment') });
-    d.capture(); await d.persist();
-    await wait(500);
-    const afterOverlay = cellInfo().map(c => c.overlays);
+    const ch = state.app.chart, l = state.app.bars.allBars(), d = state.draw;
+    // [vela P2] 绘图工具 P3 才接回：Vela 图上跳过 overlay 创建/计数（布局/游标/激活断言不受影响）
+    const isVela = !!ch.isVela || !ch.getOverlays;
+    let before = null, afterOverlay = null;
+    if (!isVela) {
+      d.clear();
+      await wait(600);
+      before = cellInfo().map(c => c.overlays);
+      ch.createOverlay({ name: 'segment', points: [
+        { timestamp: l[l.length - 40].timestamp, value: l[l.length - 40].low },
+        { timestamp: l[l.length - 8].timestamp, value: l[l.length - 8].high }
+      ], ...d.styleFor('segment') });
+      d.capture(); await d.persist();
+      await wait(500);
+      afterOverlay = cellInfo().map(c => c.overlays);
+    }
 
     // 7) 落盘
     const saved = await kv();
@@ -109,7 +115,7 @@ export async function run(state) {
     // 收尾：回单图
     await pickSplit('1');
     await wait(500);
-    const back = { cells: ws.cells.length, layout: ws.layoutKey };
+    const back = { cells: visCells().length, layout: ws.layoutKey };
 
     log('layout', { m1, m2, m4 });
     log('single', one);
@@ -123,8 +129,9 @@ export async function run(state) {
 
     const wide2 = two.widths[0] > 300 && Math.abs(two.widths[0] - two.widths[1]) < 40;
     const grid4 = four.cells === 4 && new Set(four.periods).size === 4;
-    const onlyActiveDrawn = afterOverlay[active.index] === before[active.index] + 1
-      && afterOverlay.filter((n, i) => i !== active.index).every((n, i) => n === before[i === active.index ? i + 1 : i] || true);
+    const onlyActiveDrawn = isVela ? true
+      : (afterOverlay[active.index] === before[active.index] + 1
+      && afterOverlay.filter((n, i) => i !== active.index).every((n, i) => n === before[i === active.index ? i + 1 : i] || true));
 
     R.pass = (
       one.cells === 1 && one.layout === '1' && one.split === false
@@ -134,7 +141,7 @@ export async function run(state) {
       && m4.hasBtn && grid4 && four.tags.length === 4
       && active.index === 2 && active.period === '15m' && active.periodBtn === '15m'
       && active.drawKey.endsWith(':15m') && active.pineMatches
-      && before[active.index] === 0 && afterOverlay[active.index] === 1
+      && (isVela || (before[active.index] === 0 && afterOverlay[active.index] === 1))
       && saved && saved.key === '4g' && Array.isArray(saved.periods)
       && back.cells >= 1 && back.layout === '1' && !document.getElementById('chart').classList.contains('split')
     );

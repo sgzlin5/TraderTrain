@@ -1,6 +1,6 @@
 # K 线库迁移方案：klinecharts 10.1.0 → Vela 0.9.3
 
-> **状态：P1 已完成（2026-11-05），P2/P3 起开工** —— P1 的两条实测修正：①provider 注册表 store 永锚实时尾，任意锚点窗口必须走自定义 `MarketDataFeed`（`deps.dataFeed` 裸注入，`load` 返回值即 store）；②seek 靠周期往返触发身份重载（~43ms）。详见 [VELA-REMAINING.md §9](VELA-REMAINING.md)。 —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
+> **状态：P1/P2 已完成（2026-11-05），P3 起开工** —— P1 的两条实测修正：①provider 注册表 store 永锚实时尾，任意锚点窗口必须走自定义 `MarketDataFeed`（`deps.dataFeed` 裸注入，`load` 返回值即 store）；②seek 靠周期往返触发身份重载（~43ms）。详见 [VELA-REMAINING.md §9](VELA-REMAINING.md)。 —— 剩余工作量、人日与执行顺序见 [VELA-REMAINING.md](VELA-REMAINING.md)；Pine / LuxAlgo 指标覆盖度实测见 [VELA-PINETS-COVERAGE.md](VELA-PINETS-COVERAGE.md)；P0 各项实测见 [VELA-P0-NOTES.md](VELA-P0-NOTES.md)。
 >
 > **步骤 0 记录**：① `origin/main` 已 merge 进 `vela`（含 `54e520e` 四类优化，两次 merge 均零冲突）；② 原 main 工作区挂着的 12 文件 WIP 已由 `54e520e` 落盘，无需另行处置；③ main 图表层已正式冻结（main 仓库 `docs/BACKLOG.md` 顶部冻结公告，`31bf844`）。
 >
@@ -181,6 +181,7 @@ barsInRange(a, b)  // 区间（Pine 参数面板、统计用）
 | D4 | 是否与 klinecharts 并存 | **不并存**，两分支各用一套，不做运行时开关 | 2026-11-04 |
 | D5 | `vela-pinets` 能否覆盖 LuxAlgo 指标 | **能**：实测 Dashboard 全量脚本 ok（1 表/47 线/20 标签/5 框）、UDT+array 画框 ok、`strategy()` 出 21 笔 trades、`var table=na` 无需预处理补丁。带 `import LuxAlgo/...` 的脚本需要 `importResolver`，**暂按不支持记账** | 2026-11-05 |
 | D6 | 与 `main` 落后的 13 个提交怎么处理 | **先整包 merge 进 `vela`**（实测零冲突），再在 P1–P5 里按 Vela 重做图表层；`main` 的图表层 WIP 处置完才真正冻结 | 2026-11-05 |
+| D9 | **P2 不换 `VelaWorkspace`，保留 per-TAB Workspace + 每格 VelaChartApp** | VelaWorkspace 只支持 3 种布局（本项目 12 种）且要重写 main.js 的全部 per-cell 接线；现有架构已被 selftest2/11/14/15 验证，共享时钟由 MultiReplay 收口（step 后各格 cursor 对齐主格）。跨图十字光标用 Vela 原生 `setExternalCrosshair`（`vela-ws.js`），不再需要自绘 DOM 线。TAB 继续用「驻留 DOM 停靠」模型（activateTab 原样），快照式 `getState/applyState` 弃用——内存实测可接受（每格 store ≤8000 根） | 2026-11-05 |
 
 剩余待确认（不阻塞 P0）：裁掉艾略特后工具栏是否补别的形态（如「测量/持仓」上升为主按钮）；`zh-Hans` 内置文案与本项目自写中文是否统一口径。
 

@@ -1,6 +1,6 @@
 // 入口：装配 UI + 数据 + 图表 + 回放 + 绘图 + 交易 + 场次统计 + Pine 指标（M3）
 import { PERIODS } from './aggregate.js';
-import { CrosshairSync } from './crosshairSync.js';
+import { CrosshairSyncV as CrosshairSync } from './vela-ws.js';   // [vela P2] 原生外置十字光标
 import { summarize as summarizeStrategy, drawCurve } from './pineStrategy.js';
 import { fmtPrice, fmtQty } from './instruments.js';
 import { ChartApp } from './chart.js';
@@ -1979,8 +1979,12 @@ function wireLegendHover() {
     const r = host.getBoundingClientRect();
     let pt = null;
     try {
-      const raw = chart.convertFromPixel([{ x: e.clientX - r.left, y: e.clientY - r.top }], { paneId: 'candle_pane' });
-      pt = Array.isArray(raw) ? raw[0] : raw;
+      if (chart.isVela || !chart.convertFromPixel) {
+        pt = state.cxSync?.last?.time != null ? { timestamp: state.cxSync.last.time } : null;   // [vela] 订阅式读数
+      } else {
+        const raw = chart.convertFromPixel([{ x: e.clientX - r.left, y: e.clientY - r.top }], { paneId: 'candle_pane' });
+        pt = Array.isArray(raw) ? raw[0] : raw;
+      }
     } catch {}
     if (!pt || !Number.isFinite(pt.timestamp)) return;
     _legendIndexTs = pt.timestamp;
