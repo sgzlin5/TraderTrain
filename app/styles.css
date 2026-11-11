@@ -1027,6 +1027,7 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .strat-monthly .m.neg{color:var(--down,#ff6f85)}
 .strat-actions{display:flex;align-items:center;gap:8px}
 .strat-actions .muted{font:var(--fs-2xs)/1.3 var(--mono);color:var(--dimmer)}
+#btPlot.on{border-color:var(--accent);color:var(--accent)}
 .bt-runs{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;
   border:1px solid var(--line-soft);border-radius:4px}
 .bt-runs .r{display:grid;grid-template-columns:16px minmax(0,1fr) 78px 46px 50px 46px 62px;gap:5px;align-items:center;

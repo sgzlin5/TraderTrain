@@ -3262,7 +3262,7 @@ async function copyWindowShot() {
 /* ---------------- 策略回测（区间 + 进度/取消 + 存档对比） ---------------- */
 
 const BT_KV = 'bt:runs';
-const _bt = { busy: false, cancelled: false, result: null, compare: [] };
+const _bt = { busy: false, cancelled: false, result: null, compare: [], plotOn: false };
 
 /** UI 上的区间/周期 → {startTs, endTs, periodMin}（datetime-local 一律按 UTC 解析，与「起点」一致） */
 function btRangeSpec() {
@@ -3359,7 +3359,11 @@ async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {
       truncated: fetched.truncated, periodMin: spec.periodMin,
       fetchMs: fetched.ms, computeMs: r.ms ?? null, totalMs: Math.round(performance.now() - t0)
     };
-    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), inputs: inputs || {}, repaint, parity: btParity(src), at: Date.now() };
+    const openRows = (r.strategy?.open || []).map((t) => ({
+      entryTime: t.entry_time, entryPrice: t.entry_price,
+      side: (Number(t.size) || 0) >= 0 ? '多' : '空', pnl: null
+    }));
+    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), inputs: inputs || {}, repaint, parity: btParity(src), openRows, at: Date.now() };
     renderAlerts(r.alerts || [], name);
     renderStratPanel(_bt.result);
     $('pinePanel').hidden = true;
@@ -3367,6 +3371,7 @@ async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {
     if ($('btSave')) $('btSave').disabled = false;
     if ($('btSavedHint')) $('btSavedHint').textContent = '';
     btProgress(false);
+    if (_bt.plotOn) btTogglePlot(true);   // 开关开着就跟着新结果刷新
     if (repaint) updateStatus('回测完成（⚠ 脚本用了 request.security：HTF 数据可能重绘，结论按「含未来数据」看）', true);
     else updateStatus(`回测完成：${sum.trades} 笔 · 净盈亏 ${sum.net.toFixed(2)} · ${sum.bars.toLocaleString()} 根 · ${(range.totalMs / 1000).toFixed(1)} s`);
     return _bt.result;
@@ -3455,6 +3460,52 @@ async function btClearRuns() {
   if ($('btCompare')) { $('btCompare').hidden = true; $('btCompare').innerHTML = ''; }
   await renderBtRuns();
   if ($('btSavedHint')) $('btSavedHint').textContent = '已清空';
+}
+
+/** 回测成交 → 图层数据（存档没有逐笔，只有「当前这次」能画） */
+function btTradePack(res) {
+  const sum = res?.sum;
+  if (!sum) return null;
+  const conv = (t, open) => ({
+    t0: t.entryTime, p0: Number(t.entryPrice),
+    t1: open ? null : t.exitTime, p1: open ? null : Number(t.exitPrice),
+    side: t.side === '空' ? 'short' : 'long',
+    pnl: open ? null : Number(t.pnl) || 0,
+    open: !!open
+  });
+  const rows = (sum.rows || []).map((t) => conv(t, false));
+  const opens = (res.openRows || []).map((t) => conv(t, true));
+  const trades = [...rows, ...opens].filter((t) => Number.isFinite(t.t0) && Number.isFinite(t.p0));
+  return { name: res.name || '回测', symbol: res.symbol || '', trades };
+}
+
+/** 「画到图上」开关：默认关（保持图面干净） */
+function btTogglePlot(force) {
+  const on = typeof force === 'boolean' ? force : !_bt.plotOn;
+  if (on && !_bt.result) { updateStatus('先跑一次回测', true); return false; }
+  _bt.plotOn = on;
+  if (!on) { window.__TT_BT_TRADES = null; btRepaint(); }
+  else {
+    const pack = btTradePack(_bt.result);
+    window.__TT_BT_TRADES = pack;
+    btRepaint();
+    const n = pack ? pack.trades.length : 0;
+    updateStatus(n ? `已把 ${n} 笔成交画到图上（切周期/换品种后需重画）` : '这次回测没有成交可画', !n);
+  }
+  const btn = $('btPlot');
+  if (btn) { btn.classList.toggle('on', on); btn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+  return on;
+}
+
+/** 触发图表重画：手动重画图层 + 让内核再排一帧（缩放/平移后会自然重画） */
+function btRepaint() {
+  try { window.__TT_BT_REPAINT__?.(); } catch (e) { logErr('bt:repaint-layer', e); }
+  const ch = state.app?.chart;
+  try {
+    const r = ch?.getVisibleRange?.();
+    if (r) ch.setVisibleRange(r);
+  } catch {}
+  setTimeout(() => { try { window.__TT_BT_REPAINT__?.(); } catch {} }, 80);
 }
 
 /** inputs 摘要（对比/标题用）：k=v · k=v … */
@@ -4260,6 +4311,7 @@ function wireBacktest() {
   $('btCancel').onclick = () => btCancel();
   $('btSave').onclick = () => btSaveCurrent();
   $('btExportTrades').onclick = () => btExportTrades();
+  $('btPlot').onclick = () => btTogglePlot();
   $('btClearRuns').onclick = () => btClearRuns();
   $('btRunSym')?.addEventListener('change', () => renderBtRuns());
   // 面板第一次打开时把历史列表读出来
@@ -4284,7 +4336,10 @@ function wireBacktest() {
     exportTrades: () => btExportTrades(),
     csvOf: (id) => btCsvText(id),
     compare: () => _bt.compare.slice(),
-    setCompare: (ids) => { _bt.compare = (ids || []).slice(0, 2); return renderBtRuns(); }
+    setCompare: (ids) => { _bt.compare = (ids || []).slice(0, 2); return renderBtRuns(); },
+    plot: (on) => btTogglePlot(on),
+    plotOn: () => !!_bt.plotOn,
+    tradePack: () => window.__TT_BT_TRADES
   };
 }
 
@@ -4515,6 +4570,8 @@ function resetTabs() {
 
 async function loadProfile(profile) {
   try { if (state.live) { await state.live.stop(); state.live = null; paintLive({ state: 'idle' }); } } catch {}
+  // 换数据源：回测成交层是上一个品种的，先清掉（开关也复位）
+  try { window.__TT_BT_TRADES = null; _bt.plotOn = false; $('btPlot')?.classList.remove('on'); $('btPlot')?.setAttribute('aria-pressed', 'false'); } catch {}
   window.__BOOT_STAGE__ = 'loadProfile:start';
   // 自检/外部脚本的等待点：loadProfile 全部装完才 resolve
   window.__APP_READY__ = new Promise((res) => { state._appReady = res; });
@@ -4977,11 +5034,13 @@ async function boot() {
   window.__VELA_BRANCH__ = true;   // [P5] vela 分支标记：官方原生绘图工具栏
   try {
     window.__A_wireSmc = null;
-    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers } = await import('./vela-ind.js');
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, registerBtTradesLayer, repaintBtTrades, wireSmcLayerTriggers } = await import('./vela-ind.js');
     registerNativeVelaIndicators();
     registerSmcVelaIndicators();
     registerSmcLayers();        // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
     registerTradeMarksLayer();  // [P5] 交易标记层（入场/SL/TP 线 + 方向 chip）
+    registerBtTradesLayer();    // 回测成交层（入场三角 + 出场方块 + 盈亏连线）
+    window.__TT_BT_REPAINT__ = repaintBtTrades;
     // 收藏/模板持久化已并入 vela-float-ui.wirePrefsPersistence（逐图表挂事件），这里不再单独调用
     import('./vela-float-ui.js').then((m) => { window.__TT_FLOAT_UI = m; }).catch(() => {});   // [P5] 收藏工具条模块（每格 mount 后接线）
     window.__A_wireSmc = wireSmcLayerTriggers;

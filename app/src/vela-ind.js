@@ -231,6 +231,108 @@ function paintTradeMarks(args, cv) {
   }
 }
 
+/** 回测成交层：host 写 window.__TT_BT_TRADES__ = { trades:[{t0,p0,t1,p1,side,pnl,open}] }
+ *  画入场三角 + 出场方块 + 连线（盈绿亏红），时间轴用内核 coords.timeToX。 */
+export function registerBtTradesLayer() {
+  const { registerRendererLayer } = V() || {};
+  if (typeof registerRendererLayer !== 'function') return;
+  try {
+    registerRendererLayer({
+      id: 'TT_BT_TRADES',
+      placement: 'above-data',
+      create() {
+        let cv = null;
+        return {
+          mount(canvas) {
+            cv = canvas;
+            window.__LAYER_CV = window.__LAYER_CV || {};
+            window.__LAYER_CV.TT_BT_TRADES = canvas;
+          },
+          render(args) {
+            try {
+              window.__LAYER_ARGS = window.__LAYER_ARGS || {};
+              window.__LAYER_ARGS.TT_BT_TRADES = args;
+              paintBtTrades(args, cv || (window.__LAYER_CV || {}).TT_BT_TRADES);
+            } catch {}
+          }
+        };
+      }
+    });
+  } catch (e) { console.warn('[vela:bt-trades-layer]', e?.message); }
+}
+
+/** 手动重画（host 改了 window.__TT_BT_TRADES__ 后调用；没有渲染帧时也能立刻上屏） */
+export function repaintBtTrades() {
+  const args = (window.__LAYER_ARGS || {}).TT_BT_TRADES;
+  const cv = (window.__LAYER_CV || {}).TT_BT_TRADES;
+  if (!args || !cv) return false;
+  try { paintBtTrades(args, cv); return true; } catch { return false; }
+}
+
+function paintBtTrades(args, cv) {
+  const pack = window.__TT_BT_TRADES || null;
+  if (!cv) return;
+  const ctx2 = cv.getContext('2d');
+  const dpr = cv.clientWidth ? cv.width / cv.clientWidth : 1;
+  ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx2.clearRect(0, 0, cv.width, cv.height);
+  const list = pack && Array.isArray(pack.trades) ? pack.trades : null;
+  if (!list || !list.length) return;
+  const sc = args.scale, bd = args.bounds, co = args.coords;
+  if (!sc || !bd || !co || typeof co.timeToX !== 'function') return;
+  const lo = sc.min, hi = sc.max;
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi === lo) return;
+  const Y = (v) => bd.top + (1 - (v - lo) / (hi - lo)) * bd.height;
+  const X = (t) => { try { return co.timeToX(t); } catch { return NaN; } };
+  const W = cv.clientWidth;
+  const WIN = '#5fe3c0', LOSS = '#ff6f85', LONG = '#3fb6a3', SHORT = '#d9566c', EDGE = '#0d1117';
+  ctx2.lineWidth = 1.4;
+  const few = list.length <= 15;          // 笔数少时标盈亏数字，多时只画几何
+  ctx2.font = '9px ui-monospace,Menlo,monospace';
+  ctx2.textAlign = 'left'; ctx2.textBaseline = 'middle';
+  for (const t of list) {
+    const x0 = X(t.t0), y0 = Y(t.p0);
+    const hasExit = t.t1 != null && t.p1 != null;
+    const x1 = hasExit ? X(t.t1) : NaN;
+    const y1 = hasExit ? Y(t.p1) : NaN;
+    if (!Number.isFinite(x0) || !Number.isFinite(y0)) continue;
+    const vis0 = x0 > -60 && x0 < W + 60;
+    const vis1 = Number.isFinite(x1) && x1 > -60 && x1 < W + 60;
+    if (!vis0 && !vis1) continue;
+    const sideCol = t.side === 'short' ? SHORT : LONG;
+    const ok = (Number(t.pnl) || 0) >= 0;
+    if (hasExit && Number.isFinite(x1) && Number.isFinite(y1)) {
+      // 持仓区间：入场 → 出场
+      ctx2.strokeStyle = ok ? WIN : LOSS;
+      ctx2.globalAlpha = 0.85;
+      ctx2.beginPath(); ctx2.moveTo(x0, y0); ctx2.lineTo(x1, y1); ctx2.stroke();
+      ctx2.globalAlpha = 1;
+      // 出场方块（描边保证在浅色 K 线上也看得清）
+      ctx2.fillStyle = ok ? WIN : LOSS;
+      ctx2.fillRect(x1 - 3.2, y1 - 3.2, 6.4, 6.4);
+      ctx2.strokeStyle = EDGE; ctx2.lineWidth = 1;
+      ctx2.strokeRect(x1 - 3.2, y1 - 3.2, 6.4, 6.4);
+      ctx2.lineWidth = 1.4;
+      if (few && Number.isFinite(t.pnl)) {
+        ctx2.fillStyle = ok ? WIN : LOSS;
+        const txt = (ok ? '+' : '') + (Number(t.pnl)).toFixed(1);
+        ctx2.fillText(txt, x1 + 6, y1);
+      }
+    }
+    // 入场三角：多朝上（贴 K 线下沿）、空朝下（贴上沿）
+    if (vis0) {
+      const d = t.open ? 5.5 : 7;
+      ctx2.beginPath();
+      if (t.side === 'short') { ctx2.moveTo(x0, y0 - d * 0.25); ctx2.lineTo(x0 - d, y0 - d * 1.9); ctx2.lineTo(x0 + d, y0 - d * 1.9); }
+      else { ctx2.moveTo(x0, y0 + d * 0.25); ctx2.lineTo(x0 - d, y0 + d * 1.9); ctx2.lineTo(x0 + d, y0 + d * 1.9); }
+      ctx2.closePath();
+      ctx2.fillStyle = sideCol; ctx2.fill();
+      ctx2.strokeStyle = EDGE; ctx2.lineWidth = 1; ctx2.stroke(); ctx2.lineWidth = 1.4;
+    }
+  }
+  ctx2.setTransform(1, 0, 0, 1, 0, 0);
+}
+
 /** SMC 自绘层：id = native type → pushData 载荷进 args.data，canvas 2D 直接画
  *  （R14 Tier-1：非 series 原语不上屏的确定通路；绘制代码移植自 smcRender） */
 export function registerSmcLayers() {
