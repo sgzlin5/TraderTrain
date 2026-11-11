@@ -6,10 +6,17 @@
 <title>TraderTrain</title>
 <meta name="theme-color" content="#03070d">
 <meta name="description" content="TraderTrain — 本地 K 线回放、模拟交易与复盘训练台">
-<link rel="icon" href="assets/icon.ico" sizes="any">
+<!-- 图标：SVG 打头（矢量 → 任务栏/高 DPI 缩放都不糊），PNG 各尺寸兜底，ico 给老引擎。
+     Chrome --app 窗口的任务栏图标取自页面 favicon（不是 icon.ico），所以要在这层给足分辨率。 -->
+<link rel="icon" type="image/svg+xml" href="assets/icon.svg">
 <link rel="icon" type="image/png" sizes="16x16" href="assets/icon-16.png">
+<link rel="icon" type="image/png" sizes="24x24" href="assets/icon-24.png">
 <link rel="icon" type="image/png" sizes="32x32" href="assets/icon-32.png">
+<link rel="icon" type="image/png" sizes="48x48" href="assets/icon-48.png">
+<link rel="icon" type="image/png" sizes="64x64" href="assets/icon-64.png">
 <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="assets/icon-512.png">
+<link rel="icon" href="assets/icon.ico" sizes="any">
 <link rel="apple-touch-icon" href="assets/icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="stylesheet" href="styles.css">
@@ -524,6 +531,14 @@
 </aside>
 
 <nav id="ctxMenu" class="ctx-menu" hidden role="menu" aria-label="图表菜单">
+  <button class="mi" data-act="limit-buy" role="menuitem"><span class="ico">↑</span><span class="tx">限价买入<i class="px" data-px></i></span></button>
+  <button class="mi" data-act="limit-sell" role="menuitem"><span class="ico">↓</span><span class="tx">限价卖出<i class="px" data-px></i></span></button>
+  <div class="mi-sep"></div>
+  <button class="mi" data-act="set-sl" role="menuitem"><span class="ico">⇲</span><span class="tx">设为止损<i class="px" data-px></i></span></button>
+  <button class="mi" data-act="set-tp" role="menuitem"><span class="ico">⇱</span><span class="tx">设为止盈<i class="px" data-px></i></span></button>
+  <button class="mi" data-act="flat" role="menuitem"><span class="ico">✕</span><span class="tx">平仓</span></button>
+  <button class="mi" data-act="cancel-orders" role="menuitem"><span class="ico">⊘</span><span class="tx">撤销全部挂单</span></button>
+  <div class="mi-sep"></div>
   <button class="mi" data-act="reset" role="menuitem"><span class="ico">↺</span><span class="tx">复位图表</span></button>
   <button class="mi has-sub" data-sub="layout" role="menuitem" aria-haspopup="true"><span class="ico">⚙</span><span class="tx">图表设置…</span><span class="chev">›</span></button>
   <div class="mi-sep"></div>
@@ -645,6 +660,19 @@
 </aside>
 
 <script src="vendor/vela/vela.bundle.js"></script>
+
+<!-- 通用二次确认（回放进出等破坏性/状态切换动作用它；不要用原生 confirm，会阻塞渲染进程） -->
+<div id="ttModal" class="tt-modal" hidden>
+  <div class="tt-modal-card" role="dialog" aria-modal="true" aria-labelledby="ttModalTitle">
+    <h3 id="ttModalTitle">确认</h3>
+    <p id="ttModalDesc"></p>
+    <div class="tt-modal-foot">
+      <button type="button" class="btn" id="ttModalCancel">取消</button>
+      <button type="button" class="btn primary" id="ttModalOk">确定</button>
+    </div>
+  </div>
+</div>
+
 <script type="module" src="src/main.js?v=vela-p1a"></script>
 </body>
 </html>

@@ -20,8 +20,10 @@ TraderTrain v0.1.0 —— Windows 桌面版
 
 三、常见问题
    · 双击没反应：看 %LOCALAPPDATA%\TraderTrain\server.log 最后几行。
-   · 提示端口 8731 被占用：先关掉已开着的 TraderTrain 窗口（或用 start.bat 起的服务）。
-     端口不能换 —— IndexedDB 的 origin 依赖它，换了数据就“丢”了。
+   · 提示端口 8733 被占用：先关掉已开着的 TraderTrain 窗口（或用 start.bat 起的服务）。
+     端口就是 origin，不能换 —— 换了 IndexedDB 读不到旧库，看起来像“历史数据丢了”。
+     旧版（端口 8731）的数据在 %LOCALAPPDATA%\TraderTrain\webview 下的 8731 库，只能用
+     「04 数据 → 导出行情 / 导入」把它搬到 8733（直接拷目录无效：库文件里记着 origin）。
    · 窗口起来是最小化的：等 1-2 秒会自动恢复（程序内有 9 秒看门狗）。
    · 杀软报毒：PyInstaller 单文件包常被误报，加白即可。
 

@@ -43,6 +43,11 @@ const PACK = {
   'drawing.settings.bold': '加粗',
   'drawing.settings.all': '全部',
   'drawing.settings.deleteStyle': '删除样式',
+  // —— 样式模板（原生设置弹窗的「样式」菜单：保存/命名/删除/回退标准） ——
+  'drawing.settings.styleTitle': '样式：{name}',
+  'drawing.settings.styleName': '样式名',
+  'drawing.settings.save': '保存',
+  'drawing.settings.normal': '标准',
 
   // —— 选中悬浮条 ——
   'drawing.bar.settings': '设置',

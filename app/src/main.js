@@ -8,6 +8,7 @@ import { importProfile, loadManifest } from './loader.js';
 import { deleteProfile, getProfiles, storageEstimate, MAX_IMPORT_BYTES, kvGet, kvSet } from './db.js';
 import { startSmcRender } from './smcRender.js';
 import { Replay } from './replay.js';
+import { initTradeUI, priceUnderPointer, tradeMenuState, placeLimitAtPrice, applyStopAtPrice, flatAtMarket, cancelAllOrders } from './trade-ui.js';
 import { DrawLayer, TOOLS, TOOL_ACTIONS } from './draw.js';
 import {
   loadDrawStyles, saveDrawStyles, normalizeDrawStyles, defaultDrawStyles,
@@ -41,6 +42,36 @@ import {
 } from './indicators.js';
 
 const $ = (id) => document.getElementById(id);
+
+/** 通用二次确认：返回 Promise<boolean>。
+ *  用自绘弹层而不是 window.confirm —— 原生 confirm 会阻塞渲染进程（且 CDP 自动化会卡死）。 */
+function confirmDialog({ title = '确认', desc = '', ok = '确定', cancel = '取消' } = {}) {
+  const box = $('ttModal');
+  if (!box) return Promise.resolve(true);        // 没有弹层节点就不拦（降级）
+  $('ttModalTitle').textContent = title;
+  $('ttModalDesc').textContent = desc;
+  $('ttModalOk').textContent = ok;
+  $('ttModalCancel').textContent = cancel;
+  box.hidden = false;
+  return new Promise((resolve) => {
+    const onKey = (e) => {
+      e.stopPropagation();                        // 别让 Space/→ 之类打到回放快捷键
+      if (e.key === 'Escape') { e.preventDefault(); done(false); }
+      else if (e.key === 'Enter') { e.preventDefault(); done(true); }
+    };
+    function done(v) {
+      box.hidden = true;
+      $('ttModalOk').onclick = null;
+      $('ttModalCancel').onclick = null;
+      document.removeEventListener('keydown', onKey, true);
+      resolve(v);
+    }
+    $('ttModalOk').onclick = () => done(true);
+    $('ttModalCancel').onclick = () => done(false);
+    document.addEventListener('keydown', onKey, true);
+    $('ttModalOk').focus();
+  });
+}
 const MB = (n) => +(n / 1048576).toFixed(1);
 // 全站统一时间口径：UTC，显式带时区（审计 P1-B3）
 
@@ -198,6 +229,7 @@ function wsOptions(tabId = null) {
     getStyles: () => resolveToolStyles(state.drawStyles, state.drawTemplates),
     onTick: (bar1m) => {
       state.trade?.onBar(bar1m);
+      refreshTradeFloating();          // 持仓中：浮动盈亏跟着每根 1m 走（onBar 只在状态变化时 emit）
       scheduleTick();
       if (++_pushedSincePine >= 120) { _pushedSincePine = 0; schedulePineRefresh(800); }
     },
@@ -1305,6 +1337,26 @@ function renderTradeMarks(s) {
   } catch (e) { logErr('trade:标记', e); }
 }
 
+/** 只刷浮动盈亏那几个字符：每根 bar 都调 renderTrade 会重建成交表 innerHTML（白费且会闪） */
+let _lastFloatAt = 0;
+function refreshTradeFloating() {
+  const t = state.trade;
+  if (!t?.pos) return;
+  const now = Date.now();
+  if (now - _lastFloatAt < 300) return;      // 回放 16× 时 onTick 很密，节流到 300 ms
+  _lastFloatAt = now;
+  let snap = null;
+  try { snap = t.snapshot(); } catch { return; }
+  if (!snap) return;
+  try { state.tradeUI?.sync?.(snap); } catch {}
+  const b = $('posBox')?.querySelector('b');
+  if (b && snap.floating != null) {
+    b.textContent = snap.floating.toFixed(2);
+    b.className = snap.floating >= 0 ? 'pos' : 'neg';
+  }
+  // 面板上的余额/浮动由 trade-ui 的 sync(snap) 负责，这里只补侧栏「03 交易」里的浮动数字
+}
+
 function renderTrade(snap) {
   const s = snap || (state.trade ? state.trade.snapshot() : null);
   if (!s) return;
@@ -1373,6 +1425,7 @@ function lastPrice() {
 /** 交易状态变化 → 同步到场次（新平仓笔数 → 追加 + 截图） */
 function onTradeChange(snap) {
   renderTrade(snap);
+  try { state.tradeUI?.sync?.(snap); } catch {}
   const ses = state.session;
   if (ses) {
     const fresh = snap.trades.slice(ses.trades.length);
@@ -1898,7 +1951,7 @@ async function openArchive(brief) {
   }
   if (full.startTs && state.replay) {
     $('startAt').value = fmtLocalInput(full.startTs);
-    await state.replay.setStart(full.startTs);
+    await state.replay.setStart(full.startTs, { enter: !!state.replayMode });
     if (state.draw) await state.draw.load();
   }
   await renderSession();
@@ -2396,19 +2449,20 @@ function wireIndSettings() {
     if (!name) return;
     // Pine：恢复 = 清掉保存的 inputs / 线条，回到脚本默认值
     let pineRec = /^PINE_/.test(name) ? state.pine?.findByIndName?.(name) : null;
-  if (!pineRec && /^PINE_/.test(name)) {
-    const m = state.pineMap?.[name];
-    const figs = (ind.figures || []).map(f => f.key);
-    if (m || figs.length) {
-      pineRec = {
-        id: m?.id || null,
-        name: m?.name || 'Pine 指标',
-        indName: name,
-        names: figs,
-        lineStyles: (ind.styles?.lines || []).map(l => ({ color: l.color, size: l.size, style: l.style }))
-      };
+    if (!pineRec && /^PINE_/.test(name)) {
+      const ind = indEntry(name);                 // 之前漏了这行：ind 未定义 → 点「恢复」直接 ReferenceError
+      const m = state.pineMap?.[name];
+      const figs = (ind?.figures || []).map(f => f.key);
+      if (m || figs.length) {
+        pineRec = {
+          id: m?.id || null,
+          name: m?.name || 'Pine 指标',
+          indName: name,
+          names: figs,
+          lineStyles: (ind?.styles?.lines || []).map(l => ({ color: l.color, size: l.size, style: l.style }))
+        };
+      }
     }
-  }
     if (pineRec) {
       const entry = (await libList()).find(e => e.id === pineRec.id);
       if (entry) {
@@ -2918,7 +2972,7 @@ function syncLayoutMenu() {
         state.cxSync?.refresh();
         if (state.replay) {
           state.replay.setEmitter((s) => { renderReplay(s); updateStatus(); });
-          if (keepCursor) await state.replay.setStart(keepCursor);
+          if (keepCursor) await state.replay.setStart(keepCursor, { enter: !!state.replayMode });
         }
         state.wsPeriods = state.workspace.cells.map(c => c.app.periodKey);
         const t = state.tabs.find(x => x.id === state.activeTab);
@@ -3094,7 +3148,28 @@ function closeCtx() {
 
 function openCtx(x, y) {
   closeSubs();
+  refreshCtxTrade(x, y);
   placeAt($('ctxMenu'), x, y);
+}
+
+/** 菜单里的交易行：价格跟随右键落点，无持仓/挂单时相应项置灰 */
+function refreshCtxTrade() {
+  const menu = $('ctxMenu');
+  if (!menu) return;
+  try {
+    const p = priceUnderPointer();
+    const st = tradeMenuState();
+    const txt = p == null ? '' : ' @ ' + p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    menu.querySelectorAll('[data-px]').forEach((el) => { el.textContent = txt; });
+    menu.dataset.price = p == null ? '' : String(p);
+    const setDis = (act, dis) => { const b = menu.querySelector(`[data-act="${act}"]`); if (b) b.disabled = !!dis; };
+    setDis('limit-buy', !st.hasSim || p == null);
+    setDis('limit-sell', !st.hasSim || p == null);
+    setDis('set-sl', !st.hasTrade || p == null);
+    setDis('set-tp', !st.hasTrade || p == null);
+    setDis('flat', !st.hasPos);
+    setDis('cancel-orders', !st.pending);
+  } catch (e) { console.warn('[ctx:trade]', e?.message); }
 }
 
 /** 二级菜单贴着对应的一级条目展开（右侧优先，放不下翻到左侧） */
@@ -3356,6 +3431,12 @@ function wireContextMenu() {
       const act = item.dataset.act;
       if (act === 'reset') { resetChartView(); closeCtx(); }
       else if (act === 'copy') { copyChartImage(); closeCtx(); }
+      else if (act === 'limit-buy') { placeLimitAtPrice('long', Number($('ctxMenu').dataset.price)); closeCtx(); }
+      else if (act === 'limit-sell') { placeLimitAtPrice('short', Number($('ctxMenu').dataset.price)); closeCtx(); }
+      else if (act === 'set-sl') { applyStopAtPrice('sl', Number($('ctxMenu').dataset.price)); closeCtx(); }
+      else if (act === 'set-tp') { applyStopAtPrice('tp', Number($('ctxMenu').dataset.price)); closeCtx(); }
+      else if (act === 'flat') { flatAtMarket(); closeCtx(); }
+      else if (act === 'cancel-orders') { cancelAllOrders(); closeCtx(); }
       else if (item.dataset.sub === 'layout') { syncLayoutUI(); openSub('layoutPanel', item); }
       else if (item.dataset.sub === 'draw') { renderCopyDrawList(); openSub('copyDrawPanel', item); }
     });
@@ -3980,12 +4061,20 @@ async function loadProfile(profile) {
     const fm = await import('./vela-float-ui.js');
     let migrated = false;
     for (const cell of state.workspace?.cells || []) {
-      fm.wireDrawingFloatingUI(cell.app);
-      if (!migrated) { await fm.migrateLegacyTemplates(cell.app.chart); migrated = true; }   // [P5] 旧样式模板一次性迁入
-      await fm.restoreToolTemplates(cell.app.chart);
-      await fm.restoreFavorites(cell.app.chart);
+      // 逐格隔离：某格图表异常不能连坐其它格的收藏/模板恢复（Ctrl+R 丢失就是这条链断了）
+      try {
+        fm.wireDrawingFloatingUI(cell.app);
+        if (!migrated) { await fm.migrateLegacyTemplates(cell.app.chart); migrated = true; }   // [P5] 旧样式模板一次性迁入
+        await fm.restoreToolTemplates(cell.app.chart);
+        await fm.restoreToolDefaults(cell.app.chart);
+        await fm.restoreFavorites(cell.app.chart);
+      } catch (e) { logErr('float-ui:cell', e); }
     }
-  } catch (e) { logErr('float-ui', e); }   // [P5] 悬浮属性框 + 收藏工具框 + 模板恢复
+  } catch (e) { logErr('float-ui', e); }   // [P5] 收藏工具条 + 收藏/模板持久化恢复
+  try {
+    state.tradeUI = initTradeUI({ app: state.app, sim: state.trade });
+    state.tradeUI?.setVisible?.(state.replayMode === true);   // [P6] 模拟账户面板：回放时常驻左上角
+  } catch (e) { logErr('trade-ui', e); }
   window.__BOOT_STAGE__ = 'ready';
   state._appReady?.(true);
 }
@@ -4064,11 +4153,14 @@ async function startLiveFeed() {
       // 直接整窗重载到最新——否则原来的「距离 ≤2 根」判断会让它永远追不上，表现就是“图表不动但数据在写”
       const ch = state.app;
       if (!ch || state.replayMode) return;
+      // 实时看盘下的模拟撮合：forming bar 只更新浮动盈亏，不在半根上撮合（避免同根重复判定）
+      try { if (state.trade?.pos) { state.trade._lastPrice = bar.close; refreshTradeFloating(); } } catch {}
       const last = ch?.lastTs?.();
       const behind = last ? bar.timestamp - last : Infinity;
       if (behind <= 2 * 60_000) {
         if (bar.timestamp >= (last || 0)) {
           try { ch.feed?.pushLiveBar?.({ timestamp: bar.timestamp, open: bar.open, high: bar.high, low: bar.low, close: bar.close, volume: 0 }); } catch {}   // [vela P1.5]
+          try { ch.followLive?.(bar.timestamp); } catch {}   // 窗口右端跟着走，否则 lastTs 永远停在旧锚点
         }
       } else if (behind <= NEAR_LIVE_MS) {
         catchUpLive(bar.timestamp);          // 窗口还贴着实时（≤10 分钟），补齐掉队的几根
@@ -4083,10 +4175,13 @@ async function startLiveFeed() {
       const tail = ch.lastTs?.();
       try { updateAsOf(); } catch {}
       if (!had || !last || state.replayMode) return;
+      // 实时看盘下的模拟撮合：已收盘的 1m 根喂撮合器（限价/ SL / TP 才会响）
+      try { if (state.trade) { for (const b of bars) state.trade.onBar(b); } } catch (e) { console.warn('[trade:live]', e?.message); }
       const behind = tail ? last.timestamp - tail : Infinity;
       if (behind <= 2 * 60_000) {
         if (last.timestamp > (tail || 0)) {
           try { ch.feed?.pushLiveBar?.({ timestamp: last.timestamp, open: last.open, high: last.high, low: last.low, close: last.close, volume: 0 }); } catch {}   // [vela P1.5]
+          try { ch.followLive?.(last.timestamp); } catch {}
         }
       } else if (behind <= NEAR_LIVE_MS) {
         catchUpLive(last.timestamp);
@@ -4147,6 +4242,7 @@ async function applyReplayMode(on, opts = {}) {
     btn.title = on ? '回放模式：开（点一下收起回放控件）' : '回放模式：打开后显示起点 / 播放 / 步进 / 速度';
   }
   document.body.classList.toggle('replay-on', !!on);
+  try { state.tradeUI?.setVisible?.(!!on); } catch {}   // 模拟账户面板只在回放时常驻
   // 打开回放时把游标贴到当前最右一根，免得“播放”从几分钟前跳回去
   if (on) {
     try {
@@ -4161,7 +4257,7 @@ async function applyReplayMode(on, opts = {}) {
     try {
       const p = state.profile;
       const newest = Math.max(p?.last || 0, p?.live?.last || 0);
-      if (state.replay && newest) await state.replay.setStart(newest);   // [vela P1] 锚到最新一根
+      if (state.replay && newest) await state.replay.setStart(newest, { enter: false });   // 退出回放：只锚窗口，不再进回放态
     } catch {}
   }
   if (!opts.silent) await kvSet('ui:replay', !!on).catch(() => {});
@@ -4183,17 +4279,22 @@ async function catchUpLive(newestTs) {
   try {
     if (behindBars > 120) {
       const at = Math.min(Date.now(), (newestTs || now) + 60_000);
-      await state.replay?.setStart(at);
+      await state.replay?.setStart(at, { enter: false });
       console.info('[live] 落后太多，整窗重载到', new Date(at).toISOString());
       return;
     }
     const bars = await ch.source.frame((newestTs || now), 60_000, behindBars + 2);
     let pushed = 0;
+    let lastPushed = 0;
     for (const b of bars) {
       if (b.timestamp <= tail) continue;
       ch.feed?.pushLiveBar?.({ timestamp: b.timestamp, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });   // [vela P1.5]
+      lastPushed = b.timestamp;
       pushed++;
     }
+    // 窗口右端必须跟着推：否则 lastTs() 停在旧锚点，下一轮又判定"落后 N 根"、重复推同一批根
+    // （实测症状：日志每 5 s 刷一次"已增量补齐 8 根"，图表纹丝不动）
+    if (lastPushed) { try { ch.followLive?.(lastPushed); } catch {} }
     if (pushed) console.info('[live] 窗口落后 %d 根，已增量补齐 %d 根', behindBars, pushed);
   } catch (e) { logErr('live:追赶', e); }
 }
@@ -4212,7 +4313,7 @@ async function jumpToLatest(opts = {}) {
     const newest = Math.max(p.last || 0, p.live?.last || 0);
     if (newest) {
       at = Math.min(Date.now(), newest + 60_000);
-      await state.replay?.setStart(at);
+      await state.replay?.setStart(at, { enter: false });
       // 游标对齐到真实的那根 bar（否则会落在分钟中间，回放/步进的起点不干净）
       const t = state.app?.lastTs?.();
       if (t && state.replay) { state.replay.cursor = t; state.replay.emit?.(); at = t; }
@@ -4237,8 +4338,26 @@ function wireLive() {
   });
   $('btnLatest')?.addEventListener('click', async () => { await jumpToLatest(); });
   $('btnReplay')?.addEventListener('click', async () => {
-    await applyReplayMode(!state.replayMode);
-    updateStatus(state.replayMode ? '回放模式：开（起点/播放/步进/速度已就位）' : '回放模式：关（回到实时视图）');
+    if (!state.replayMode) {
+      const ok = await confirmDialog({
+        title: '进入回放模式',
+        desc: '进入后右侧「未来」K 线会被隐藏，从当前起点逐根揭示。\n起点可用「设为起点 / 随机时间」指定，随时可点「回放」退出。',
+        ok: '进入回放'
+      });
+      if (!ok) return;
+      await applyReplayMode(true);
+      updateStatus('回放模式：开（起点/播放/步进/速度已就位）');
+    } else {
+      const ok = await confirmDialog({
+        title: '退出回放模式',
+        desc: '将结束当前回放并回到最新一根 K 线（含实时）。\n未保存的临时游标会丢失，场次/档案里的记录不受影响。',
+        ok: '退出回放',
+        cancel: '继续回放'
+      });
+      if (!ok) return;
+      await applyReplayMode(false);
+      updateStatus('回放模式：关（回到实时视图）');
+    }
   });
   window.__TT_JUMP_LATEST__ = (o) => jumpToLatest(o);
   window.__TT_RESET__ = () => resetForTest();
@@ -4284,13 +4403,13 @@ async function boot() {
   window.__VELA_BRANCH__ = true;   // [P5] vela 分支标记：官方原生绘图工具栏
   try {
     window.__A_wireSmc = null;
-    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers, wireFavoritesPersistence } = await import('./vela-ind.js');
+    const { registerNativeVelaIndicators, registerSmcVelaIndicators, registerSmcLayers, registerTradeMarksLayer, wireSmcLayerTriggers } = await import('./vela-ind.js');
     registerNativeVelaIndicators();
     registerSmcVelaIndicators();
     registerSmcLayers();        // [R14 Tier-1] SMC 自绘层（id=native type，pushData 路由）
     registerTradeMarksLayer();  // [P5] 交易标记层（入场/SL/TP 线 + 方向 chip）
-    wireFavoritesPersistence(); // [P5] 收藏持久化（favorites 是实例内存态，不存即丢）
-    import('./vela-float-ui.js').then((m) => { window.__TT_FLOAT_UI = m; }).catch(() => {});   // [P5] 悬浮框模块（每格 mount 后接线）
+    // 收藏/模板持久化已并入 vela-float-ui.wirePrefsPersistence（逐图表挂事件），这里不再单独调用
+    import('./vela-float-ui.js').then((m) => { window.__TT_FLOAT_UI = m; }).catch(() => {});   // [P5] 收藏工具条模块（每格 mount 后接线）
     window.__A_wireSmc = wireSmcLayerTriggers;
   } catch (e) { logErr('vela-ind:注册', e); }   // [vela P4] 纯 calc + SMC/flow 指标 → native
   if (window.klinecharts) {          // [vela P1] 本分支图表内核是 Vela：klinecharts overlay/指标注册全部跳过（P3/P4 接回）
@@ -4468,7 +4587,7 @@ function wireTransfer() {
     if (!v) return;
     const ts = Date.parse(v + 'T23:59:59Z');
     const t0 = performance.now();
-    if (state.replay) await state.replay.setStart(ts);
+    if (state.replay) await state.replay.setStart(ts, { enter: !!state.replayMode });
     else await state.app.goto(ts);
     $('startAt').value = fmtLocalInput(ts);
     if (state.draw) await state.draw.load();

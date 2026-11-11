@@ -1149,60 +1149,175 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .help-panel td:first-child{width:104px;color:var(--muted-fg,#8fa0b0);font-family:ui-monospace,Menlo,Consolas,monospace}
 
 
-/* ---------------- vela 悬浮属性框 / 收藏工具框 ---------------- */
-.tt-float{position:absolute;top:118px;right:12px;z-index:30;min-width:230px;
-  background:rgba(10,17,26,.96);border:1px solid rgba(138,175,202,.28);border-radius:6px;
-  box-shadow:0 8px 28px rgba(0,0,0,.5);padding:8px 10px;color:#cfe3ef;
-  font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}
-.tt-float-head{display:flex;align-items:center;gap:6px;margin-bottom:6px}
-.tt-float-head b{flex:1;font-size:12px;color:#e6f1f8}
-.tt-x{background:none;border:none;color:#94a9bb;cursor:pointer;font-size:12px;padding:0 2px}
-.tt-x:hover{color:#e6f1f8}
-.tt-float-row{display:flex;align-items:center;gap:6px;margin:4px 0}
-.tt-lb{width:34px;color:#94a9bb;flex:none}
-.tt-swatches{display:inline-flex;gap:4px}
-.tt-sw{width:16px;height:16px;border-radius:3px;border:1px solid rgba(255,255,255,.25);cursor:pointer;padding:0}
-.tt-sw:hover{transform:scale(1.15)}
-.tt-act{background:rgba(255,255,255,.06);border:1px solid rgba(138,175,202,.3);color:#cfe3ef;
-  border-radius:3px;padding:1px 7px;cursor:pointer;font:11px ui-monospace,monospace}
-.tt-act:hover{background:rgba(138,175,202,.22)}
-.tt-danger{color:#ff9daa;border-color:rgba(255,111,133,.4)}
-.tt-danger:hover{background:rgba(255,111,133,.16)}
-.tt-fav{top:auto;right:12px;bottom:90px;max-width:280px}
-.tt-fav-row{display:flex;flex-wrap:wrap;gap:5px}
-.tt-fav-btn{background:rgba(138,175,202,.14);border:1px solid rgba(138,175,202,.3);color:#cfe3ef;
-  border-radius:4px;padding:2px 9px;cursor:pointer;font:12px ui-monospace,monospace}
-.tt-fav-btn:hover{background:rgba(138,175,202,.28)}
-.tt-hint{color:#7a919f;font-size:11px}
-.tt-fav-picker{max-height:240px;overflow:auto;margin-top:6px;border-top:1px solid rgba(138,175,202,.2);padding-top:6px;
-  display:grid;grid-template-columns:1fr 1fr;gap:3px}
-.tt-pick{background:none;border:none;color:#cfe3ef;text-align:left;cursor:pointer;
-  font:11px ui-monospace,monospace;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tt-pick:hover{background:rgba(138,175,202,.16)}
-.tt-pick.on{color:#ffc36b}
-
-.tt-tpl{background:rgba(255,195,107,.14);border:1px solid rgba(255,195,107,.4);color:#ffc36b;
-  border-radius:3px;padding:0 7px;cursor:pointer;font:11px ui-monospace,monospace;line-height:20px}
-.tt-tpl:hover{background:rgba(255,195,107,.3)}
-
-/* 收藏工具条（TV 同款横向图标条，顶部居中） */
-.tt-favbar{position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:30;
-  display:flex;align-items:center;background:rgba(10,17,26,.96);border:1px solid rgba(138,175,202,.28);
-  border-radius:6px;box-shadow:0 6px 22px rgba(0,0,0,.45);padding:4px 8px;color:#cfe3ef;
-  font:12px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
-.tt-favbar .tt-fav-row{display:flex;gap:2px}
-.tt-fav-icon{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;
-  background:none;border:none;border-radius:4px;color:#cfe3ef;cursor:pointer;padding:4px}
+/* ---------------- vela 收藏工具条（官方原生绘图工具栏同款风格） ----------------
+   chrome 由 vela-float-ui.adoptNativeChrome() 从原生 .vela-dtb 拷 --vela-* 变量，
+   这里的 fallback 只在原生工具栏还没挂上时兜底。 */
+.tt-favbar{position:absolute;top:6px;left:52px;z-index:22;display:flex;align-items:center;gap:2px;
+  box-sizing:border-box;padding:3px 4px;background:var(--vela-bg,#0d1117);color:var(--vela-fg-muted,#94a9bb);
+  border:1px solid var(--vela-border,rgba(255,255,255,.14));border-radius:var(--vela-radius-md,6px);
+  box-shadow:var(--vela-shadow,0 6px 22px rgba(0,0,0,.45));font:12px/1.4 var(--vela-font-family,inherit)}
+.tt-fav-row{display:flex;align-items:center;gap:2px}
+.tt-fav-icon,.tt-fav-add{position:relative;width:26px;height:30px;flex:none;display:inline-flex;
+  align-items:center;justify-content:center;background:transparent;border:none;padding:0;cursor:pointer;
+  border-radius:var(--vela-radius-md,6px);color:inherit;
+  transition:background .12s ease,color .12s ease}
 .tt-fav-icon svg{width:17px;height:17px;display:block}
-.tt-fav-icon:hover{background:rgba(138,175,202,.2)}
-.tt-fav-icon.active{background:rgba(138,175,202,.32);color:#fff}
-.tt-favbar .tt-hint{color:#7a919f;font-size:11px;padding:0 4px;white-space:nowrap}
-.tt-favbar .tt-fav-picker{position:absolute;top:calc(100% + 8px);left:0;right:auto;min-width:280px;max-width:420px;
-  background:rgba(10,17,26,.97);border:1px solid rgba(138,175,202,.28);border-radius:6px;padding:6px;
-  display:grid;grid-template-columns:repeat(6,1fr);gap:2px;max-height:300px;overflow:auto}
-.tt-pick-icon{position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:36px;
-  background:none;border:none;border-radius:4px;color:#cfe3ef;cursor:pointer;padding:4px}
-.tt-pick-icon:hover{background:rgba(138,175,202,.18)}
-.tt-pick-icon.on{background:rgba(255,195,107,.14)}
-.tt-pick-icon svg{width:18px;height:18px;display:block}
-.tt-pick-star{position:absolute;top:0;right:2px;font-size:9px;color:#ffc36b}
+.tt-fav-icon:hover,.tt-fav-add:hover{background:var(--vela-hover,rgba(255,255,255,.08));color:var(--vela-fg-bright,#e6f1f8)}
+.tt-fav-icon.active{background:var(--vela-active,rgba(255,255,255,.14));color:var(--vela-fg-bright,#e6f1f8)}
+.tt-fav-add{font-size:15px;line-height:1}
+.tt-fav-sep{width:1px;height:16px;flex:none;margin:0 2px;background:var(--vela-border,rgba(255,255,255,.14))}
+.tt-fav-clear svg{width:17px;height:17px;display:block}
+.tt-fav-clear.empty{opacity:.35;cursor:default;background:transparent}
+.tt-fav-clear.confirm{background:rgba(255,111,133,.18);color:#ff9daa}
+.tt-fav-clear.confirm:hover{background:rgba(255,111,133,.3);color:#ffb3bd}
+
+/* 左侧原生工具栏底部的「清空所有画图」（插在折叠按钮上方，沿用 .vela-dtb-btn 皮肤） */
+.tt-dtb-clear .vela-dtb-hit svg{width:17px;height:17px;display:block}
+.tt-dtb-clear.empty{opacity:.35;cursor:default}
+.tt-dtb-clear.empty .vela-dtb-hit{background:transparent!important}
+.tt-dtb-clear.confirm{color:#ff9daa}
+.tt-dtb-clear.confirm .vela-dtb-hit{background:rgba(255,111,133,.22);color:#ff9daa}
+.tt-dtb-clear.confirm:hover .vela-dtb-hit{background:rgba(255,111,133,.32)}
+.tt-hint{font-size:11px;color:var(--vela-fg-faint,#7a919f);padding:0 6px;white-space:nowrap}
+.tt-fav-picker{position:absolute;top:calc(100% + 6px);left:0;z-index:23;display:grid;
+  grid-template-columns:repeat(6,minmax(0,1fr));gap:2px;padding:6px;min-width:286px;max-width:430px;
+  max-height:300px;overflow:auto;background:var(--vela-bg,#0d1117);
+  border:1px solid var(--vela-border,rgba(255,255,255,.14));border-radius:var(--vela-radius-lg,8px);
+  box-shadow:var(--vela-shadow,0 12px 32px rgba(0,0,0,.5))}
+/* hidden 必须盖过上面的 display:grid，否则空面板常显 */
+.tt-fav-picker[hidden]{display:none!important}
+.tt-pick-icon{position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:34px;
+  background:none;border:none;border-radius:var(--vela-radius-md,6px);color:var(--vela-fg-muted,#94a9bb);
+  cursor:pointer;padding:0;transition:background .12s ease,color .12s ease}
+.tt-pick-icon svg{width:17px;height:17px;display:block}
+.tt-pick-icon:hover{background:var(--vela-hover,rgba(255,255,255,.08));color:var(--vela-fg-bright,#e6f1f8)}
+.tt-pick-icon.on{background:var(--vela-active,rgba(255,255,255,.14));color:var(--vela-fg-bright,#e6f1f8)}
+.tt-pick-star{position:absolute;top:1px;right:3px;font-size:9px;line-height:1;color:var(--vela-fg-faint,#6f8090);
+  transition:color .12s ease}
+.tt-pick-icon:hover .tt-pick-star{color:var(--vela-fg-muted,#94a9bb)}
+.tt-pick-icon.on .tt-pick-star{color:var(--vela-highlight,#ffc36b)}
+
+/* ---------------- 选中绘图悬浮条里的「模板」按钮 + 菜单 ----------------
+   按钮插进原生 .vela-dpop 行内（同 .vela-dpop-btn 尺寸）；菜单自带皮肤 —— 原生 .vela-menu 的
+   样式表是按需注入的（没开过原生菜单就没有），配色变量由 copyVelaVars() 从 .vela-dpop 拷过来。 */
+.tt-dpop-tpl-btn{flex:none}
+.tt-tpl-menu{position:absolute;z-index:26;min-width:196px;max-width:290px;margin:0;padding:5px;
+  list-style:none;font:13px/1.35 var(--vela-font-family,inherit);color:var(--vela-fg,#cddae6);
+  background:var(--vela-bg,#15161a);border:1px solid var(--vela-border-strong,var(--vela-border,rgba(255,255,255,.16)));
+  border-radius:var(--vela-radius-lg,8px);box-shadow:var(--vela-shadow,0 12px 32px rgba(0,0,0,.5))}
+.tt-tpl-menu[hidden]{display:none!important}
+.tt-tpl-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--vela-radius-md,5px);
+  cursor:pointer;user-select:none;white-space:nowrap;transition:background .1s ease}
+.tt-tpl-item:hover{background:var(--vela-hover,rgba(255,255,255,.08))}
+.tt-tpl-label{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
+.tt-tpl-head,.tt-tpl-head:hover{cursor:default;background:transparent;color:var(--vela-fg-faint,#7a8b9a);
+  font-size:11px;padding:3px 8px}
+.tt-tpl-empty,.tt-tpl-empty:hover{cursor:default;background:transparent;color:var(--vela-fg-faint,#7a8b9a);font-size:12px}
+.tt-tpl-dot{width:10px;height:10px;border-radius:50%;flex:none;
+  border:1px solid var(--vela-border-strong,rgba(255,255,255,.2))}
+.tt-tpl-item.on{background:var(--vela-hover,rgba(255,255,255,.08))}
+.tt-tpl-section,.tt-tpl-section:hover{cursor:default;background:transparent;color:var(--vela-fg-faint,#7a8b9a);
+  font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:6px 8px 2px}
+.tt-tpl-reset{color:var(--vela-fg-muted,#93a4b4);font-size:12px}
+.tt-tpl-reset:hover{color:var(--vela-fg-bright,#e8eef4)}
+.tt-tpl-check{width:12px;flex:none;text-align:center;color:var(--vela-highlight,#ffc36b);font-size:12px;line-height:1}
+.tt-tpl-del{width:16px;height:16px;line-height:16px;text-align:center;border-radius:3px;flex:none;
+  color:var(--vela-fg-faint,#7a8b9a);font-size:11px;opacity:0;transition:opacity .1s ease,color .1s ease}
+.tt-tpl-item:hover .tt-tpl-del{opacity:1}
+.tt-tpl-del:hover{color:var(--vela-highlight,#ff6f85);background:var(--vela-hover-strong,rgba(255,255,255,.14))}
+.tt-tpl-sep{height:1px;margin:5px 6px;background:var(--vela-border,rgba(255,255,255,.14))}
+.tt-tpl-save-row,.tt-tpl-save-row:hover{gap:6px;cursor:default;background:transparent}
+.tt-tpl-name{flex:1 1 auto;min-width:0;height:24px;box-sizing:border-box;background:transparent;
+  border:1px solid var(--vela-border-strong,rgba(255,255,255,.2));border-radius:4px;
+  color:var(--vela-fg,#cddae6);padding:0 6px;font:12px var(--vela-font-family,inherit)}
+.tt-tpl-name::placeholder{color:var(--vela-fg-faint,#7a8b9a)}
+.tt-tpl-name:focus{outline:none;border-color:var(--vela-fg-muted,#93a4b4)}
+.tt-tpl-save{height:24px;padding:0 9px;border-radius:4px;flex:none;
+  border:1px solid var(--vela-border-strong,rgba(255,255,255,.2));background:var(--vela-hover,rgba(255,255,255,.08));
+  color:var(--vela-fg,#cddae6);cursor:pointer;font:12px var(--vela-font-family,inherit)}
+.tt-tpl-save:hover{background:var(--vela-hover-strong,rgba(255,255,255,.14));color:var(--vela-fg-bright,#e8eef4)}
+
+/* ---------------- 通用二次确认弹层（回放进入/退出等） ----------------
+   不用原生 confirm()：它会阻塞渲染进程，CDP 自动化也会卡死。 */
+.tt-modal{position:fixed;inset:0;z-index:200;display:grid;place-items:center;
+  background:rgba(3,7,13,.62);backdrop-filter:blur(2px)}
+.tt-modal[hidden]{display:none!important}
+.tt-modal-card{width:min(380px,calc(100vw - 48px));box-sizing:border-box;padding:16px 18px 14px;
+  background:var(--panel,#0b1017);border:1px solid var(--line,rgba(255,255,255,.14));border-radius:10px;
+  box-shadow:0 18px 48px rgba(0,0,0,.55);color:var(--fg,#cddae6)}
+.tt-modal-card h3{margin:0 0 8px;font-size:14px;font-weight:600;color:var(--fg-bright,#e8eef4)}
+.tt-modal-card p{margin:0 0 14px;font-size:12.5px;line-height:1.6;color:var(--muted-fg,#8fa0b0);white-space:pre-line}
+.tt-modal-foot{display:flex;justify-content:flex-end;gap:8px}
+.tt-modal-foot .btn{min-width:74px}
+
+/* ---------------- 模拟账户面板（回放时常驻左上角，TradingView 同款口径） ---------------- */
+.tt-trade-panel{position:absolute;left:52px;top:44px;z-index:23;width:214px;box-sizing:border-box;
+  padding:8px 10px 7px;background:var(--vela-bg,#0b1017);color:var(--vela-fg,#cddae6);
+  border:1px solid var(--vela-border,rgba(255,255,255,.14));border-radius:var(--vela-radius-md,6px);
+  box-shadow:var(--vela-shadow,0 8px 24px rgba(0,0,0,.45));
+  font:12px/1.45 var(--vela-font-family,inherit);user-select:none}
+.tt-trade-panel[hidden]{display:none!important}
+.tt-tp-head{display:flex;align-items:center;justify-content:space-between;
+  font-size:11px;color:var(--vela-fg-muted,#93a4b4);margin-bottom:6px}
+.tt-tp-badge{font-size:10px;padding:0 5px;border-radius:3px;line-height:15px;
+  color:#5fe3c0;background:rgba(95,227,192,.12);border:1px solid rgba(95,227,192,.35)}
+.tt-tp-row{display:flex;gap:6px;margin-bottom:5px}
+.tt-tp-fld{flex:1 1 0;min-width:0;display:flex;flex-direction:column;gap:2px;font-size:10.5px;
+  color:var(--vela-fg-faint,#7a8b9a)}
+.tt-tp-fld input,.tt-tp-fld select{height:24px;box-sizing:border-box;width:100%;
+  background:rgba(255,255,255,.04);border:1px solid var(--vela-border-strong,rgba(255,255,255,.2));
+  border-radius:4px;color:var(--vela-fg,#cddae6);padding:0 6px;
+  font:12px var(--vela-font-family,inherit)}
+.tt-tp-fld input:focus,.tt-tp-fld select:focus{outline:none;border-color:var(--vela-fg-muted,#93a4b4)}
+.tt-tp-actions{gap:6px;margin:7px 0 6px}
+.tt-tp-btn{flex:1 1 0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:1px;height:34px;border-radius:4px;cursor:pointer;font:12px var(--vela-font-family,inherit);
+  border:1px solid transparent;background:transparent;transition:background .12s ease,border-color .12s ease}
+.tt-tp-btn b{font-weight:600}
+.tt-tp-btn small{font-size:9.5px;opacity:.7}
+.tt-tp-btn.buy{color:#5fe3c0;background:rgba(95,227,192,.12);border-color:rgba(95,227,192,.35)}
+.tt-tp-btn.buy:hover{background:rgba(95,227,192,.22)}
+.tt-tp-btn.sell{color:#ff6f85;background:rgba(255,111,133,.12);border-color:rgba(255,111,133,.35)}
+.tt-tp-btn.sell:hover{background:rgba(255,111,133,.22)}
+.tt-tp-foot{display:flex;justify-content:space-between;gap:8px;font-size:11px;
+  color:var(--vela-fg-faint,#7a8b9a);margin-top:3px}
+.tt-tp-foot b{color:var(--vela-fg,#cddae6);font-variant-numeric:tabular-nums}
+.tt-tp-foot b.up,.tt-tp-foot .up{color:#5fe3c0}
+.tt-tp-foot b.down,.tt-tp-foot .down{color:#ff6f85}
+.tt-tp-foot2{border-top:1px solid var(--vela-border,rgba(255,255,255,.1));padding-top:4px;margin-top:5px}
+
+/* 右键菜单里的交易行：价格标签 + 置灰 */
+.ctx-menu .mi .px{font-style:normal;color:var(--fg-faint,#7a8b9a);margin-left:4px;font-variant-numeric:tabular-nums}
+.ctx-menu .mi:disabled{opacity:.42;cursor:default}
+.ctx-menu .mi:disabled:hover{background:transparent}
+
+/* ---------------- 挂单/持仓胶囊（+SL / +TP，TV 同款） ---------------- */
+.tt-chip{position:absolute;right:72px;z-index:22;display:flex;align-items:center;gap:5px;height:22px;
+  padding:0 4px 0 7px;box-sizing:border-box;border-radius:4px;white-space:nowrap;
+  background:var(--vela-bg,#0b1017);border:1px solid var(--vela-border-strong,rgba(255,255,255,.2));
+  box-shadow:0 3px 10px rgba(0,0,0,.35);font:11px/1 var(--vela-font-family,inherit);
+  color:var(--vela-fg,#cddae6);user-select:none}
+.tt-chip[hidden]{display:none!important}
+.tt-chip.buy{border-color:rgba(95,227,192,.45)}
+.tt-chip.sell{border-color:rgba(255,111,133,.45)}
+.tt-chip-side{font-weight:600}
+.tt-chip.buy .tt-chip-side{color:#5fe3c0}
+.tt-chip.sell .tt-chip-side{color:#ff6f85}
+.tt-chip-qty{color:var(--vela-fg-muted,#93a4b4);font-variant-numeric:tabular-nums}
+.tt-chip-px{color:var(--vela-fg,#cddae6);font-variant-numeric:tabular-nums}
+.tt-chip-btn{height:16px;padding:0 4px;border-radius:3px;cursor:pointer;font:10.5px var(--vela-font-family,inherit);
+  color:var(--vela-fg-muted,#93a4b4);background:rgba(255,255,255,.06);
+  border:1px solid var(--vela-border,rgba(255,255,255,.14));font-variant-numeric:tabular-nums}
+.tt-chip-btn:hover{background:rgba(255,255,255,.14);color:var(--vela-fg,#cddae6)}
+.tt-chip-btn.on[data-k="sl"]{color:#ff6f85;background:rgba(255,111,133,.16);border-color:rgba(255,111,133,.55)}
+.tt-chip-btn.on[data-k="tp"]{color:#5fe3c0;background:rgba(95,227,192,.16);border-color:rgba(95,227,192,.55)}
+.tt-chip-x{width:16px;height:16px;padding:0;border:none;border-radius:3px;cursor:pointer;line-height:14px;
+  background:transparent;color:var(--vela-fg-faint,#7a8b9a);font:11px var(--vela-font-family,inherit)}
+.tt-chip-x:hover{background:rgba(255,111,133,.2);color:#ff6f85}
+
+/* 图上 SL/TP 拖拽热区：线太细点不中，铺一条透明条 */
+.tt-line-hit{position:absolute;left:0;right:68px;height:16px;z-index:21;cursor:ns-resize;
+  background:transparent;touch-action:none}
+.tt-line-hit[hidden]{display:none!important}
+.tt-line-hit:hover{background:rgba(147,164,180,.10)}
+body.tt-dragging,body.tt-dragging *{cursor:ns-resize!important;user-select:none!important}

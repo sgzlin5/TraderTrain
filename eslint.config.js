@@ -14,7 +14,15 @@ export default [
         File: 'readonly', Blob: 'readonly', URL: 'readonly', TextDecoder: 'readonly',
         TextEncoder: 'readonly', DataView: 'readonly', Uint8Array: 'readonly', Float32Array: 'readonly',
         Int32Array: 'readonly', Float64Array: 'readonly', BigInt64Array: 'readonly', DOMException: 'readonly',
-        indexedDB: 'readonly', klinecharts: 'readonly', HTMLElement: 'readonly', CustomEvent: 'readonly'
+        indexedDB: 'readonly', klinecharts: 'readonly', HTMLElement: 'readonly', CustomEvent: 'readonly',
+        URLSearchParams: 'readonly', MouseEvent: 'readonly', KeyboardEvent: 'readonly', PointerEvent: 'readonly',
+        WheelEvent: 'readonly', ResizeObserver: 'readonly', MutationObserver: 'readonly',
+        getComputedStyle: 'readonly', DOMParser: 'readonly', Image: 'readonly', FileReader: 'readonly',
+        structuredClone: 'readonly', crypto: 'readonly', Node: 'readonly', Event: 'readonly',
+        CSS: 'readonly', HTMLCanvasElement: 'readonly', IntersectionObserver: 'readonly',
+        DecompressionStream: 'readonly', Response: 'readonly', ReadableStream: 'readonly',
+        process: 'readonly', Buffer: 'readonly', self: 'readonly', Worker: 'readonly',
+        DataTransfer: 'readonly', createImageBitmap: 'readonly', OffscreenCanvas: 'readonly'
       }
     },
     rules: {

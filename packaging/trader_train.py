@@ -21,6 +21,16 @@ import threading
 import time
 import urllib.request
 
+# pywebview 的 winforms / edgechromium 后端会**强制** PYTHONNET_RUNTIME=coreclr（需要 .NET 6+）；
+# 普通 Windows 只自带 .NET Framework 4.8，冻结后 import clr 就报
+# "Failed to create a .NET runtime (coreclr)"。这里先用 netfx 把 clr 绑好 ——
+# pythonnet.load() 已加载后会直接返回，pywebview 再改环境变量也不生效。
+os.environ["PYTHONNET_RUNTIME"] = "netfx"
+try:
+    import clr  # noqa: F401  （必须先于 import webview）
+except Exception:      # 没装 pythonnet / cffi 时让 pywebview 自己报错
+    pass
+
 VERSION = "0.1.0"
 APP_NAME = "TraderTrain"
 PORT = int(os.environ.get("TT_PORT", "8733"))   # 仅供冒烟测试改端口；正式用 8733

@@ -22,7 +22,7 @@ export async function run(state) {
     for (let i = 0; i < 4; i++) {
       clickAt(fx, fy);
       await wait(300);
-      const o = document.getElementById('chart') && (chart.isVela ? state.app.overlayList() : state.app.overlayList()).slice(-1)[0];
+      const o = document.getElementById('chart') && state.app.overlayList().slice(-1)[0];
       const pts = (o?.points || []).filter(p => Number.isFinite(p.value)).length;
       if (pts >= expectMinPts) return pts;
     }

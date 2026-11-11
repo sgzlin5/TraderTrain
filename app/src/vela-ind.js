@@ -564,9 +564,10 @@ export function registerSmcVelaIndicators() {
                     style: { color: (typeof fig.styles === 'function' ? fig.styles() : fig.styles)?.color || '#8adeff', width: 1, lineStyle: 'solid', base: 0 }
                   });
                 }
-                out.series = series;
+                // 之前这里写的是 out.series = series / ctx.emit(out)，而 out 在该作用域根本没定义
+                // → 任何带 figures 的自编指标（FLOW_VOL 等）一算就 ReferenceError，图上什么都不出
+                ctx.emit({ series });
               }
-              ctx.emit(out);
             }
           };
         }

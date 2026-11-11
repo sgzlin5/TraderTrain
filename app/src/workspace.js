@@ -191,10 +191,12 @@ export class MultiReplay {
   emit() { this._emit?.(this.state()); }
   setEmitter(fn) { this._emit = fn; }
 
-  async setStart(ts) {
+  async setStart(ts, opts = {}) {
     this.pause();
     // [vela P1] 交给每格的 ReplayV：回放中 = 原生 seek；未在回放 = 重灌窗口
-    await Promise.all(this.list.map(r => r.setStart(ts).catch(() => {})));
+    // opts 必须透传：{enter:false} 是"退出回放/追实时"的语义，丢了它每格会重新进回放态
+    // （症状：点回放开关退出后，图表仍停在旧游标，实时数据永远追不上）
+    await Promise.all(this.list.map(r => r.setStart(ts, opts).catch(() => {})));
     this.emit();
   }
 

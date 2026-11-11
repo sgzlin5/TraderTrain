@@ -65,7 +65,7 @@ const RATE = {
   SAR: 3.5, BBI: 3.5, DMI: 3.5, OBV: 3.5, WR: 3.5, CCI: 3.5, BIAS: 3,
   TRIX: 3, ROC: 3, MTM: 3, DMA: 3, CR: 3, PSY: 3, VR: 3, AO: 3, EMV: 3, PVT: 3,
   AVP: 3, SMA: 3.5,
-  PDHL: 4.5, ORB: 4.5, AVWAP: 4, ZLEMA: 4.5, EMA: 4.5, RMA: 4,
+  PDHL: 4.5, ORB: 4.5, AVWAP: 4, ZLEMA: 4.5, RMA: 4,
   SMC_FVG: 4.5, SMC_MST: 4.5, SMC_ICT: 4, SMC_HTF: 4, SMC_DASH: 4.5,
   FLOW_VOL: 3.5, FLOW_VP: 4.5, FLOW_WALL: 4.5, FLOW_DEPTH: 4.5,
   PINE: 4
