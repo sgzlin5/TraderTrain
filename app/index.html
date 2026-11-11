@@ -320,10 +320,45 @@
     <button aria-label="关闭" id="closeStrat" class="icon" title="关闭">✕</button>
   </header>
   <section class="strat-body">
+    <div class="strat-run">
+      <select id="btRange" class="sel" title="回测区间">
+        <option value="7">近 1 周</option>
+        <option value="30">近 1 月</option>
+        <option value="90" selected>近 3 月</option>
+        <option value="180">近 6 月</option>
+        <option value="365">近 1 年</option>
+        <option value="all">全部（按上限截断）</option>
+        <option value="custom">自定义…</option>
+      </select>
+      <select id="btPeriod" class="sel" title="回测周期">
+        <option value="1" selected>1m</option>
+        <option value="5">5m</option>
+        <option value="15">15m</option>
+        <option value="60">1h</option>
+      </select>
+      <input type="datetime-local" id="btFrom" step="60" title="起始（UTC）">
+      <input type="datetime-local" id="btTo" step="60" title="结束（UTC）">
+      <button id="btRun" class="btn primary" title="运行回测（区间见左）">运行</button>
+      <button id="btCancel" class="btn ghost" hidden>取消</button>
+    </div>
+    <div id="btProg" class="bt-prog" hidden>
+      <div class="bt-track"><i id="btBar"></i></div>
+      <span id="btProgText" class="bt-prog-text">—</span>
+    </div>
     <p id="stratMeta" class="meta-line">—</p>
     <div id="stratStats" class="strat-stats"></div>
+    <div class="strat-sub"><span>权益曲线（逐 bar）</span><span id="stratCmpHint" class="muted"></span></div>
     <canvas id="stratCurve" class="strat-curve"></canvas>
+    <div id="stratMonthly" class="strat-monthly"></div>
+    <div class="strat-actions">
+      <button id="btSave" class="btn" title="把本次结果存进历史">保存本次</button>
+      <span id="btSavedHint" class="muted"></span>
+    </div>
+    <div class="strat-sub"><span>成交明细</span><span id="stratTradeHint" class="muted"></span></div>
     <div id="stratTrades" class="strat-trades"></div>
+    <div class="strat-sub"><span>历史回测（勾两个对比）</span><button id="btClearRuns" class="btn ghost">清空</button></div>
+    <div id="btRuns" class="bt-runs"></div>
+    <div id="btCompare" class="bt-compare" hidden></div>
   </section>
 </aside>
 

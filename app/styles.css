@@ -1005,6 +1005,45 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .strat-trades .r.head{position:sticky;top:0;background:var(--panel-solid);color:var(--dimmer);font:var(--fs-2xs)/1 var(--mono);letter-spacing:.6px}
 .strat-trades .r b{font-weight:600}
 .strat-empty{padding:18px;text-align:center;color:var(--muted);font:var(--fs-sm)/1.5 var(--sans)}
+/* ── 回测：区间/进度/月度/历史 ── */
+.strat-run{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.strat-run .sel{height:26px;font:var(--fs-xs)/1 var(--mono);background:var(--panel-solid);
+  color:var(--fg);border:1px solid var(--line);border-radius:3px;padding:0 6px}
+.strat-run input[type=datetime-local]{height:26px;width:150px;background:var(--panel-solid);color:var(--fg);
+  border:1px solid var(--line);border-radius:3px;font:var(--fs-2xs)/1 var(--mono);padding:0 6px}
+.strat-run input[hidden]{display:none}
+.bt-prog{display:flex;flex-direction:column;gap:4px}
+.bt-track{height:4px;background:var(--line-soft);border-radius:2px;overflow:hidden}
+.bt-track i{display:block;height:100%;width:0%;background:var(--accent,#5fe3c0);transition:width .18s linear}
+.bt-track i.indet{width:35%;animation:btSlide 1.1s ease-in-out infinite}
+@keyframes btSlide{0%{margin-left:-35%}100%{margin-left:100%}}
+.bt-prog-text{font:var(--fs-2xs)/1.4 var(--mono);color:var(--dimmer)}
+.strat-sub{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font:var(--fs-2xs)/1 var(--mono);letter-spacing:.7px;color:var(--dimmer);text-transform:uppercase}
+.strat-monthly{display:flex;flex-wrap:wrap;gap:4px}
+.strat-monthly .m{font:var(--fs-2xs)/1 var(--mono);padding:3px 6px;border-radius:3px;
+  background:var(--tint);border:1px solid var(--line-soft)}
+.strat-monthly .m.pos{color:var(--up,#5fe3c0)}
+.strat-monthly .m.neg{color:var(--down,#ff6f85)}
+.strat-actions{display:flex;align-items:center;gap:8px}
+.strat-actions .muted{font:var(--fs-2xs)/1.3 var(--mono);color:var(--dimmer)}
+.bt-runs{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;
+  border:1px solid var(--line-soft);border-radius:4px}
+.bt-runs .r{display:grid;grid-template-columns:16px minmax(0,1fr) 88px 52px 56px 52px;gap:6px;align-items:center;
+  padding:5px 8px;font:var(--fs-2xs)/1.35 var(--mono);border-bottom:1px solid var(--line-soft);cursor:pointer}
+.bt-runs .r:last-child{border-bottom:0}
+.bt-runs .r:hover{background:var(--tint)}
+.bt-runs .r.sel{background:rgba(95,227,192,.10)}
+.bt-runs .r .num{text-align:right;font-variant-numeric:tabular-nums}
+.bt-runs .r .nm{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.bt-runs .r .nm .muted{display:block;overflow:hidden;text-overflow:ellipsis}
+.bt-runs .empty{padding:12px;text-align:center;color:var(--muted);font:var(--fs-sm)/1.4 var(--sans)}
+.bt-compare{border:1px solid var(--line-soft);border-radius:4px;overflow:hidden}
+.bt-compare .row{display:grid;grid-template-columns:1fr 96px 96px 96px;gap:6px;padding:4px 8px;
+  font:var(--fs-2xs)/1.4 var(--mono);border-bottom:1px solid var(--line-soft)}
+.bt-compare .row:last-child{border-bottom:0}
+.bt-compare .row.head{color:var(--dimmer);letter-spacing:.5px}
+.bt-compare .row .num{text-align:right;font-variant-numeric:tabular-nums}
 
 /* 键盘焦点：任何可聚焦控件都要看得见（不干扰鼠标用户） */
 :where(button, a, input, select, textarea, [tabindex]):focus-visible{

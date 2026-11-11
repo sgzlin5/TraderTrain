@@ -1,7 +1,7 @@
 // 入口：装配 UI + 数据 + 图表 + 回放 + 绘图 + 交易 + 场次统计 + Pine 指标（M3）
 import { PERIODS } from './aggregate.js';
 import { CrosshairSyncV as CrosshairSync } from './vela-ws.js';   // [vela P2] 原生外置十字光标
-import { summarize as summarizeStrategy, drawCurve } from './pineStrategy.js';
+import { drawCurve } from './pineStrategy.js';
 import { fmtPrice, fmtQty } from './instruments.js';
 import { ChartApp } from './chart.js';
 import { importProfile, loadManifest } from './loader.js';
@@ -30,8 +30,9 @@ import {
 } from './session.js';
 import {
   PineManager, SAMPLE_PINE, parseInputs, libList, libSave, libRemove,
-  loadPineMap, loadPineActive, scanCompat, compilePine
+  loadPineMap, loadPineActive, scanCompat, compilePine, compileBacktest, cancelBacktest
 } from './pine.js';
+import { fetchRange, analyze as analyzeBacktest, BT_MAX_BARS, BT_SLOW_BARS, parseStrategyParams } from './backtest.js';
 import { DEFAULT_LAYOUT, normalize, loadLayout, saveLayout, applyLayout as chartApplyLayout, loadTheme, saveTheme, applyThemeMode, migrateLayoutColors, THEMES, themeMeta } from './theme.js';
 import { buildChartTheme, indicatorPalette } from './chart.js';
 import { fmtTs, fmtTsShort, fmtDay, fmtLocalInput } from './fmt.js';
@@ -3258,8 +3259,51 @@ async function copyWindowShot() {
   }
 }
 
-/** Pine 策略回测：跑一次脚本 → 取 ctx.strategy → 出统计/权益曲线/明细 */
-async function runPineBacktest(srcOverride = null, nameOverride = null) {
+/* ---------------- 策略回测（区间 + 进度/取消 + 存档对比） ---------------- */
+
+const BT_KV = 'bt:runs';
+const _bt = { busy: false, cancelled: false, result: null, compare: [] };
+
+/** UI 上的区间/周期 → {startTs, endTs, periodMin}（datetime-local 一律按 UTC 解析，与「起点」一致） */
+function btRangeSpec() {
+  const v = $('btRange')?.value || '90';
+  const periodMin = Math.max(1, Number($('btPeriod')?.value || 1));
+  const p = state.profile || {};
+  const end = p.live?.last || p.last || Date.now();
+  if (v === 'custom') {
+    const from = $('btFrom')?.value ? Date.parse($('btFrom').value + ':00Z') : null;
+    const to = $('btTo')?.value ? Date.parse($('btTo').value + ':00Z') : null;
+    return { startTs: Number.isFinite(from) ? from : end - 90 * 86400000, endTs: Number.isFinite(to) ? to : end, periodMin };
+  }
+  if (v === 'all') return { startTs: p.first || 0, endTs: end, periodMin };
+  const days = Number(v) || 90;
+  return { startTs: end - days * 86400000, endTs: end, periodMin };
+}
+
+function btProgress(show, frac, text) {
+  const box = $('btProg');
+  if (!box) return;
+  box.hidden = !show;
+  const bar = $('btBar');
+  if (!show) { if (bar) { bar.style.width = '0%'; bar.classList.remove('indet'); } return; }
+  if (frac == null) { if (bar) bar.classList.add('indet'); }
+  else if (bar) { bar.classList.remove('indet'); bar.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%'; }
+  if (text != null) $('btProgText').textContent = text;
+}
+
+/** 计算阶段引擎没有逐根进度 → 用时间把进度条从 from 推到 92%，并显示已用秒数 */
+function startBtPulse(from, label = '计算中') {
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    const sec = (Date.now() - t0) / 1000;
+    const v = Math.min(0.92, from + (0.92 - from) * Math.min(1, sec / 45));
+    btProgress(true, v, `${label}… ${sec.toFixed(0)} s（可取消）`);
+  }, 400);
+  return timer;
+}
+
+/** 策略回测：区间取数 → worker 只跑 strategy → 逐 bar 权益/统计 → 可选存档 */
+async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {}) {
   const src = srcOverride ?? $('pineSrc').value.trim();
   const name = nameOverride ?? ($('pineName').value.trim() || '策略');
   if (!src) { updateStatus('先粘贴脚本', true); return null; }
@@ -3267,64 +3311,328 @@ async function runPineBacktest(srcOverride = null, nameOverride = null) {
     updateStatus('这个脚本没有 strategy()，没有回测数据', true);
     return null;
   }
-  const bars = state.app?.bars?.allBars() || [];
-  if (!bars.length) { updateStatus('还没有数据', true); return null; }
+  const prof = state.profile;
+  if (!prof) { updateStatus('还没有行情数据', true); return null; }
+  if (_bt.busy) { updateStatus('已有一次回测在跑（先取消，或等它跑完）', true); return null; }
 
-  const btn = $('pineBacktest');
-  btn && (btn.disabled = true);
-  updateStatus('回测中…');
-  let r;
+  const spec = opts.range || btRangeSpec();
+  const spanMs = Math.max(60_000, spec.periodMin * 60_000);
+  const estBars = Math.min(BT_MAX_BARS, Math.max(1, Math.round((spec.endTs - spec.startTs) / spanMs) + 2));
+
+  _bt.busy = true; _bt.cancelled = false;
+  if ($('btRun')) $('btRun').disabled = true;
+  if ($('btCancel')) $('btCancel').hidden = false;
+  btProgress(true, 0, `取数：预计 ${estBars.toLocaleString()} 根（${spec.periodMin}m）`);
+  const t0 = performance.now();
+
+  let pulse = 0;
   try {
     const inputs = readEditorInputs();
-    r = await compilePine(src, bars, inputs, state.profile?.symbol);
-  } finally { btn && (btn.disabled = false); }
+    const fetched = await fetchRange(prof, {
+      startTs: spec.startTs, endTs: spec.endTs, spanMs, maxBars: BT_MAX_BARS,
+      onProgress: (p) => btProgress(true, 0.3 * Math.min(1, p.got / Math.max(1, estBars)), `取数：已读 ${p.got.toLocaleString()} 根`)
+    });
+    if (!fetched.bars.length) { btProgress(false); updateStatus('这个区间没有数据', true); return null; }
+    const slow = fetched.total > BT_SLOW_BARS;
+    btProgress(true, 0.3, `计算中：${fetched.total.toLocaleString()} 根${slow ? ' · 可能要几十秒，可取消' : ''}`);
+    pulse = startBtPulse(0.3, `计算中 ${fetched.total.toLocaleString()} 根`);
 
-  if (!r.ok) { updateStatus(`回测失败：${r.error}`, true); return null; }
-  const sum = summarizeStrategy(r.strategy);
-  if (!sum) { updateStatus('脚本没有产生策略状态（没有成交）', true); renderStratPanel(null, name); return null; }
-  renderAlerts(r.alerts || [], name);
-  renderStratPanel(sum, name);
-  $('pinePanel').hidden = true;
-  $('stratPanel').hidden = false;
-  updateStatus(`回测完成：${sum.trades} 笔 · 净盈亏 ${sum.net.toFixed(2)}`);
-  return sum;
+    const r = await compileBacktest({ src, bars: fetched.bars, inputs, symbol: prof.symbol });
+    clearInterval(pulse); pulse = 0;
+    if (!r.ok) {
+      btProgress(false);
+      updateStatus(r.cancelled ? '回测已取消' : `回测失败：${r.error}`, !r.cancelled);
+      return null;
+    }
+
+    btProgress(true, 0.95, '汇总统计…');
+    const sum = analyzeBacktest({ bars: fetched.bars, strategy: r.strategy, spanMs });
+    const range = {
+      from: fetched.from, to: fetched.to, bars: fetched.total, spanMs,
+      truncated: fetched.truncated, periodMin: spec.periodMin,
+      fetchMs: fetched.ms, computeMs: r.ms ?? null, totalMs: Math.round(performance.now() - t0)
+    };
+    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), at: Date.now() };
+    renderAlerts(r.alerts || [], name);
+    renderStratPanel(_bt.result);
+    $('pinePanel').hidden = true;
+    $('stratPanel').hidden = false;
+    if ($('btSave')) $('btSave').disabled = false;
+    if ($('btSavedHint')) $('btSavedHint').textContent = '';
+    btProgress(false);
+    updateStatus(`回测完成：${sum.trades} 笔 · 净盈亏 ${sum.net.toFixed(2)} · ${sum.bars.toLocaleString()} 根 · ${(range.totalMs / 1000).toFixed(1)} s`);
+    return _bt.result;
+  } catch (e) {
+    if (pulse) clearInterval(pulse);
+    btProgress(false);
+    updateStatus(`回测失败：${e?.message || e}`, true);
+    return null;
+  } finally {
+    if (pulse) clearInterval(pulse);
+    _bt.busy = false;
+    if ($('btRun')) $('btRun').disabled = false;
+    if ($('btCancel')) $('btCancel').hidden = true;
+  }
 }
 
-function renderStratPanel(sum, name) {
+function btCancel() {
+  if (!_bt.busy) return;
+  _bt.cancelled = true;
+  cancelBacktest();
+  btProgress(false);
+  updateStatus('已取消回测');
+}
+
+/* ---- 存档 / 对比 ---- */
+const BT_METRIC_ROWS = [
+  ['trades', '成交笔数', (v) => String(v)],
+  ['net', '净盈亏', (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(2)],
+  ['winRate', '胜率', (v) => (v * 100).toFixed(1) + '%'],
+  ['pf', '盈亏比 PF', (v) => (v === Infinity || v >= 999 ? '∞' : Number(v).toFixed(2))],
+  ['maxDDpct', '最大回撤', (v) => (v * 100).toFixed(2) + '%'],
+  ['sharpe', '夏普(日频/252)', (v) => (v == null ? '—' : Number(v).toFixed(2))],
+  ['buyHold', '买持基准', (v) => (v == null ? '—' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%')],
+  ['fees', '手续费', (v) => Number(v || 0).toFixed(2)],
+  ['expectancy', '期望/笔', (v) => (v >= 0 ? '+' : '') + Number(v).toFixed(2)],
+  ['bars', '回测根数', (v) => Number(v || 0).toLocaleString()],
+  ['periodMin', '周期', (v) => `${v}m`],
+  ['computeMs', '计算耗时', (v) => (v == null ? '—' : (v / 1000).toFixed(1) + ' s')]
+];
+
+function btMetricsOf(rec) {
+  const m = rec?.metrics || {};
+  const r = rec?.range || {};
+  return { ...m, bars: rec?.bars ?? r.bars ?? m.bars, periodMin: rec?.periodMin ?? r.periodMin, computeMs: r.computeMs ?? m.computeMs };
+}
+
+async function btLoadRuns() { try { return (await kvGet(BT_KV)) || []; } catch { return []; } }
+
+async function btSaveCurrent() {
+  const res = _bt.result;
+  if (!res) { updateStatus('先跑一次回测', true); return; }
+  const runs = await btLoadRuns();
+  const sum = res.sum;
+  const rec = {
+    id: 'bt' + Date.now().toString(36),
+    at: Date.now(),
+    name: res.name,
+    symbol: res.symbol,
+    periodMin: res.range.periodMin,
+    from: res.range.from, to: res.range.to, bars: res.range.bars,
+    truncated: !!res.range.truncated,
+    params: res.params || {},
+    metrics: {
+      trades: sum.trades, net: +sum.net.toFixed(2), winRate: +sum.winRate.toFixed(4),
+      pf: sum.pf === Infinity ? 999 : +sum.pf.toFixed(2), maxDDpct: +sum.maxDDPct.toFixed(4),
+      sharpe: sum.sharpe == null ? null : +sum.sharpe.toFixed(2),
+      buyHold: sum.buyHold == null ? null : +sum.buyHold.toFixed(4),
+      fees: +(sum.fees || 0).toFixed(2), expectancy: +sum.expectancy.toFixed(2),
+      bars: sum.bars, periodMin: res.range.periodMin, computeMs: res.range.computeMs
+    },
+    curve: (sum.curve || []).slice(0, 600)
+  };
+  runs.unshift(rec);
+  const keep = runs.slice(0, 30);
+  await kvSet(BT_KV, keep).catch(() => {});
+  if ($('btSavedHint')) $('btSavedHint').textContent = `已保存（共 ${keep.length} 条）`;
+  await renderBtRuns();
+}
+
+async function btClearRuns() {
+  await kvSet(BT_KV, []).catch(() => {});
+  _bt.compare = [];
+  if ($('btCompare')) { $('btCompare').hidden = true; $('btCompare').innerHTML = ''; }
+  await renderBtRuns();
+  if ($('btSavedHint')) $('btSavedHint').textContent = '已清空';
+}
+
+async function renderBtRuns() {
+  const box = $('btRuns');
+  if (!box) return;
+  const runs = await btLoadRuns();
+  if (!runs.length) {
+    box.innerHTML = '<div class="empty">还没有保存过回测（跑完点「保存本次」）</div>';
+    return;
+  }
+  box.innerHTML = runs.map((r) => {
+    const m = btMetricsOf(r);
+    const sel = _bt.compare.includes(r.id);
+    const nm = String(r.name || '策略').replace(/[<>&]/g, '');
+    return `<div class="r${sel ? ' sel' : ''}" data-id="${r.id}" title="${fmtTs(r.from)} → ${fmtTs(r.to)} · ${m.bars} 根 · ${m.periodMin}m">
+      <input type="checkbox" data-cmp="${r.id}"${sel ? ' checked' : ''}>
+      <span class="nm">${nm}<span class="muted">${fmtTsShort(r.from)} → ${fmtTsShort(r.to)} · ${m.periodMin}m · ${Number(m.bars || 0).toLocaleString()} 根</span></span>
+      <span class="num ${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : ''}${Number(m.net).toFixed(2)}</span>
+      <span class="num">${(m.winRate * 100).toFixed(0)}%</span>
+      <span class="num">${(m.maxDDpct * 100).toFixed(1)}%</span>
+      <span class="num">${m.sharpe == null ? '—' : Number(m.sharpe).toFixed(2)}</span>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.r').forEach((row) => {
+    row.onclick = (e) => {
+      if (e.target && e.target.matches('input[type=checkbox]')) return;
+      btLoadRun(row.dataset.id);
+    };
+    const cb = row.querySelector('input[type=checkbox]');
+    if (cb) cb.onchange = () => btToggleCompare(row.dataset.id, cb.checked);
+  });
+  drawBtCompare();
+}
+
+async function btLoadRun(id) {
+  const runs = await btLoadRuns();
+  const rec = runs.find((r) => r.id === id);
+  if (!rec) return;
+  const m = btMetricsOf(rec);
+  renderStratPanel({
+    sum: {
+      ...m,
+      initialCapital: 10000,
+      curve: rec.curve || [],
+      rows: [],
+      monthly: [],
+      fees: m.fees || 0,
+      openTrades: 0,
+      winStreak: 0, lossStreak: 0, avgWin: 0, avgLoss: 0
+    },
+    name: `${rec.name}（存档）`,
+    range: { from: rec.from, to: rec.to, bars: rec.bars, periodMin: rec.periodMin, spanMs: (rec.periodMin || 1) * 60000, computeMs: m.computeMs, archived: true },
+    params: rec.params || {},
+    symbol: rec.symbol
+  });
+  updateStatus(`已载入存档：${rec.name} · ${fmtTs(rec.from)} → ${fmtTs(rec.to)}`);
+}
+
+function btToggleCompare(id, on) {
+  const set = new Set(_bt.compare);
+  if (on) set.add(id); else set.delete(id);
+  _bt.compare = [...set].slice(-2);          // 最多两个
+  document.querySelectorAll('#btRuns input[type=checkbox]').forEach((cb) => { cb.checked = _bt.compare.includes(cb.dataset.cmp); });
+  document.querySelectorAll('#btRuns .r').forEach((r) => r.classList.toggle('sel', _bt.compare.includes(r.dataset.id)));
+  drawBtCompare();
+}
+
+async function drawBtCompare() {
+  const box = $('btCompare');
+  const hint = $('stratCmpHint');
+  if (!box) return;
+  if (_bt.compare.length !== 2) {
+    box.hidden = true; box.innerHTML = '';
+    if (hint) hint.textContent = _bt.compare.length === 1 ? '再勾一个就能对比' : '';
+    const res = _bt.result;                    // 退出对比：把当前这次回测的曲线画回来
+    if (res) requestAnimationFrame(() => { try { drawCurve($('stratCurve'), res.sum.curve); } catch {} });
+    return;
+  }
+  const runs = await btLoadRuns();
+  const [a, b] = _bt.compare.map((id) => runs.find((r) => r.id === id)).filter(Boolean);
+  if (!a || !b) { box.hidden = true; return; }
+  const ma = btMetricsOf(a), mb = btMetricsOf(b);
+  const head = `<div class="row head"><span>指标</span><span class="num">A</span><span class="num">B</span><span class="num">Δ(B−A)</span></div>`;
+  const rows = BT_METRIC_ROWS.map(([k, label, fmt]) => {
+    const va = ma[k], vb = mb[k];
+    let d = '—';
+    if (typeof va === 'number' && typeof vb === 'number' && Number.isFinite(va) && Number.isFinite(vb)) {
+      const delta = vb - va;
+      const pctKeys = k === 'winRate' || k === 'maxDDpct' || k === 'buyHold';
+      const intKeys = k === 'trades' || k === 'bars' || k === 'periodMin';
+      if (pctKeys) d = (delta >= 0 ? '+' : '') + (delta * 100).toFixed(2) + 'pp';
+      else if (intKeys) d = (delta >= 0 ? '+' : '') + Math.round(delta);
+      else d = (delta >= 0 ? '+' : '') + delta.toFixed(2);
+    }
+    return `<div class="row"><span>${label}</span><span class="num">${fmt(va)}</span><span class="num">${fmt(vb)}</span><span class="num">${d}</span></div>`;
+  }).join('');
+  const meta = `<div class="row head"><span class="nm" style="grid-column:1 / -1">A：${String(a.name).slice(0, 20)} · ${fmtTsShort(a.from)}→${fmtTsShort(a.to)} ｜ B：${String(b.name).slice(0, 20)} · ${fmtTsShort(b.from)}→${fmtTsShort(b.to)}</span></div>`;
+  box.innerHTML = meta + head + rows;
+  box.hidden = false;
+  if (hint) hint.textContent = 'A 实线 / B 虚线（点「载入」看单条）';
+  requestAnimationFrame(() => drawCurve($('stratCurve'), [
+    { curve: a.curve || [], color: '#8adeff' },
+    { curve: b.curve || [], color: '#f0b90b' }
+  ]));
+}
+
+function renderStratPanel(result, name) {
+  // 新调用：{sum, name, range, ...}；旧调用（selftest / 存档）：直接给 sum
+  const wrap = result && result.sum ? result : { sum: result || null, name: name || '策略', range: null };
+  const sum = wrap.sum;
   const stats = $('stratStats');
   const rows = $('stratTrades');
   const meta = $('stratMeta');
+  const monthlyBox = $('stratMonthly');
+  const tradeHint = $('stratTradeHint');
+  if (!stats) return;
   if (!sum) {
     stats.innerHTML = '';
     rows.innerHTML = '<div class="strat-empty">这个脚本没有产生成交</div>';
-    meta.textContent = `${name} · 无回测数据`;
+    if (monthlyBox) monthlyBox.innerHTML = '';
+    meta.textContent = `${wrap.name} · 无回测数据`;
     return;
   }
-  const money = (v) => (v >= 0 ? '+' : '') + v.toFixed(2);
-  const pct = (v) => (v * 100).toFixed(1) + '%';
+  const money = (v) => (Number(v) >= 0 ? '+' : '') + Number(v || 0).toFixed(2);
+  const pct = (v, d = 1) => (v == null || !Number.isFinite(Number(v)) ? '—' : (Number(v) * 100).toFixed(d) + '%');
+  const num = (v, d = 2) => (v == null || !Number.isFinite(Number(v)) ? '—' : Number(v).toFixed(d));
   const items = [
-    ['成交笔数', String(sum.trades)],
+    ['成交笔数', String(sum.trades ?? 0)],
     ['净盈亏', money(sum.net)],
     ['胜率', pct(sum.winRate)],
-    ['盈亏比 PF', sum.pf === Infinity ? '∞' : sum.pf.toFixed(2)],
+    ['盈亏比 PF', sum.pf === Infinity || sum.pf >= 999 ? '∞' : num(sum.pf)],
+    ['最大回撤', `${num(sum.maxDD)}${sum.maxDDPct ? ` (${pct(sum.maxDDPct, 2)})` : ''}`],
+    ['夏普（日/252）', num(sum.sharpe)],
+    ['买持基准', pct(sum.buyHold)],
+    ['手续费', num(sum.fees)],
     ['期望/笔', money(sum.expectancy)],
-    ['最大回撤', sum.maxDD.toFixed(2) + (sum.maxDDPct ? ` (${pct(sum.maxDDPct)})` : '')],
-    ['连胜/连亏', `${sum.winStreak} / ${sum.lossStreak}`],
-    ['期末权益（含浮盈）', (sum.equity ?? sum.curve[sum.curve.length - 1]).toFixed(2)]
+    ['连胜/连亏', `${sum.winStreak ?? 0} / ${sum.lossStreak ?? 0}`],
+    ['持仓时间', pct(sum.exposure, 0)],
+    ['年化 CAGR', pct(sum.cagr)]
   ];
   stats.innerHTML = items.map(([k, v]) => `<div class="it"><span>${k}</span><b>${v}</b></div>`).join('');
 
+  const r = wrap.range || null;
+  const bits = [wrap.name || '策略', wrap.symbol || state.profile?.symbol || ''];
+  if (r) {
+    bits.push(`${r.periodMin ?? 1}m`, `${Number(r.bars || sum.bars || 0).toLocaleString()} 根`,
+      `${fmtTs(r.from)} → ${fmtTs(r.to)}`);
+    if (r.truncated) bits.push(`已按上限 ${BT_MAX_BARS.toLocaleString()} 根截断`);
+    if (r.archived) bits.push('存档');
+    else if (r.totalMs != null) bits.push(`取数 ${r.fetchMs ?? '—'} ms · 计算 ${((r.computeMs ?? 0) / 1000).toFixed(1)} s`);
+  } else {
+    bits.push(`${sum.bars ?? '—'} 根（图表窗口）`);
+  }
+  bits.push(`本金 ${sum.initialCapital ?? 10000}`);
+  meta.textContent = bits.filter(Boolean).join(' · ');
+
+  if (monthlyBox) {
+    const ms = (sum.monthly || []).slice(-24);
+    monthlyBox.innerHTML = ms.length
+      ? ms.map((m) => `<span class="m ${m.pnl >= 0 ? 'pos' : 'neg'}">${m.ym} ${m.pnl >= 0 ? '+' : ''}${m.pnl.toFixed(0)}</span>`).join('')
+      : '<span class="m">无月度数据（存档或未平仓）</span>';
+  }
+
   const fmtT = (ts) => (ts ? fmtTs(ts) : '—');
+  const fmtQ = (q) => {
+    const n = Number(q);
+    if (!Number.isFinite(n)) return '—';
+    const a = Math.abs(n);
+    if (a === 0) return '0';
+    return a >= 1 ? n.toFixed(2) : n.toPrecision(2);     // 极小仓位（引擎 percent_of_equity 首笔）别显示成 0.00
+  };
   const head = '<div class="r head"><span>#</span><span>方向</span><span>数量</span><span>开仓</span><span>平仓</span><span>盈亏</span></div>';
-  const body = sum.rows.slice(0, 300).map(r => `<div class="r">
-      <span>${r.i}</span><span>${r.side}</span><span>${r.qty}</span>
-      <span>${fmtT(r.entryTime)}<br>${r.entryPrice != null ? fmtPrice(r.entryPrice, state.profile?.symbol) : '—'}</span>
-      <span>${fmtT(r.exitTime)}<br>${r.exitPrice != null ? fmtPrice(r.exitPrice, state.profile?.symbol) : '—'}</span>
-      <b class="${r.pnl >= 0 ? 'pos' : 'neg'}">${money(r.pnl)}</b>
+  const all = sum.rows || [];
+  const body = all.slice(0, 300).map((t) => `<div class="r">
+      <span>${t.i}</span><span>${t.side}</span><span>${fmtQ(t.qty)}</span>
+      <span>${fmtT(t.entryTime)}<br>${t.entryPrice != null ? fmtPrice(t.entryPrice, state.profile?.symbol) : '—'}</span>
+      <span>${fmtT(t.exitTime)}<br>${t.exitPrice != null ? fmtPrice(t.exitPrice, state.profile?.symbol) : '—'}</span>
+      <b class="${t.pnl >= 0 ? 'pos' : 'neg'}">${money(t.pnl)}</b>
     </div>`).join('');
-  rows.innerHTML = head + (body || '<div class="strat-empty">没有已平仓交易</div>');
-  meta.textContent = `${name} · ${state.profile?.symbol || ''} · ${sum.trades} 笔已平${sum.openTrades ? ` · ${sum.openTrades} 笔持仓中` : ''} · 本金 ${sum.initialCapital}`;
-  requestAnimationFrame(() => drawCurve($('stratCurve'), sum.curve));
+  rows.innerHTML = head + (body || `<div class="strat-empty">${r?.archived ? '存档只保留统计与曲线；逐笔明细请重新运行' : '没有已平仓交易'}</div>`);
+  if (tradeHint) tradeHint.textContent = all.length ? `前 ${Math.min(300, all.length)} / 共 ${all.length} 笔` : '';
+  // 抽屉有开合动画：rAF 一帧时 canvas 还可能是 300px 的初始宽度，补两拍再画
+  // 对比视图开着时不要覆盖（那是两条曲线的叠画，见 drawBtCompare）
+  const paint = () => {
+    if ($('btCompare') && !$('btCompare').hidden) return;
+    try { drawCurve($('stratCurve'), sum.curve); } catch {}
+  };
+  requestAnimationFrame(() => requestAnimationFrame(paint));
+  setTimeout(paint, 140);
 }
 
 /* ---- 从其他图复制绘制 ---- */
@@ -3711,7 +4019,47 @@ function wirePine() {
     renderDrawMgr();
     updateStatus('已清空当前周期的绘图');
   };
-  $('closeStrat').onclick = () => { $('stratPanel').hidden = true; };
+  $('closeStrat').onclick = () => { if (_bt.busy) btCancel(); $('stratPanel').hidden = true; };
+  wireBacktest();
+}
+
+/* ---------------- 回测面板：区间 / 进度 / 取消 / 存档 ---------------- */
+
+function wireBacktest() {
+  const range = $('btRange');
+  const syncCustom = () => {
+    const custom = range?.value === 'custom';
+    if ($('btFrom')) $('btFrom').hidden = !custom;
+    if ($('btTo')) $('btTo').hidden = !custom;
+    if (custom) {
+      const spec = { end: state.profile?.live?.last || state.profile?.last || Date.now() };
+      if ($('btFrom') && !$('btFrom').value) $('btFrom').value = fmtLocalInput(spec.end - 90 * 86400000);
+      if ($('btTo') && !$('btTo').value) $('btTo').value = fmtLocalInput(spec.end);
+    }
+  };
+  range?.addEventListener('change', syncCustom);
+  syncCustom();
+  $('btRun').onclick = () => runPineBacktest();
+  $('btCancel').onclick = () => btCancel();
+  $('btSave').onclick = () => btSaveCurrent();
+  $('btClearRuns').onclick = () => btClearRuns();
+  // 面板第一次打开时把历史列表读出来
+  renderBtRuns();
+  window.addEventListener('resize', () => {
+    const res = _bt.result;
+    if (!res || $('btCompare')?.hidden === false) return;
+    try { drawCurve($('stratCurve'), res.sum.curve); } catch {}
+  });
+  window.__TT_BT__ = {
+    run: (opts) => runPineBacktest(null, null, opts || {}),
+    cancel: () => btCancel(),
+    save: () => btSaveCurrent(),
+    runs: () => btLoadRuns(),
+    clear: () => btClearRuns(),
+    result: () => _bt.result,
+    busy: () => _bt.busy,
+    range: () => btRangeSpec()
+  };
 }
 
 /* ---------------- 数据管理 ---------------- */

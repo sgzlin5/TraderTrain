@@ -4,10 +4,23 @@ import { PineTS } from '../vendor/pinets.min.browser.es.js';
 import { runInThread } from './pineCore.js';
 
 self.onmessage = async (e) => {
-  const { id, src, bars, inputs, symbol } = e.data || {};
+  const { id, src, bars, inputs, symbol, mode } = e.data || {};
   const t0 = performance.now();
+  const backtest = mode === 'backtest';
   try {
+    if (backtest) { try { self.postMessage({ id, phase: 'start' }); } catch {} }
     const out = await runInThread(PineTS, src, bars, inputs, symbol);
+    if (backtest) {
+      // 回测只回 strategy（series/plots 用不上）—— 但 alert() 要给（体积小、面板要显示）
+      self.postMessage({
+        id, ok: true,
+        strategy: out.strategy || null,
+        alerts: out.alerts || [],
+        pineVersion: out.pineVersion ?? null,
+        ms: Math.round(performance.now() - t0)
+      });
+      return;
+    }
     const payload = {
       id, ok: true,
       names: out.names, overlay: out.overlay, series: out.series, title: out.title,

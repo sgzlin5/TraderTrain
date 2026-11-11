@@ -129,6 +129,78 @@ export async function compilePine(src, bars, inputs = null, symbol = null) {
   }
 }
 
+/* ---------------- 回测专用执行通道 ----------------
+   独立 worker：可取消、不会静默回退主线程（长回测降级主线程 = 页面假死）。
+   载荷只回 strategy（series/plots 对回测没用，几十万根时那部分克隆足以把渲染进程顶死）。 */
+export const BT_TIMEOUT_MS = 15 * 60_000;
+let _btWorker = null;
+let _btSeq = 0;
+const _btPending = new Map();
+
+function btWorker() {
+  if (_btWorker) return _btWorker;
+  _btWorker = new Worker(new URL('./pineWorker.js', import.meta.url), { type: 'module' });
+  _btWorker.onmessage = (e) => {
+    const { id, phase } = e.data || {};
+    const slot = _btPending.get(id);
+    if (!slot) return;
+    if (phase === 'start') { try { slot.onPhase?.('compute'); } catch {} return; }
+    _btPending.delete(id);
+    clearTimeout(slot.timer);
+    slot.resolve(e.data);
+  };
+  _btWorker.onerror = (err) => {
+    for (const [, s] of _btPending) { clearTimeout(s.timer); s.resolve({ ok: false, error: `回测 worker 异常：${err?.message || err}` }); }
+    _btPending.clear();
+    try { _btWorker.terminate(); } catch {}
+    _btWorker = null;
+  };
+  return _btWorker;
+}
+
+/** 取消当前回测（terminate worker：正在跑的脚本立即停下，不会有残包） */
+export function cancelBacktest() {
+  let n = 0;
+  for (const [, s] of _btPending) { clearTimeout(s.timer); s.resolve({ ok: false, cancelled: true, error: '已取消' }); n++; }
+  _btPending.clear();
+  if (_btWorker) { try { _btWorker.terminate(); } catch {} _btWorker = null; }
+  return n;
+}
+
+export function backtestBusy() { return _btPending.size > 0; }
+
+/** 只跑策略（回测）：返回 {ok, strategy, ms, bars} */
+export async function compileBacktest({ src, bars, inputs = null, symbol = null, timeoutMs = BT_TIMEOUT_MS, onPhase } = {}) {
+  if (!bars || !bars.length) return { ok: false, error: '没有数据' };
+  const pre = preprocessPine(src, bars);
+  const pineBars = toPineBars(bars);
+  const sym = symbol || 'PINE';
+  try { onPhase?.('transfer'); } catch {}
+  let w;
+  try { w = btWorker(); } catch (e) { return { ok: false, error: `回测 worker 起不来：${e?.message || e}` }; }
+  const id = ++_btSeq;
+  const payload = await new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      _btPending.delete(id);
+      resolve({ ok: false, error: `回测超时（${Math.round(timeoutMs / 1000)} s）` });
+    }, timeoutMs);
+    _btPending.set(id, { resolve, timer, onPhase });
+    try {
+      w.postMessage({ id, mode: 'backtest', src: pre, bars: pineBars, inputs: inputs && Object.keys(inputs).length ? inputs : null, symbol: sym });
+    } catch (e) {
+      clearTimeout(timer);
+      _btPending.delete(id);
+      resolve({ ok: false, error: `发送失败：${e?.message || e}` });
+    }
+  });
+  if (payload?.cancelled) return { ok: false, cancelled: true, error: '已取消' };
+  if (!payload?.ok) {
+    const msg = String(payload?.error || '回测失败');
+    return { ok: false, error: msg.slice(0, 400), line: payload?.line ?? null };
+  }
+  return { ok: true, strategy: payload.strategy || null, alerts: payload.alerts || [], pineVersion: payload.pineVersion ?? null, ms: payload.ms ?? null, bars: bars.length };
+}
+
 /* ---------------- 指标库（本地保存的脚本） ---------------- */
 
 export async function libList() { return (await kvGet(LIB_KEY)) || []; }
