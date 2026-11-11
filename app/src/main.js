@@ -32,7 +32,7 @@ import {
   PineManager, SAMPLE_PINE, parseInputs, libList, libSave, libRemove,
   loadPineMap, loadPineActive, scanCompat, compilePine, compileBacktest, cancelBacktest
 } from './pine.js';
-import { fetchRange, analyze as analyzeBacktest, BT_MAX_BARS, BT_SLOW_BARS, parseStrategyParams } from './backtest.js';
+import { fetchRange, analyze as analyzeBacktest, btParity, parityLabel, BT_MAX_BARS, BT_SLOW_BARS, parseStrategyParams } from './backtest.js';
 import { DEFAULT_LAYOUT, normalize, loadLayout, saveLayout, applyLayout as chartApplyLayout, loadTheme, saveTheme, applyThemeMode, migrateLayoutColors, THEMES, themeMeta } from './theme.js';
 import { buildChartTheme, indicatorPalette } from './chart.js';
 import { fmtTs, fmtTsShort, fmtDay, fmtLocalInput } from './fmt.js';
@@ -3352,14 +3352,14 @@ async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {
     }
 
     btProgress(true, 0.95, '汇总统计…');
-    const sum = analyzeBacktest({ bars: fetched.bars, strategy: r.strategy, spanMs });
+    const sum = analyzeBacktest({ bars: fetched.bars, strategy: r.strategy, spanMs, src });
     const repaint = /request\.security(_lower_tf)?\s*\(/.test(src);
     const range = {
       from: fetched.from, to: fetched.to, bars: fetched.total, spanMs,
       truncated: fetched.truncated, periodMin: spec.periodMin,
       fetchMs: fetched.ms, computeMs: r.ms ?? null, totalMs: Math.round(performance.now() - t0)
     };
-    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), inputs: inputs || {}, repaint, at: Date.now() };
+    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), inputs: inputs || {}, repaint, parity: btParity(src), at: Date.now() };
     renderAlerts(r.alerts || [], name);
     renderStratPanel(_bt.result);
     $('pinePanel').hidden = true;
@@ -3430,6 +3430,7 @@ async function btSaveCurrent() {
     truncated: !!res.range.truncated,
     repaint: !!res.repaint,
     params: res.params || {},
+    parity: res.parity || null,
     inputs: res.inputs || {},
     metrics: {
       trades: sum.trades, net: +sum.net.toFixed(2), winRate: +sum.winRate.toFixed(4),
@@ -3610,6 +3611,7 @@ async function btCsvText(id) {
   L.push(csvLine(['区间', `${new Date(rec.from).toISOString()} → ${new Date(rec.to).toISOString()}`]));
   L.push(csvLine(['根数', m.bars]));
   L.push(csvLine(['含 request.security', rec.repaint ? '是（可能重绘）' : '否']));
+  L.push(csvLine(['成交口径', rec.parity ? parityLabel(rec.parity) : '未记录']));
   L.push(csvLine(['strategy() 参数', Object.entries(rec.params || {}).map(([k, v]) => `${k}=${v}`).join(' ') || '']));
   L.push(csvLine(['input 参数', btInputSummary(rec.inputs) || '']));
   L.push('');
@@ -3743,7 +3745,12 @@ async function drawBtCompare() {
   const inputRow = `<div class="row"><span>参数 A</span><span class="num" style="text-align:left;grid-column:2 / -1" title="${inA}">${inA.slice(0, 58)}</span></div>`
     + `<div class="row"><span>参数 B</span><span class="num" style="text-align:left;grid-column:2 / -1" title="${inB}">${inB.slice(0, 58)}</span></div>`
     + (inA !== inB ? '<div class="row"><span class="warn">参数不同（数字不可直接比）</span><span class="num" style="grid-column:2 / -1"></span></div>' : '');
-  box.innerHTML = meta + head + rows + inputRow;
+  const pa = a.parity ? parityLabel(a.parity) : '未记录';
+  const pb = b.parity ? parityLabel(b.parity) : '未记录';
+  const parityRow = `<div class="row"><span>口径 A</span><span class="num" style="text-align:left;grid-column:2 / -1">${pa}</span></div>`
+    + `<div class="row"><span>口径 B</span><span class="num" style="text-align:left;grid-column:2 / -1">${pb}</span></div>`
+    + (pa !== pb ? '<div class="row"><span class="warn">口径不同（数字不可直接比）</span><span class="num" style="grid-column:2 / -1"></span></div>' : '');
+  box.innerHTML = meta + head + rows + inputRow + parityRow;
   box.hidden = false;
   if (hint) hint.textContent = 'A 实线 / B 虚线（点「载入」看单条）';
   requestAnimationFrame(() => drawCurve($('stratCurve'), [
@@ -3800,6 +3807,11 @@ function renderStratPanel(result, name) {
     bits.push(`${sum.bars ?? '—'} 根（图表窗口）`);
   }
   bits.push(`本金 ${sum.initialCapital ?? 10000}`);
+  const par = wrap.parity || sum.parity || null;
+  if (par) bits.push(`口径 ${parityLabel(par)}`);
+  if (par && par.unsupported && par.unsupported.length) {
+    bits.push(`⚠ ${par.unsupported.join('/')} 引擎未实现（按普通 OHLC 回测，结论偏乐观）`);
+  }
   if (wrap.repaint) bits.push('⚠ 含 request.security：HTF 数据可能重绘');
   const ins = btInputSummary(wrap.inputs || {});
   if (ins) bits.push(`参数 ${ins}`);

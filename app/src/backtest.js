@@ -81,11 +81,56 @@ export function parseStrategyParams(src = '') {
     const m = body.match(new RegExp(`${key}\\s*=\\s*([^,\\n]+)`));
     return m ? m[1].trim().replace(/^["']|["']$/g, '') : null;
   };
-  for (const k of ['initial_capital', 'default_qty_type', 'default_qty_value', 'commission_type', 'commission_value', 'slippage', 'pyramiding', 'currency']) {
+  for (const k of ['initial_capital', 'default_qty_type', 'default_qty_value', 'commission_type', 'commission_value', 'slippage', 'pyramiding', 'currency',
+    'process_orders_on_close', 'calc_on_order_fills', 'close_entries_rule', 'use_bar_magnifier', 'fill_orders_on_standard_ohlc']) {
     const v = grab(k);
     if (v != null) out[k] = v;
   }
   return out;
+}
+
+/**
+ * 回测口径摘要（写进面板/存档，避免几个月后分不清结论用的什么假设）。
+ * 依据：2026-11 对 vendored PineTS 引擎的实测（docs/BT-TV-PARITY.md）——
+ *   市价单：posc=false → 下一 bar 开盘价；posc=true → 信号 bar 收盘价
+ *   出口单 stop/limit：按 bar 内 high/low 触发，fill 价 = 挂单价
+ *   pyramiding=N：同向最多 N 笔（0 与缺省都是 1 笔）
+ *   slippage 单位 = tick（mintick 0.01）；commission 支持 cash_per_contract / percent
+ *   未实现：use_bar_magnifier / fill_orders_on_standard_ohlc（只解析不生效）
+ */
+export function btParity(src = '') {
+  const p = parseStrategyParams(src);
+  const on = (v) => String(v).toLowerCase() === 'true';
+  const num = (v, d) => (v == null || v === '' ? d : Number(v));
+  const out = {
+    fill: on(p.process_orders_on_close) ? 'close' : 'next-open',
+    intrabar: true,
+    calcOnFill: on(p.calc_on_order_fills),
+    pyramiding: num(p.pyramiding, 1),
+    slippageTicks: num(p.slippage, 0),
+    commissionType: p.commission_type || 'none',
+    commissionValue: num(p.commission_value, 0),
+    unsupported: []
+  };
+  if (on(p.use_bar_magnifier)) out.unsupported.push('use_bar_magnifier');
+  if (on(p.fill_orders_on_standard_ohlc)) out.unsupported.push('fill_orders_on_standard_ohlc');
+  return out;
+}
+
+/** 口径 → 一行短标签（面板 meta 用） */
+export function parityLabel(par = {}) {
+  const bits = [];
+  bits.push(par.fill === 'close' ? '信号bar收盘成交' : '下一bar开盘成交');
+  bits.push('止损/止盈按bar内高低触发');
+  if (par.calcOnFill) bits.push('成交后立即重算');
+  if (par.pyramiding > 1) bits.push(`同向最多 ${par.pyramiding} 笔`);
+  if (par.slippageTicks > 0) bits.push(`滑点 ${par.slippageTicks} tick`);
+  if (par.commissionType && par.commissionType !== 'none') {
+    const v = par.commissionValue;
+    bits.push(par.commissionType.includes('percent') ? `手续费 ${v}%` : `手续费 ${v}/张`);
+  }
+  if (par.unsupported && par.unsupported.length) bits.push(`⚠ 引擎未实现 ${par.unsupported.join('/')}`);
+  return bits.join(' · ');
 }
 
 /**
@@ -95,7 +140,7 @@ export function parseStrategyParams(src = '') {
  * @param {object} o.strategy pickStrategy() 的结果
  * @param {number} o.spanMs   每根 bar 的跨度（分钟级）
  */
-export function analyze({ bars = [], strategy = null, spanMs = MIN } = {}) {
+export function analyze({ bars = [], strategy = null, spanMs = MIN, src = '' } = {}) {
   const base = summarize(strategy) || {
     trades: 0, openTrades: (strategy?.open || []).length, net: 0, grossWin: 0, grossLoss: 0, pf: 0,
     winRate: 0, expectancy: 0, avgWin: 0, avgLoss: 0, maxDD: 0, maxDDPct: 0, winStreak: 0, lossStreak: 0,
@@ -105,7 +150,7 @@ export function analyze({ bars = [], strategy = null, spanMs = MIN } = {}) {
   const cap = Number(strategy?.initial_capital) || base.initialCapital || 10000;
   const n = bars.length;
   if (!n) {
-    return { ...base, bars: 0, equityByBar: [], curve: [], monthly: [], fees: 0, sharpe: null, sortino: null, buyHold: null, buyHoldMoney: null, exposure: 0, spanDays: 0, params: {} };
+    return { ...base, bars: 0, equityByBar: [], curve: [], monthly: [], fees: 0, sharpe: null, sortino: null, buyHold: null, buyHoldMoney: null, exposure: 0, spanDays: 0, params: src ? parseStrategyParams(src) : {}, parity: btParity(src) };
   }
 
   // 交易 → bar 下标区间（size 带符号，多正空负，直接乘价差）
@@ -176,10 +221,18 @@ export function analyze({ bars = [], strategy = null, spanMs = MIN } = {}) {
   }
   const monthly = [...mon.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([ym, pnl]) => ({ ym, pnl }));
 
-  // 费用（脚本里配了 commission/slippage 时 = 毛利 - 净利）
-  const gross = (Number(strategy?.grossprofit) || 0) + (Number(strategy?.grossloss) || 0);
+  // 费用（引擎的 grossprofit/grossloss 已是「扣费后」口径且 grossloss 为正数，
+  // 旧算法 gross−net 会翻倍算错；改为逐笔用「净盈亏 − 价格变动×数量」反推手续费）
+  let feeSum = 0;
+  for (const t of strategy?.closed || []) {
+    const prof = Number(t.profit);
+    const move = (Number(t.exit_price) - Number(t.entry_price)) * (Number(t.size) || 0);
+    if (!Number.isFinite(prof) || !Number.isFinite(move)) continue;
+    const d = prof - move;
+    if (Math.abs(d) > 1e-9) feeSum += d;
+  }
   const netP = Number.isFinite(Number(strategy?.netprofit)) ? Number(strategy.netprofit) : base.net;
-  const fees = Math.max(0, gross - netP);
+  const fees = Math.max(0, -feeSum);
 
   const firstClose = bars[0].close, lastClose = bars[n - 1].close;
   const spanDays = (bars[n - 1].timestamp - bars[0].timestamp) / 86400000;
@@ -212,6 +265,7 @@ export function analyze({ bars = [], strategy = null, spanMs = MIN } = {}) {
     buyHold: firstClose > 0 ? lastClose / firstClose - 1 : null,
     buyHoldMoney: firstClose > 0 ? (lastClose / firstClose - 1) * cap : null,
     cagr: spanDays > 1 && cap > 0 && endEq > 0 ? Math.pow(endEq / cap, 365 / spanDays) - 1 : null,
-    params: parseStrategyParams('')
+    params: src ? parseStrategyParams(src) : {},
+    parity: btParity(src)
   };
 }
