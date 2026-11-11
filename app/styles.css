@@ -1029,7 +1029,7 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .strat-actions .muted{font:var(--fs-2xs)/1.3 var(--mono);color:var(--dimmer)}
 .bt-runs{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto;
   border:1px solid var(--line-soft);border-radius:4px}
-.bt-runs .r{display:grid;grid-template-columns:16px minmax(0,1fr) 88px 52px 56px 52px;gap:6px;align-items:center;
+.bt-runs .r{display:grid;grid-template-columns:16px minmax(0,1fr) 78px 46px 50px 46px 62px;gap:5px;align-items:center;
   padding:5px 8px;font:var(--fs-2xs)/1.35 var(--mono);border-bottom:1px solid var(--line-soft);cursor:pointer}
 .bt-runs .r:last-child{border-bottom:0}
 .bt-runs .r:hover{background:var(--tint)}
@@ -1037,6 +1037,17 @@ input[type=color].swatch:disabled{opacity:.35;cursor:not-allowed}
 .bt-runs .r .num{text-align:right;font-variant-numeric:tabular-nums}
 .bt-runs .r .nm{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .bt-runs .r .nm .muted{display:block;overflow:hidden;text-overflow:ellipsis}
+.bt-runs .r .warn{color:var(--warn,#f0b90b)}
+.bt-runs .r .acts{display:flex;gap:1px;justify-content:flex-end;opacity:.45}
+.bt-runs .r:hover .acts,.bt-runs .r.sel .acts{opacity:1}
+.bt-runs .r .acts button{border:0;background:transparent;color:var(--muted);font:var(--fs-2xs)/1 var(--mono);
+  padding:3px 4px;border-radius:3px;cursor:pointer}
+.bt-runs .r .acts button:hover{background:var(--line-soft);color:var(--fg)}
+.bt-runs .r .nm input{width:100%;background:var(--panel-solid);color:var(--fg);border:1px solid var(--line);
+  border-radius:3px;font:inherit;padding:1px 4px}
+.strat-sub .grp{display:flex;gap:6px;align-items:center}
+.strat-sub .sel{height:22px;background:var(--panel-solid);color:var(--fg);border:1px solid var(--line);
+  border-radius:3px;font:var(--fs-2xs)/1 var(--mono);padding:0 4px}
 .bt-runs .empty{padding:12px;text-align:center;color:var(--muted);font:var(--fs-sm)/1.4 var(--sans)}
 .bt-compare{border:1px solid var(--line-soft);border-radius:4px;overflow:hidden}
 .bt-compare .row{display:grid;grid-template-columns:1fr 96px 96px 96px;gap:6px;padding:4px 8px;

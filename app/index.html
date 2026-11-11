@@ -352,11 +352,21 @@
     <div id="stratMonthly" class="strat-monthly"></div>
     <div class="strat-actions">
       <button id="btSave" class="btn" title="把本次结果存进历史">保存本次</button>
+      <button id="btExportTrades" class="btn ghost" title="导出当前这次回测的逐笔成交">导出成交 CSV</button>
       <span id="btSavedHint" class="muted"></span>
     </div>
     <div class="strat-sub"><span>成交明细</span><span id="stratTradeHint" class="muted"></span></div>
     <div id="stratTrades" class="strat-trades"></div>
-    <div class="strat-sub"><span>历史回测（勾两个对比）</span><button id="btClearRuns" class="btn ghost">清空</button></div>
+    <div class="strat-sub">
+      <span>历史回测（勾两个对比）</span>
+      <span class="grp">
+        <select id="btRunSym" class="sel" title="历史记录按品种筛选">
+          <option value="cur">当前品种</option>
+          <option value="all">全部品种</option>
+        </select>
+        <button id="btClearRuns" class="btn ghost">清空</button>
+      </span>
+    </div>
     <div id="btRuns" class="bt-runs"></div>
     <div id="btCompare" class="bt-compare" hidden></div>
   </section>

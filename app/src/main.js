@@ -3327,7 +3327,13 @@ async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {
 
   let pulse = 0;
   try {
+    // 面板上的 input 值优先；没点过「检查代码」时面板是空的 → 从源码里取 input 的默认值
     const inputs = readEditorInputs();
+    if (!Object.keys(inputs).length) {
+      for (const d of parseInputs(src)) {
+        if (d?.name && d.def !== undefined && d.def !== '') inputs[d.name] = d.def;
+      }
+    }
     const fetched = await fetchRange(prof, {
       startTs: spec.startTs, endTs: spec.endTs, spanMs, maxBars: BT_MAX_BARS,
       onProgress: (p) => btProgress(true, 0.3 * Math.min(1, p.got / Math.max(1, estBars)), `取数：已读 ${p.got.toLocaleString()} 根`)
@@ -3347,12 +3353,13 @@ async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {
 
     btProgress(true, 0.95, '汇总统计…');
     const sum = analyzeBacktest({ bars: fetched.bars, strategy: r.strategy, spanMs });
+    const repaint = /request\.security(_lower_tf)?\s*\(/.test(src);
     const range = {
       from: fetched.from, to: fetched.to, bars: fetched.total, spanMs,
       truncated: fetched.truncated, periodMin: spec.periodMin,
       fetchMs: fetched.ms, computeMs: r.ms ?? null, totalMs: Math.round(performance.now() - t0)
     };
-    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), at: Date.now() };
+    _bt.result = { sum, name, src, range, symbol: prof.symbol, params: parseStrategyParams(src), inputs: inputs || {}, repaint, at: Date.now() };
     renderAlerts(r.alerts || [], name);
     renderStratPanel(_bt.result);
     $('pinePanel').hidden = true;
@@ -3360,7 +3367,8 @@ async function runPineBacktest(srcOverride = null, nameOverride = null, opts = {
     if ($('btSave')) $('btSave').disabled = false;
     if ($('btSavedHint')) $('btSavedHint').textContent = '';
     btProgress(false);
-    updateStatus(`回测完成：${sum.trades} 笔 · 净盈亏 ${sum.net.toFixed(2)} · ${sum.bars.toLocaleString()} 根 · ${(range.totalMs / 1000).toFixed(1)} s`);
+    if (repaint) updateStatus('回测完成（⚠ 脚本用了 request.security：HTF 数据可能重绘，结论按「含未来数据」看）', true);
+    else updateStatus(`回测完成：${sum.trades} 笔 · 净盈亏 ${sum.net.toFixed(2)} · ${sum.bars.toLocaleString()} 根 · ${(range.totalMs / 1000).toFixed(1)} s`);
     return _bt.result;
   } catch (e) {
     if (pulse) clearInterval(pulse);
@@ -3420,7 +3428,9 @@ async function btSaveCurrent() {
     periodMin: res.range.periodMin,
     from: res.range.from, to: res.range.to, bars: res.range.bars,
     truncated: !!res.range.truncated,
+    repaint: !!res.repaint,
     params: res.params || {},
+    inputs: res.inputs || {},
     metrics: {
       trades: sum.trades, net: +sum.net.toFixed(2), winRate: +sum.winRate.toFixed(4),
       pf: sum.pf === Infinity ? 999 : +sum.pf.toFixed(2), maxDDpct: +sum.maxDDPct.toFixed(4),
@@ -3446,36 +3456,221 @@ async function btClearRuns() {
   if ($('btSavedHint')) $('btSavedHint').textContent = '已清空';
 }
 
+/** inputs 摘要（对比/标题用）：k=v · k=v … */
+function btInputSummary(inputs) {
+  const keys = Object.keys(inputs || {});
+  if (!keys.length) return '';
+  const head = keys.slice(0, 6).map((k) => `${k}=${inputs[k]}`).join(' · ');
+  return keys.length > 6 ? `${head} · +${keys.length - 6}` : head;
+}
+
 async function renderBtRuns() {
   const box = $('btRuns');
   if (!box) return;
-  const runs = await btLoadRuns();
+  const all = await btLoadRuns();
+  const cur = state.profile?.symbol;
+  const mode = $('btRunSym')?.value || 'cur';
+  const runs = mode === 'all' ? all : all.filter((r) => !cur || !r.symbol || r.symbol === cur);
   if (!runs.length) {
-    box.innerHTML = '<div class="empty">还没有保存过回测（跑完点「保存本次」）</div>';
+    box.innerHTML = `<div class="empty">${all.length
+      ? `当前品种（${cur || '—'}）没有历史回测；切到「全部品种」看其他 ${all.length} 条`
+      : '还没有保存过回测（跑完点「保存本次」）'}</div>`;
     return;
   }
   box.innerHTML = runs.map((r) => {
     const m = btMetricsOf(r);
     const sel = _bt.compare.includes(r.id);
     const nm = String(r.name || '策略').replace(/[<>&]/g, '');
-    return `<div class="r${sel ? ' sel' : ''}" data-id="${r.id}" title="${fmtTs(r.from)} → ${fmtTs(r.to)} · ${m.bars} 根 · ${m.periodMin}m">
+    const warn = r.repaint ? '<span class="warn" title="脚本含 request.security：HTF 数据可能重绘">⚠ </span>' : '';
+    return `<div class="r${sel ? ' sel' : ''}" data-id="${r.id}" title="${fmtTs(r.from)} → ${fmtTs(r.to)} · ${m.bars} 根 · ${m.periodMin}m${r.repaint ? ' · 含 request.security' : ''}">
       <input type="checkbox" data-cmp="${r.id}"${sel ? ' checked' : ''}>
-      <span class="nm">${nm}<span class="muted">${fmtTsShort(r.from)} → ${fmtTsShort(r.to)} · ${m.periodMin}m · ${Number(m.bars || 0).toLocaleString()} 根</span></span>
+      <span class="nm">${warn}${nm}<span class="muted">${r.symbol || '—'} · ${m.periodMin}m · ${fmtTsShort(r.from)} → ${fmtTsShort(r.to)} · ${Number(m.bars || 0).toLocaleString()} 根</span></span>
       <span class="num ${m.net >= 0 ? 'pos' : 'neg'}">${m.net >= 0 ? '+' : ''}${Number(m.net).toFixed(2)}</span>
       <span class="num">${(m.winRate * 100).toFixed(0)}%</span>
       <span class="num">${(m.maxDDpct * 100).toFixed(1)}%</span>
       <span class="num">${m.sharpe == null ? '—' : Number(m.sharpe).toFixed(2)}</span>
+      <span class="acts">
+        <button type="button" data-act="rename" title="改名（行内输入，Enter 确认 / Esc 取消）">✎</button>
+        <button type="button" data-act="export" title="导出这条存档（统计 + 曲线）CSV">⤓</button>
+        <button type="button" data-act="del" title="删除这条存档">✕</button>
+      </span>
     </div>`;
   }).join('');
   box.querySelectorAll('.r').forEach((row) => {
-    row.onclick = (e) => {
+    const id = row.dataset.id;
+    row.onclick = async (e) => {
+      const btn = e.target && e.target.closest && e.target.closest('button[data-act]');
+      if (btn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const act = btn.dataset.act;
+        if (act === 'rename') return btRenameRun(id);
+        if (act === 'export') return btExportRun(id);
+        if (act === 'del') return btDeleteRun(id);
+        return;
+      }
       if (e.target && e.target.matches('input[type=checkbox]')) return;
-      btLoadRun(row.dataset.id);
+      btLoadRun(id);
     };
     const cb = row.querySelector('input[type=checkbox]');
-    if (cb) cb.onchange = () => btToggleCompare(row.dataset.id, cb.checked);
+    if (cb) cb.onchange = () => btToggleCompare(id, cb.checked);
   });
   drawBtCompare();
+}
+
+/** 行内改名（不用 prompt：Enter 确认 / Esc 取消 / 失焦按确认处理） */
+async function btRenameRun(id) {
+  const row = document.querySelector(`#btRuns .r[data-id="${id}"]`);
+  const cell = row?.querySelector('.nm');
+  if (!cell || cell.querySelector('input')) return;
+  const runs = await btLoadRuns();
+  const rec = runs.find((r) => r.id === id);
+  if (!rec) return;
+  const old = String(rec.name || '策略');
+  const mark = cell.querySelector('.warn');
+  const input = document.createElement('input');
+  input.value = old;
+  input.maxLength = 40;
+  let settled = false;
+  const finish = async (commit) => {
+    if (settled) return;
+    settled = true;
+    const v = input.value.trim();
+    if (commit && v && v !== old) {
+      const list = await btLoadRuns();
+      const t = list.find((x) => x.id === id);
+      if (t) { t.name = v; await kvSet(BT_KV, list).catch(() => {}); }
+      if (_bt.result && _bt.result.name === old) _bt.result.name = v;
+      if ($('btSavedHint')) $('btSavedHint').textContent = '已改名';
+    }
+    await renderBtRuns();
+  };
+  input.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+  };
+  input.onblur = () => finish(true);
+  cell.textContent = '';
+  if (mark) cell.appendChild(mark);
+  cell.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+async function btDeleteRun(id, { force = false } = {}) {
+  const runs = await btLoadRuns();
+  const rec = runs.find((r) => r.id === id);
+  if (!rec) return;
+  let ok = true;
+  if (!force) {
+    ok = await confirmDialog({
+      title: '删除这条回测存档？',
+      desc: `${rec.name || '策略'} · ${fmtTs(rec.from)} → ${fmtTs(rec.to)} · ${Number(rec.bars || 0).toLocaleString()} 根（不可撤销）`,
+      ok: '删除'
+    });
+  }
+  if (!ok) return;
+  const next = runs.filter((r) => r.id !== id);
+  await kvSet(BT_KV, next).catch(() => {});
+  _bt.compare = _bt.compare.filter((x) => x !== id);
+  await renderBtRuns();
+  if ($('btSavedHint')) $('btSavedHint').textContent = `已删除（剩 ${next.length} 条）`;
+}
+
+/* ---- CSV 导出 ---- */
+const CRLF = String.fromCharCode(13, 10);
+const BOM = String.fromCharCode(0xFEFF);
+const csvCell = (v) => {
+  const t = String(v == null ? '' : v);
+  const needQ = t.indexOf('"') >= 0 || t.indexOf(',') >= 0
+    || t.indexOf(String.fromCharCode(10)) >= 0 || t.indexOf(String.fromCharCode(13)) >= 0;
+  return needQ ? '"' + t.split('"').join('""') + '"' : t;
+};
+const csvLine = (arr) => arr.map(csvCell).join(',');
+const safeName = (s) => {
+  let out = '';
+  for (const ch of String(s || 'bt')) {
+    const c = ch.codePointAt(0);
+    out += (/[0-9A-Za-z._-]/.test(ch) || c > 0x2e7f) ? ch : '_';
+  }
+  return out.replace(/_+/g, '_').slice(0, 40) || 'bt';
+};
+
+async function btCsvText(id) {
+  const runs = await btLoadRuns();
+  const rec = runs.find((r) => r.id === id);
+  if (!rec) return null;
+  const m = btMetricsOf(rec);
+  const L = [];
+  L.push(csvLine(['# TraderTrain 回测存档']));
+  L.push(csvLine(['名称', rec.name || '策略']));
+  L.push(csvLine(['品种', rec.symbol || '']));
+  L.push(csvLine(['周期', `${m.periodMin}m`]));
+  L.push(csvLine(['区间', `${new Date(rec.from).toISOString()} → ${new Date(rec.to).toISOString()}`]));
+  L.push(csvLine(['根数', m.bars]));
+  L.push(csvLine(['含 request.security', rec.repaint ? '是（可能重绘）' : '否']));
+  L.push(csvLine(['strategy() 参数', Object.entries(rec.params || {}).map(([k, v]) => `${k}=${v}`).join(' ') || '']));
+  L.push(csvLine(['input 参数', btInputSummary(rec.inputs) || '']));
+  L.push('');
+  L.push(csvLine(['指标', '值']));
+  for (const [k, label, fmt] of BT_METRIC_ROWS) L.push(csvLine([label, fmt(m[k]).replace(/^\+/, '')]));
+  L.push('');
+  L.push(csvLine(['# 权益曲线（抽稀）']));
+  L.push(csvLine(['i', 'equity']));
+  (rec.curve || []).forEach((v, i) => L.push(csvLine([i, v])));
+  const fname = `bt-${safeName(rec.name)}-${new Date(rec.from).toISOString().slice(0, 10)}.csv`;
+  return { text: BOM + L.join(CRLF), fname, rows: L.length, rec };
+}
+
+async function btExportRun(id) {
+  const out = await btCsvText(id);
+  if (!out) return;
+  download(out.fname, out.text, 'text/csv');
+  updateStatus(`已导出 ${out.fname}（${out.rows} 行）`);
+}
+
+/** 直接改名（行内输入的编程版，selftest 用） */
+async function btRenameRunInline(id, name) {
+  const v = String(name || '').trim();
+  if (!v) return false;
+  const list = await btLoadRuns();
+  const t = list.find((x) => x.id === id);
+  if (!t) return false;
+  t.name = v.slice(0, 40);
+  await kvSet(BT_KV, list).catch(() => {});
+  if (_bt.result && _bt.result.name === (t.name)) { /* 当前结果名不变即可 */ }
+  await renderBtRuns();
+  return true;
+}
+
+/** 导出「当前这次」回测的逐笔成交（存档不含逐笔，所以只能从刚跑完的结果导） */
+function btExportTrades() {
+  const res = _bt.result;
+  const rows = res?.sum?.rows || [];
+  if (!rows.length) {
+    updateStatus(res?.range?.archived ? '存档不含逐笔明细，请重新运行后再导出' : '没有可导出的成交（先跑一次回测）', true);
+    return;
+  }
+  const L = [];
+  L.push(csvLine(['# TraderTrain 回测成交明细']));
+  L.push(csvLine(['名称', res.name || '策略', '品种', res.symbol || '', '周期', `${res.range?.periodMin ?? 1}m`]));
+  L.push(csvLine(['区间', `${new Date(res.range?.from || 0).toISOString()} → ${new Date(res.range?.to || 0).toISOString()}`, '根数', res.range?.bars ?? '']));
+  L.push(csvLine(['input 参数', btInputSummary(res.inputs) || '']));
+  L.push('');
+  L.push(csvLine(['#', '方向', '数量', '开仓时间', '开仓价', '平仓时间', '平仓价', '盈亏', '持仓分钟']));
+  for (const t of rows) {
+    L.push(csvLine([
+      t.i, t.side, t.qty,
+      t.entryTime ? new Date(t.entryTime).toISOString() : '',
+      t.entryPrice ?? '', t.exitTime ? new Date(t.exitTime).toISOString() : '',
+      t.exitPrice ?? '', t.pnl,
+      t.bars != null ? t.bars : ''
+    ]));
+  }
+  const fname = `bt-trades-${safeName(res.name)}-${new Date(res.range?.from || Date.now()).toISOString().slice(0, 10)}.csv`;
+  download(fname, BOM + L.join(CRLF), 'text/csv');
+  updateStatus(`已导出 ${rows.length} 笔成交 → ${fname}`);
 }
 
 async function btLoadRun(id) {
@@ -3497,6 +3692,8 @@ async function btLoadRun(id) {
     name: `${rec.name}（存档）`,
     range: { from: rec.from, to: rec.to, bars: rec.bars, periodMin: rec.periodMin, spanMs: (rec.periodMin || 1) * 60000, computeMs: m.computeMs, archived: true },
     params: rec.params || {},
+    inputs: rec.inputs || {},
+    repaint: !!rec.repaint,
     symbol: rec.symbol
   });
   updateStatus(`已载入存档：${rec.name} · ${fmtTs(rec.from)} → ${fmtTs(rec.to)}`);
@@ -3541,7 +3738,12 @@ async function drawBtCompare() {
     return `<div class="row"><span>${label}</span><span class="num">${fmt(va)}</span><span class="num">${fmt(vb)}</span><span class="num">${d}</span></div>`;
   }).join('');
   const meta = `<div class="row head"><span class="nm" style="grid-column:1 / -1">A：${String(a.name).slice(0, 20)} · ${fmtTsShort(a.from)}→${fmtTsShort(a.to)} ｜ B：${String(b.name).slice(0, 20)} · ${fmtTsShort(b.from)}→${fmtTsShort(b.to)}</span></div>`;
-  box.innerHTML = meta + head + rows;
+  const inA = btInputSummary(a.inputs) || '—';
+  const inB = btInputSummary(b.inputs) || '—';
+  const inputRow = `<div class="row"><span>参数 A</span><span class="num" style="text-align:left;grid-column:2 / -1" title="${inA}">${inA.slice(0, 58)}</span></div>`
+    + `<div class="row"><span>参数 B</span><span class="num" style="text-align:left;grid-column:2 / -1" title="${inB}">${inB.slice(0, 58)}</span></div>`
+    + (inA !== inB ? '<div class="row"><span class="warn">参数不同（数字不可直接比）</span><span class="num" style="grid-column:2 / -1"></span></div>' : '');
+  box.innerHTML = meta + head + rows + inputRow;
   box.hidden = false;
   if (hint) hint.textContent = 'A 实线 / B 虚线（点「载入」看单条）';
   requestAnimationFrame(() => drawCurve($('stratCurve'), [
@@ -3598,6 +3800,9 @@ function renderStratPanel(result, name) {
     bits.push(`${sum.bars ?? '—'} 根（图表窗口）`);
   }
   bits.push(`本金 ${sum.initialCapital ?? 10000}`);
+  if (wrap.repaint) bits.push('⚠ 含 request.security：HTF 数据可能重绘');
+  const ins = btInputSummary(wrap.inputs || {});
+  if (ins) bits.push(`参数 ${ins}`);
   meta.textContent = bits.filter(Boolean).join(' · ');
 
   if (monthlyBox) {
@@ -4042,7 +4247,9 @@ function wireBacktest() {
   $('btRun').onclick = () => runPineBacktest();
   $('btCancel').onclick = () => btCancel();
   $('btSave').onclick = () => btSaveCurrent();
+  $('btExportTrades').onclick = () => btExportTrades();
   $('btClearRuns').onclick = () => btClearRuns();
+  $('btRunSym')?.addEventListener('change', () => renderBtRuns());
   // 面板第一次打开时把历史列表读出来
   renderBtRuns();
   window.addEventListener('resize', () => {
@@ -4058,7 +4265,14 @@ function wireBacktest() {
     clear: () => btClearRuns(),
     result: () => _bt.result,
     busy: () => _bt.busy,
-    range: () => btRangeSpec()
+    range: () => btRangeSpec(),
+    rename: (id, name) => btRenameRunInline(id, name),
+    remove: (id) => btDeleteRun(id, { force: true }),
+    exportRun: (id) => btExportRun(id),
+    exportTrades: () => btExportTrades(),
+    csvOf: (id) => btCsvText(id),
+    compare: () => _bt.compare.slice(),
+    setCompare: (ids) => { _bt.compare = (ids || []).slice(0, 2); return renderBtRuns(); }
   };
 }
 

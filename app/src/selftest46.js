@@ -64,7 +64,9 @@ export async function run(state) {
     log('afterCancel', { ok: r3.ok, trades: r3.strategy?.closed?.length });
 
     // 6) UI：跑一次近 7 天 15m，面板要出数、能存档、能清空
-    document.getElementById('pineSrc').value = SRC;
+    // 带 input 的脚本：验证 input 快照（面板没点「检查代码」时也要能从源码取默认值）
+    const SRC_IN = SRC.replace('fast = ta.sma(close,20)', ['len = input.int(20)', 'fast = ta.sma(close,len)'].join(String.fromCharCode(10)));
+    document.getElementById('pineSrc').value = SRC_IN;
     document.getElementById('pineName').value = 'selftest46';
     document.getElementById('btRange').value = '7';
     document.getElementById('btPeriod').value = '15';
@@ -86,6 +88,52 @@ export async function run(state) {
     await window.__TT_BT__.clear();
     log('archiveCleared', { n: (await window.__TT_BT__.runs()).length });
 
+    // 6.1) 存档管理：input 快照 / 改名 / 单条删除 / CSV / 品种筛选
+    await window.__TT_BT__.save();
+    const rec0 = (await window.__TT_BT__.runs())[0];
+    const rid = rec0?.id;
+    log('inputsSaved', { hasField: !!rec0 && 'inputs' in rec0, keys: Object.keys(rec0?.inputs || {}).length, len: rec0?.inputs?.len, symbol: rec0?.symbol });
+    await window.__TT_BT__.rename(rid, '改名测试');
+    const renamed = (await window.__TT_BT__.runs()).find((r) => r.id === rid);
+    const csv = await window.__TT_BT__.csvOf(rid);
+    log('archiveManage', {
+      renamed: renamed?.name === '改名测试',
+      csvMetrics: /指标,值/.test(csv?.text || ''),
+      csvCurve: /i,equity/.test(csv?.text || ''),
+      csvInputs: /input 参数/.test(csv?.text || ''),
+      csvLines: csv?.rows || 0
+    });
+    // 品种筛选：塞一条别的品种的记录，看「当前品种 / 全部品种」两个视图的条数
+    const db = await import('./db.js');
+    const all = await db.kvGet('bt:runs');
+    await db.kvSet('bt:runs', [...all, { ...all[0], id: 'zzother1', symbol: 'ZZOTHER', name: '别的品种' }]);
+    document.getElementById('btRunSym').value = 'cur';
+    document.getElementById('btRunSym').dispatchEvent(new Event('change'));
+    await wait(250);
+    const curRows = document.querySelectorAll('#btRuns .r').length;
+    document.getElementById('btRunSym').value = 'all';
+    document.getElementById('btRunSym').dispatchEvent(new Event('change'));
+    await wait(250);
+    const allRows = document.querySelectorAll('#btRuns .r').length;
+    log('symbolFilter', { curRows, allRows });
+    await window.__TT_BT__.remove(rid);
+    const left = (await window.__TT_BT__.runs()).length;
+    log('deleted', { left });
+    await window.__TT_BT__.clear();
+
+    // 6.2) request.security 告警（HTF 数据可能重绘）
+    document.getElementById('pineSrc').value = '//@version=6\nstrategy("sec", overlay=true, initial_capital=10000)\n'
+      + 'htf = request.security(syminfo.tickerid, "240", close)\n'
+      + 'if ta.crossover(close, ta.sma(close,20))\n    strategy.entry("L", strategy.long)\n'
+      + 'if ta.crossunder(close, ta.sma(close,20))\n    strategy.close("L")\nplot(htf, "h")\n';
+    document.getElementById('pineName').value = 'sec';
+    const rs = await window.__TT_BT__.run({ range: { startTs: end - 20 * 86400000, endTs: end, periodMin: 60 } });
+    await wait(300);
+    log('repaintWarn', {
+      flag: !!rs?.repaint,
+      metaHasWarn: /request\.security/.test(document.getElementById('stratMeta').textContent || '')
+    });
+
     const rangeParts = {
       enough: f.bars.length > 1000,
       mono: mono === true,
@@ -104,7 +152,14 @@ export async function run(state) {
       cancelOk: rc.cancelled === true && pine.backtestBusy() === false && r3.ok === true,
       uiOk: !!ui && !panel.hidden && stats.querySelectorAll('.it').length === 12 && /根/.test(meta.textContent || ''),
       archiveOk: runs.length === 1 && Array.isArray(runs[0]?.curve) && runs[0].curve.length > 1,
-      archiveClearedOk: R.checks.archiveCleared?.n === 0
+      archiveClearedOk: R.checks.archiveCleared?.n === 0,
+      inputsSnapshotOk: R.checks.inputsSaved?.hasField === true && R.checks.inputsSaved?.keys >= 1 && R.checks.inputsSaved?.len === 20,
+      archiveManageOk: R.checks.archiveManage?.renamed === true && R.checks.archiveManage?.csvMetrics === true
+        && R.checks.archiveManage?.csvCurve === true && R.checks.archiveManage?.csvInputs === true
+        && (R.checks.archiveManage?.csvLines || 0) > 10,
+      symbolFilterOk: R.checks.symbolFilter?.curRows === 1 && R.checks.symbolFilter?.allRows === 2,
+      deleteOk: R.checks.deleted?.left === 1,
+      repaintOk: R.checks.repaintWarn?.flag === true && R.checks.repaintWarn?.metaHasWarn === true
     };
     log('verdict', verdict);
     R.pass = Object.values(verdict).every(Boolean);
