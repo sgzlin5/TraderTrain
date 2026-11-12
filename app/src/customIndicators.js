@@ -201,8 +201,6 @@ export const CUSTOM_META = {
     desc: '四大 Killzone · 未填补 FVG（UTC 时区）' },
   SMC_HTF: { label: '波段 & 中期结构', cat: 'SMC', overlay: true,
     desc: '当前周期内部结构 + 可选 1 小时外部结构与 OB' },
-  SMC_DASH: { label: 'Structure & Trend Dashboard · 结构&趋势面板', cat: 'SMC', overlay: true,
-    desc: 'LuxAlgo 同源思路：三组多周期结构对齐 · BOS/CHoCH · 扫单 · FVG 上限 · 蜡烛染色' },
   FLOW_VOL: { label: '成交量', cat: '订单流', overlay: false,
     desc: '按当前周期聚合显示 · 无量数据源为空' },
   FLOW_VP: { label: '综合 VP', cat: '订单流', overlay: true,

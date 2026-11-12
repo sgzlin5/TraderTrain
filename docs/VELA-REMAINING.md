@@ -227,7 +227,7 @@ Pine 指标：`runScript` 只返回最新一次的 `run.plots`，逐根快照由
 |---|---|---|---|
 | #5/#9/#14/#16/#17 | 扩展包 18 种 overlay / `#tools[data-act=more]` | SKIP | Vela 用官方原生工具栏，扩展包 overlay 未移植 |
 | #6/#7 | `chart.createOverlay()` | SKIP | Vela 无 klinecharts 的 createOverlay 面，绘图走 `vela-draw` |
-| #28 | `SMC_DASH` 指标 | SKIP | 结构&趋势面板未移植到 Vela 指标集 |
+| #28 | `SMC_DASH` 指标 | 改为「下线守卫」 | 该指标已从 Vela 版本删除：目录/指标表/内核注册/面板入口四处都断言不存在 |
 | #37 | `if` 块内 `alert()` | 顶层 `alert(三元)` | PineTS 运行时不收集块内 alert（两分支同源，pineCore 未改） |
 | #37 | 成交量取前 300 根样本 | 全库等距抽 500 根 | 4M 根的库里前段无 volume，会把「有成交量」误判成无 |
 | #42 | 游标落后最新 tick ≤2min | ≤1 个周期 | 游标只能落在真实 bar 开盘时刻，5m 下落后 ≤5min 属正常 |
@@ -243,3 +243,22 @@ Pine 指标：`runScript` 只返回最新一次的 `run.plots`，逐根快照由
 **本轮自检结果**（`python tools/run_selftests.py --tests 1-47 --fresh`）：
 47 个用例全部通过（其中 8 个按 `SKIP` 表登记为不适用），0 红。
 `bash tools/check_js.sh` 98 文件全通过；`npx eslint app/src` 0 error（56 warning 为存量）。
+
+### 9.1 SMC_DASH 下线（Vela 版本不提供结构&趋势面板）
+
+`SMC_DASH`（LuxAlgo Structure & Trend Dashboard 同源）依赖旧 `ind.result` 快照与 DOM 面板，
+Vela 内核没有这条通路，此前是「面板里能点、点完什么也不画」的幽灵条目。本轮直接删除：
+
+| 位置 | 处理 |
+|---|---|
+| `customIndicators.js` | 删 `SMC_DASH` 元数据（指标面板不再列该行） |
+| `indicators.js` | 删速率表条目 |
+| `smc.js` | 删 `DASH` 计算定义；`SMC_INDS = [FVG, MST, ICT, HTF]` |
+| `smcRender.js` | 删 DOM 面板链路（`ensurePanel / renderPanel / makeDraggable / panelEl`）与 `SMC_DASH` 载荷分支 |
+| `vela-ind.js` | 删两处 `SMC_DASH` 跳过分支 |
+| `main.js` | 重置清单去掉该项 |
+| `selftest28.js` | 重写为下线守卫：目录 / `SMC_INDS` / `getSupportedIndicators()` / 面板 `data-add` 四处都必须查不到 |
+| `selftest24/44/45` | 断言面收敛到 FVG/MST/ICT/HTF 四个层指标 |
+
+`docs/ACCEPTANCE.md`、`docs/MANUAL.md` 里关于 `SMC_DASH` 的段落描述的是 klinecharts（main）分支的能力，
+Vela 分支不提供该指标；需要时从 main 分支移植 `ind.result` 通路再恢复。

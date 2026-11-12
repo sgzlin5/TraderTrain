@@ -10,7 +10,6 @@ const FONT = 'ui-monospace, Menlo, Consolas, monospace';
 
 /** poolName -> { ids: [], sig: '' } */
 const POOLS = Object.create(null);
-let panelEl = null;
 let timer = null;
 
 const pool = (name) => (POOLS[name] ||= { ids: [], sig: '' });
@@ -21,53 +20,6 @@ function dropPool(chart, name) {
   for (const id of p.ids) { try { chart.removeOverlay({ id }); } catch {} }
   p.ids = [];
   p.sig = '';
-}
-
-function makeDraggable(el) {
-  let drag = null;
-  el.addEventListener('pointerdown', (e) => {
-    if (e.target.closest('.smc-toggle')) return;
-    drag = { x: e.clientX, y: e.clientY, left: el.offsetLeft, top: el.offsetTop };
-    el.setPointerCapture?.(e.pointerId);
-    el.classList.add('dragging');
-  });
-  el.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const nx = Math.max(4, Math.min(el.parentElement.clientWidth - 60, drag.left + (e.clientX - drag.x)));
-    const ny = Math.max(4, Math.min(el.parentElement.clientHeight - 40, drag.top + (e.clientY - drag.y)));
-    el.style.left = `${nx}px`;
-    el.style.top = `${ny}px`;
-    el.style.right = 'auto';
-    el.style.bottom = 'auto';
-  });
-  el.addEventListener('pointerup', (e) => {
-    if (!drag) return;
-    drag = null;
-    el.classList.remove('dragging');
-    try { import('./db.js').then(({ kvSet }) => kvSet('ui:smcPanel', { left: el.offsetLeft, top: el.offsetTop, collapsed: el.classList.contains('collapsed') })); } catch {}
-  });
-  el.addEventListener('dblclick', () => {
-    el.classList.toggle('collapsed');
-    try { import('./db.js').then(({ kvSet }) => kvSet('ui:smcPanel', { left: el.offsetLeft, top: el.offsetTop, collapsed: el.classList.contains('collapsed') })); } catch {}
-  });
-}
-
-function ensurePanel(host) {
-  if (panelEl && panelEl.isConnected) return panelEl;
-  panelEl = document.createElement('div');
-  panelEl.id = 'smcPanel';
-  panelEl.className = 'smc-panel';
-  panelEl.hidden = true;
-  host.appendChild(panelEl);
-  makeDraggable(panelEl);
-  // 恢复上次的位置/折叠状态
-  import('./db.js').then(async ({ kvGet }) => {
-    const st = await kvGet('ui:smcPanel');
-    if (!st) return;
-    if (Number.isFinite(st.left)) { panelEl.style.left = `${st.left}px`; panelEl.style.top = `${st.top}px`; panelEl.style.right = 'auto'; panelEl.style.bottom = 'auto'; }
-    if (st.collapsed) panelEl.classList.add('collapsed');
-  }).catch(() => {});
-  return panelEl;
 }
 
 /* ------------------------------- 画图小工具 ------------------------------- */
@@ -175,31 +127,6 @@ function drawMst(chart, list, p, collect) {
   }
 }
 
-/* --------------------------------- 结构面板 --------------------------------- */
-
-function renderPanel(p) {
-  const el = panelEl;
-  if (!el) return;
-  if (!p) { el.hidden = true; return; }
-  const rows = (p.rows || []).map(r => {
-    const hiC = r.hi.trend > 0 ? 'pos' : r.hi.trend < 0 ? 'neg' : 'flat';
-    const loC = r.lo.trend > 0 ? 'pos' : r.lo.trend < 0 ? 'neg' : 'flat';
-    const same = r.hi.trend !== 0 && r.hi.trend === r.lo.trend;
-    return `<tr>
-      <td class="${hiC}">${r.hi.name} ${r.hi.trend > 0 ? '多' : r.hi.trend < 0 ? '空' : '震'}</td>
-      <td class="${loC}">${r.lo.name} ${r.lo.trend > 0 ? '多' : r.lo.trend < 0 ? '空' : '震'}</td>
-      <td>${same ? '✓' : '·'}</td>
-    </tr>`;
-  }).join('');
-  const aligned = (p.rows || []).length > 0 && p.rows.every(r => r.hi.trend !== 0 && r.hi.trend === r.lo.trend);
-  const st = p.struct || {};
-  el.innerHTML = `
-    <div class="smc-head"><b>结构 · 趋势</b><span class="${st.trend > 0 ? 'pos' : st.trend < 0 ? 'neg' : 'flat'}">${st.name || ''} ${st.trend > 0 ? '▲' : st.trend < 0 ? '▼' : '–'}</span></div>
-    <table><thead><tr><th>HTF</th><th>LTF</th><th>对齐</th></tr></thead><tbody>${rows}</tbody></table>
-    <div class="smc-foot"><span>全周期对齐</span><span class="${aligned ? 'pos' : 'flat'}">${aligned ? '✓ 一致' : '不同步'}</span></div>`;
-  el.hidden = false;
-}
-
 /* ---------------------------------- 同步 ---------------------------------- */
 
 const PAINTERS = {
@@ -217,12 +144,10 @@ export function startSmcRender(state) {
     if (!chart) return;
     let list = [];
     try { list = chart.getDataList() || []; } catch { return; }
-    let dash = null;
     const seen = new Set();
     try {
       for (const ind of chart.getIndicators() || []) {
         const name = ind.name;
-        if (name === 'SMC_DASH') { dash = payloadOf(ind); continue; }
         const conf = PAINTERS[name];
         if (!conf) continue;
         seen.add(name);
@@ -244,9 +169,6 @@ export function startSmcRender(state) {
     for (const [name, conf] of Object.entries(PAINTERS)) {
       if (!seen.has(name)) dropPool(chart, conf.pool);
     }
-
-    const host = document.getElementById('chart');
-    if (host) { ensurePanel(host); renderPanel(dash); }
   };
   run();
   timer = setInterval(run, 1200);

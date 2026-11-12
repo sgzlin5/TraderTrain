@@ -157,7 +157,6 @@ SKIP = {
     14: "扩展包 overlay 未移植（Vela 用官方绘图内核）",
     16: "扩展包 overlay 未移植（Vela 用官方绘图内核）",
     17: "扩展包 overlay 未移植（Vela 用官方绘图内核）",
-    28: "SMC_DASH（Structure & Trend Dashboard）未移植到 Vela 指标集",
 }
 
 

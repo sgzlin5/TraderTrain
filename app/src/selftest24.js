@@ -13,7 +13,7 @@ export async function run(state) {
     for (const i of chart.getIndicators() || []) { try { chart.removeIndicator({ name: i.name }); } catch {} }
     await wait(300);
 
-    const names = ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF', 'SMC_DASH'];
+    const names = ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF'];
     log('registered', names.filter(n => (window.klinecharts.getSupportedIndicators() || []).includes(n)));
 
     // 指标库 SMC 分类
@@ -63,8 +63,7 @@ export async function run(state) {
 
     const titles = rows.map(r => r.title || '');
     const has = (frag) => titles.some(t => t.includes(frag));
-    // 四个层指标（FVG/MST/ICT/HTF）是验收面；SMC_DASH 在 vela 分支未注册
-    // （DOM 面板依赖旧 ind.result 快照），只要求「库里/图上有就一致」，不硬编码条数
+    // 四个层指标（FVG/MST/ICT/HTF）是验收面；SMC_DASH 已从 vela 版本删除（#28 守下线）
     const CORE = ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF'];
     R.pass = (
       CORE.every(n => R.checks.registered.includes(n))

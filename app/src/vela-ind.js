@@ -612,7 +612,6 @@ export function updateSmcLayers(app) {
   (window.__TT_LAYER_DATA = window.__TT_LAYER_DATA || {});
   let wrote = false;
   for (const tpl of SMC_INDS) {
-    if (tpl.name === 'SMC_DASH') continue;          // DOM 面板：不进层
     const type = 'TT_' + tpl.name;
     if (!present.has(type)) continue;               // 未上图：跳过（保留最后载荷，层不画由 add/remove 控制）
     const key = type + ':' + app.periodKey;
@@ -663,13 +662,12 @@ export function wireSmcLayerTriggers(app) {
   window.__TT_SMC_KICK = kick;   // 面板添加/移除后手动触发
 }
 
-/** SMC_FVG/ICT/HTF/MST（DASH 面板与 FLOW_VP/WALL/DEPTH 走像素/DOM 层，后续批次） */
+/** SMC_FVG/ICT/HTF/MST + MACD/RSI/KDJ/ATR；FLOW_VP/WALL/DEPTH 走像素层，后续批次 */
 export function registerSmcVelaIndicators() {
   const { registerNativeIndicator } = V() || {};
   if (typeof registerNativeIndicator !== 'function') return 0;
   let n = 0;
   for (const tpl of [...SMC_INDS, ...FLOW_INDS, ...OSC_INDS]) {
-    if (tpl.name === 'SMC_DASH') continue;                 // DOM 面板：暂缓
     const isSmc = tpl.name.startsWith('SMC_');
     try {
       registerNativeIndicator({

@@ -1,6 +1,6 @@
 // M45 验收：FVG / ICT 杀区 / 波段结构 —— SMC 图形可见性
 // [vela] 这些指标走自绘渲染层（TT_SMC_*），不进 overlayList；可见性用层着墨像素判。
-//        SMC_DASH 在 vela 分支未注册（依赖 ind.result），只记录不计入通过。
+//        SMC_DASH 已从 vela 版本删除（#28 守下线）。
 export async function run(state) {
   const R = (window.__RESULT__ = { checks: {}, errors: [], t0: Date.now() });
   const log = (k, v) => { R.checks[k] = v; };
@@ -25,7 +25,7 @@ export async function run(state) {
     const U = await import('./selftest-util.js');
 
     const LAYERS = { SMC_FVG: 'TT_SMC_FVG', SMC_MST: 'TT_SMC_MST', SMC_ICT: 'TT_SMC_ICT', SMC_HTF: 'TT_SMC_HTF' };
-    const ALL = [...Object.keys(LAYERS), 'SMC_DASH'];
+    const ALL = [...Object.keys(LAYERS)];
     const inkOf = (names) => names.reduce((s, n) => s + Math.max(0, U.layerInk(LAYERS[n] || '')), 0);
 
     for (const n of ALL) { try { chart.removeIndicator({ name: n }); } catch {} }
@@ -47,14 +47,12 @@ export async function run(state) {
     const all = {
       ok: okAll,
       ink: inkOf(Object.keys(LAYERS)),
-      perLayer: Object.fromEntries(Object.keys(LAYERS).map(n => [n, U.layerInk(LAYERS[n])])),
-      dashSupported: U.supportedIndicators().includes('SMC_DASH')
+      perLayer: Object.fromEntries(Object.keys(LAYERS).map(n => [n, U.layerInk(LAYERS[n])]))
     };
 
     // 全摘 → 清场
     for (const n of ALL) { try { chart.removeIndicator({ name: n }); } catch {} }
-    const cleared = await until(() => inkOf(Object.keys(LAYERS)) === 0
-      && document.getElementById('smcPanel')?.hidden !== false, 12000);
+    const cleared = await until(() => inkOf(Object.keys(LAYERS)) === 0, 12000);
 
     log('each', each);
     log('all', all);

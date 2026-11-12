@@ -117,7 +117,7 @@ async function resetForTest() {
     if (state.trade) { state.trade.trades = []; state.trade.realized = 0; try { state.trade.orders?.forEach?.(o => (o.done = true)); } catch {} }
     try { window.__TT_RENDER_ALERTS__?.([], 'selftest'); } catch (e) { logErr('reset:alerts', e); }
     try { state.app?.chart?.getOverlays?.()?.forEach(o => { try { state.app.chart.removeOverlay({ id: o.id }); } catch {} }); } catch {}
-    for (const n of ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF', 'SMC_DASH']) { try { state.app?.chart?.removeIndicator({ name: n }); } catch {} }
+    for (const n of ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF']) { try { state.app?.chart?.removeIndicator({ name: n }); } catch {} }
     try { window.__TT_RENDER_SESSION__?.(); } catch {}
     if (state.app?.chart) await withTimeout(applyReplayMode(false, { silent: true }), 2000, 'reset:replay');
   } catch (e) { logErr('reset', e); }
