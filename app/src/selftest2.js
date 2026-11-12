@@ -22,6 +22,8 @@ export async function run(state) {
     if (state.profile?.id !== 'XAUUSD-1m') throw new Error(`用例需要 XAUUSD 档案，当前是 ${state.profile?.id || '无'}`);
     const app = state.app, rp = state.replay, draw = state.draw, trade = state.trade;
     if (!app || !rp) throw new Error('应用未就绪（先导入数据）');
+    // 本用例的时间戳/推桶断言按 1m 写死：起手先钉回 1m，避免继承上一用例的周期
+    if (app.periodKey !== '1m') { await app.switchPeriod('1m'); state.draw.periodKey = '1m'; rp.bucket = null; await wait(200); }
 
     /* ---------- 1. 回放：起点与步进 ---------- */
     const startTs = Date.UTC(2024, 2, 20, 0, 0, 0);
@@ -81,8 +83,9 @@ export async function run(state) {
     await rp.setStart(Date.UTC(2024, 5, 3, 0, 0, 0));
     for (let i = 0; i < 7; i++) await rp.step(1);
     const last5 = app.lastBar();   // [vela] 回放中封顶在游标（forming 桶）
-    const members = await state.app.source.nextBars(Date.UTC(2024, 5, 3, 0, 0, 0), 7);
     const bucketTs = Math.floor(rp.cursor / 300000) * 300000;
+    // 取「当前桶内」的 1m 原始根做对照（起手 00:00 取 7 根在桶落到 00:50 时取不到成员）
+    const members = await state.app.source.nextBars(bucketTs, 5);
     const sameBucket = members.filter(b => Math.floor(b.timestamp / 300000) * 300000 === bucketTs);
     log('replay_5m_bucket', {
       period: app.periodKey, lastTs: last5?.timestamp, aligned: last5 ? last5.timestamp % 300000 === 0 : false,

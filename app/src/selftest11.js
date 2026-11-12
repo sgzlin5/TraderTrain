@@ -9,6 +9,11 @@ export async function run(state) {
     if (window.__APP_READY__) await window.__APP_READY__;
     const app = state.app;
     if (!app) throw new Error('应用未就绪（先导入数据）');
+    // 前面的用例可能把档案/周期切走（小样本档案会让 >100 根、区间断言失真）
+    if (state.profile?.id !== 'XAUUSD-1m' && window.__TT_LOAD_PROFILE__) {
+      const t = (state.profiles || []).find(p => p.id === 'XAUUSD-1m');
+      if (t) { await window.__TT_LOAD_PROFILE__(t); if (window.__APP_READY__) await window.__APP_READY__; await wait(600); }
+    }
     const rp = state.replay;
     const prof = app.profile;
     const btn = document.getElementById('randomStart');

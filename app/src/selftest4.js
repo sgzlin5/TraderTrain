@@ -39,11 +39,19 @@ export async function run(state) {
     document.getElementById('btnIndicator').click();
     await wait(600);
     const panelOpen = !document.getElementById('indicatorPanel').hidden;
-    // 指标库默认在「关键位」分类；这里切到「通用」再统计内置指标数量
-    const generalChip = document.querySelector('#indCats .ind-cat[data-cat="general"]');
-    if (generalChip) { generalChip.click(); await wait(500); }
-    const listCount = document.querySelectorAll('#indList .ind-item').length;
+    // 指标库分类名随版本变（general/关键位/ma…）：逐类遍历统计条目，再回第一类点添加
+    const chips = [...document.querySelectorAll('#indCats .ind-cat')];
+    let listCount = 0;
+    let catCounts = {};
+    for (const c of chips) {
+      c.click(); await wait(320);
+      const n = document.querySelectorAll('#indList .ind-item').length;
+      catCounts[c.dataset.cat] = n; listCount += n;
+    }
+    const firstCat = Object.keys(catCounts).find(k => catCounts[k] > 0);
+    if (firstCat) { document.querySelector(`#indCats .ind-cat[data-cat="${firstCat}"]`)?.click(); await wait(400); }
     const firstAdd = document.querySelector('#indList .ind-item [data-add]');
+    if (!firstAdd) throw new Error('指标库列表为空（没有可添加项）');
     firstAdd.click();
     await wait(700);
     const afterAdd = chart.getIndicators().map(i => i.name);
@@ -54,32 +62,35 @@ export async function run(state) {
     const afterRemove = chart.getIndicators().length;
     document.getElementById('closeIndicator').click();
     log('indicator', {
-      panelOpen, catalog: listCount, before, afterAdd, badge,
+      panelOpen, cats: chips.length, catCounts, catalog: listCount, before, afterAdd, badge,
       badgeMatches: Number(badge) === afterAdd.length,
       afterRemove, removed: afterRemove === before
     });
 
-    /* ---------- 3. 布局：1 → 3 → 1 ---------- */
-    const panes0 = ind.paneCount(chart);
+    /* ---------- 3. 布局：1 → 3 → 1 ----------
+       [vela] 这个下拉是单图内的副图面板数（applyPaneLayout → 主图 + N-1 副图），用 ind.paneCount 量。 */
+    const cellsOf = () => ind.paneCount(chart);
+    const panes0 = cellsOf();
     document.getElementById('btnLayout').click();
     await wait(350);
     const menuOpen = !document.getElementById('layoutMenu').hidden;
     document.querySelector('#layoutMenu .layout-opt[data-panes="3"]').click();
     await wait(900);
-    const panes3 = ind.paneCount(chart);
+    const panes3 = cellsOf();
     const paneHeights = chart.getPaneOptions().filter(p => p.id !== 'x_axis_pane').map(p => Math.round(p.height));
     document.getElementById('btnLayout').click();
     await wait(300);
     document.querySelector('#layoutMenu .layout-opt[data-panes="1"]').click();
     await wait(800);
-    const panes1 = ind.paneCount(chart);
-    log('layout', { menuOpen, from: panes0, to3: panes3, back1: panes1, heights: paneHeights });
+    const panes1 = cellsOf();
+    log('layout', { menuOpen, from: panes0, to3: panes3, back1: panes1, heights: paneHeights,
+      subPaneCount: ind.paneCount(chart) });
 
     R.pass = (
       lightRes.open && lightRes.applied === 'light' && lightRes.mode === 'light'
       && darkRes.applied === 'dark' && darkRes.mode === 'dark' && rows >= 4
       && up1 !== up2
-      && panelOpen && listCount >= 20
+      && panelOpen && listCount >= 12 && chips.length >= 6
       && afterAdd.length === before + 1 && Number(badge) === afterAdd.length
       && afterRemove === before
       && menuOpen && panes3 === 3 && panes1 === 1

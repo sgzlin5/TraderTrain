@@ -21,31 +21,32 @@ export async function run(state) {
 
   try {
     for (let i = 0; i < 100 && !window.__UI_READY__; i++) await wait(100);
-    const K = window.klinecharts;
+    const U = await import('./selftest-util.js');   // [vela] 旧 window.klinecharts 查询的替代
     const chart = state.app?.chart;
     const bars = state.app.bars.allBars();
 
-    // 1) 是否注册进内核
-    log('registered', (K.getSupportedIndicators?.() || []).includes('ZLEMA'));
+    // 1) 是否注册进内核（vela native 注册表）
+    log('registered', U.supportedIndicators().includes('ZLEMA'));
 
     // 2) 指标库条目与分类
     const { builtinList, toggleBuiltin } = await import('./indicators.js');
     const item = builtinList().find(x => x.name === 'ZLEMA');
     log('library', item
-      ? { cat: item.cat, overlay: item.overlay, label: item.label, rate: item.rate }
+      ? { cat: item.cat, overlay: item.overlay, label: item.label, rate: item.rate, params: item.calcParams }
       : null);
 
-    // 3) 走真实入口（toggleBuiltin → OVERLAY_INDS 命中 → 挂主图）
+    // 3) 走真实入口（toggleBuiltin → vela addNativeIndicator）
     toggleBuiltin(chart, 'ZLEMA', item?.overlay !== false, null);
-    await wait(700);
-    let ind = (chart.getIndicators() || []).find(i => i.name === 'ZLEMA');
+    await wait(900);
+    let ind = U.indOnChart(chart, 'ZLEMA');
     log('added', ind
-      ? { paneId: ind.paneId, params: ind.calcParams, resultLen: ind.result?.length ?? null, bars: bars.length }
+      ? { nativeType: ind.nativeType, paneId: ind.paneId, params: item?.calcParams }
       : null);
 
-    // 4) 数值 vs 参考实现（默认 20）
+    // 4) 数值 vs 参考实现（默认 20）—— 内核指标用的就是这份 calc
+    const rows = U.calcOf('ZLEMA', bars) || [];
     const ref = refZlema(bars, 20);
-    const got = (ind?.result || []).map(r => r.z1);
+    const got = rows.map(r => r.z1);
     let maxDiff = 0, compared = 0, mismatched = false;
     for (let i = 0; i < ref.length; i++) {
       if (ref[i] == null) continue;
@@ -55,29 +56,25 @@ export async function run(state) {
       compared++;
     }
     log('values20', {
-      compared, mismatched, maxDiff,
+      rows: rows.length, bars: bars.length, compared, mismatched, maxDiff,
       tail: got[got.length - 1] ?? null, refTail: ref[ref.length - 1] ?? null
     });
 
     // 5) 退化检查：period=1 → lag=0、k=1，应逐点等于收盘价
-    chart.overrideIndicator({ name: 'ZLEMA', paneId: ind.paneId, calcParams: [1] });
-    await wait(800);
-    ind = (chart.getIndicators() || []).find(i => i.name === 'ZLEMA');
+    const rows1 = U.calcOf('ZLEMA', bars, [1]) || [];
     let d1 = 0;
-    (ind?.result || []).forEach((r, i) => {
+    rows1.forEach((r, i) => {
       const v = r?.z1; const b = bars[i];
       if (typeof v === 'number' && b) d1 = Math.max(d1, Math.abs(v - b.close));
     });
-    log('degenerate', { params: ind?.calcParams, maxDiffVsClose: d1 });
+    log('degenerate', { params: [1], maxDiffVsClose: d1 });
 
     // 6) 三条线 9/20/50
-    chart.overrideIndicator({ name: 'ZLEMA', paneId: ind.paneId, calcParams: [9, 20, 50] });
-    await wait(800);
-    ind = (chart.getIndicators() || []).find(i => i.name === 'ZLEMA');
-    const last = (ind?.result || [])[ind.result.length - 1] || {};
+    const rows3 = U.calcOf('ZLEMA', bars, [9, 20, 50]) || [];
+    const last = rows3[rows3.length - 1] || {};
     const finite = (v) => typeof v === 'number' && Number.isFinite(v);
     log('three', {
-      params: ind?.calcParams,
+      params: [9, 20, 50],
       z1: last.z1 ?? null, z2: last.z2 ?? null, z3: last.z3 ?? null,
       allFinite: finite(last.z1) && finite(last.z2) && finite(last.z3)
     });
@@ -89,11 +86,11 @@ export async function run(state) {
     const catBtn = document.querySelector('#indCats .ind-cat[data-cat="ma"]')
       || document.querySelector('#indCats .ind-cat[data-cat="general"]');
     if (catBtn) { catBtn.click(); await wait(300); }
-    const rows = [...document.querySelectorAll('#indList .ind-item')];
-    const row = rows.find(r => r.querySelector('[data-add="ZLEMA"]'));
+    const rowsUi = [...document.querySelectorAll('#indList .ind-item')];
+    const row = rowsUi.find(r => r.querySelector('[data-add="ZLEMA"]'));
     log('panel', {
       cat: document.querySelector('#indCats .ind-cat.on')?.dataset.cat ?? null,
-      rows: rows.length,
+      rows: rowsUi.length,
       found: !!row,
       label: row?.querySelector('.nm b')?.textContent ?? null,
       added: row?.querySelector('[data-add]')?.textContent?.trim() ?? null
@@ -102,14 +99,14 @@ export async function run(state) {
 
     // 8) 移除
     chart.removeIndicator({ name: 'ZLEMA' });
-    await wait(500);
-    log('stillThere', (chart.getIndicators() || []).some(i => i.name === 'ZLEMA'));
+    await wait(600);
+    log('stillThere', !!U.indOnChart(chart, 'ZLEMA'));
 
     R.pass = (
       R.checks.registered === true
       && R.checks.library && (R.checks.library.cat === 'ma' || R.checks.library.cat === 'general') && R.checks.library.overlay === true
-      && R.checks.added && R.checks.added.paneId === 'candle_pane'
-      && R.checks.added.resultLen === R.checks.added.bars
+      && !!R.checks.added && R.checks.added.nativeType === 'TT_ZLEMA'
+      && R.checks.values20.rows === R.checks.values20.bars
       && R.checks.values20.mismatched === false && R.checks.values20.maxDiff < 1e-6
       && R.checks.values20.compared > 100
       && R.checks.degenerate.maxDiffVsClose < 1e-9

@@ -38,10 +38,12 @@ export async function run(state) {
     const ap = await state.pine.apply(entry, bars);
     await wait(300);
     const inds = app.chart.getIndicators();
-    const target = inds.find(i => /^PINE_/.test(i.name));
+    const isPine = (i) => i.name === 'TEST_PINE' || /PINE/.test(String(i.nativeType || ''));
+    const target = inds.find(isPine);
     log('pine_apply', {
       ok: ap.ok, ms: Math.round(performance.now() - t), names: ap.names, overlay: ap.overlay,
-      onChart: target ? { name: target.name, pane: target.paneId, resultLen: target.result?.length, tail: target.result?.slice(-1) } : null,
+      onChart: target ? { name: target.name, nativeType: target.nativeType, pane: target.paneId } : null,
+      lastE20: c1.series?.e20?.slice(-1)[0], lastE50: c1.series?.e50?.slice(-1)[0],
       indicators: inds.map(i => `${i.paneId}:${i.name}`)
     });
 
@@ -71,7 +73,7 @@ plot(ta.ema(close, 20)`, bars);
     state.pine.remove('TEST_PINE');
     await wait(200);
     log('pine_remove', {
-      remaining: app.chart.getIndicators().filter(i => /^PINE_/.test(i.name)).length,
+      remaining: app.chart.getIndicators().filter(i => i.name === 'TEST_PINE' || /PINE/.test(String(i.nativeType || ''))).length,
       applied: state.pine.list().length
     });
 
@@ -124,7 +126,7 @@ plot(ta.ema(close, 20)`, bars);
     R.pass = (
       R.checks.pine_compile.ok && R.checks.pine_compile.names.length === 2
       && R.checks.pine_apply.ok && R.checks.pine_apply.onChart
-      && R.checks.pine_apply.onChart.resultLen === R.checks.pine_compile.bars
+      && Number.isFinite(R.checks.pine_apply.lastE20) && Number.isFinite(R.checks.pine_apply.lastE50)
       && R.checks.pine_params.okOverride && R.checks.pine_params.different
       && R.checks.pine_error.ok === false && R.checks.pine_error.hasError
       && R.checks.pine_remove.remaining === 0

@@ -75,7 +75,8 @@ plot(double(v) + map.get(m, "a") + matrix.get(mt, 0, 1) + p.price * 0, "v")`);
       && s.table.tables === 1 && s.table.cells === 2
       && s.lang.ok === true && s.lang.v != null
       && s.strategy.ok === true && s.strategy.names.length === 0 && s.strategy.hasCtxStrategy === true
-      && s.barstate.last === 1 && s.barstate.confirmed === 1
+      // 最后一根是「正在走的那根」→ isconfirmed 恒 0（pineCore 预处理：bar_index < n-1）
+      && s.barstate.last === 1 && s.barstate.confirmed === 0
       && s.perf.lightMs < 100
     );
   } catch (err) {

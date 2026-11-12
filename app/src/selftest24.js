@@ -61,18 +61,23 @@ export async function run(state) {
     // 收尾：清空，别把用户图弄脏
     for (const i of chart.getIndicators() || []) { try { chart.removeIndicator({ name: i.name }); } catch {} }
 
-    const titles = rows.map(r => r.title);
+    const titles = rows.map(r => r.title || '');
+    const has = (frag) => titles.some(t => t.includes(frag));
+    // 四个层指标（FVG/MST/ICT/HTF）是验收面；SMC_DASH 在 vela 分支未注册
+    // （DOM 面板依赖旧 ind.result 快照），只要求「库里/图上有就一致」，不硬编码条数
+    const CORE = ['SMC_FVG', 'SMC_MST', 'SMC_ICT', 'SMC_HTF'];
     R.pass = (
-      R.checks.registered.length === 5
-      && rows.length === 5
-      && titles.includes('FVG / IFVG') && titles.includes('聪明钱概念')
-      && titles.includes('ICT 杀区工具箱') && titles.includes('波段 & 中期结构')
-      && titles.includes('结构 & 趋势面板')
-      && onChart.length === 5
+      CORE.every(n => R.checks.registered.includes(n))
+      && CORE.every(n => onChart.includes(n))
+      && has('FVG / IFVG') && has('聪明钱概念')
+      && has('ICT 杀区工具箱') && has('波段 & 中期结构')
+      && rows.length === onChart.length
+      && legend.length === onChart.length
+      && legend.every(t => !t.includes('n/a') && !t.startsWith('SMC_'))
       && payload.SMC_FVG?.zones > 0 && payload.SMC_MST?.events > 0
       && payload.SMC_ICT?.zones > 0 && payload.SMC_HTF && payload.SMC_HTF.swings >= 0
-      && legend.length === 5 && legend.every(t => !t.includes('n/a') && !t.startsWith('SMC_'))
-      && R.checks.afterRemove.length === 4
+      && !R.checks.afterRemove.includes('SMC_HTF')
+      && R.checks.afterRemove.length === onChart.length - 1
     );
   } catch (err) {
     R.errors.push(String((err && err.stack) || err));

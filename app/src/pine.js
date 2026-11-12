@@ -17,7 +17,7 @@ const ACTIVE_KEY = 'pine:active'; // 已上图的脚本 id：刷新后自动恢�
 export async function loadPineMap() { try { return (await kvGet(MAP_KEY)) || {}; } catch { return {}; } }
 export async function loadPineActive() { try { return (await kvGet(ACTIVE_KEY)) || []; } catch { return []; } }
 
-async function rememberPine(indName, entry) {
+export async function rememberPine(indName, entry) {
   const map = await loadPineMap();
   map[indName] = { id: entry.id, name: entry.name };
   await kvSet(MAP_KEY, map);
@@ -25,7 +25,7 @@ async function rememberPine(indName, entry) {
   if (!active.includes(entry.id)) await kvSet(ACTIVE_KEY, [...active, entry.id]);
 }
 
-async function forgetPine(indName, id) {
+export async function forgetPine(indName, id) {
   const map = await loadPineMap();
   delete map[indName];
   await kvSet(MAP_KEY, map);

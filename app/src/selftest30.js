@@ -49,7 +49,7 @@ export async function run(state) {
     const T = take('__tables__');
     const tb = T[T.length - 1];
     const cells = tb ? tb.cells.flat().filter(Boolean).map(c => c.text) : [];
-    log('table', { cells: cells.length, texts: cells.slice(0, 10), hasAlign: cells.includes('☑') || cells.includes('☐') });
+    log('table', { cells: cells.length, texts: cells.slice(0, 10), hasAlign: cells.includes('Aligned') });
 
     // 4) 挂到图上 → 出现 DOM 面板，且移除后消失
     const { libSave, libList } = await import('./pine.js');
@@ -57,12 +57,13 @@ export async function run(state) {
     await libSave(entry);
     const ap = await state.pine.apply(entry, bars);
     await wait(1200);
-    const boardCount = document.querySelectorAll('.pine-board').length;
-    const cellCount = document.querySelectorAll('.pine-board td').length;
+    // [vela] 表格画在图内（内核 table 渲染），没有 .pine-board DOM：
+    // 改成验「Pine 指标在场 → 移除后不在场」
+    const onChart = (chart.getIndicators() || []).filter(i => /^PINE_/.test(i.name)).length;
     state.pine.remove(entry.id);
-    await wait(500);
-    const afterRemove = document.querySelectorAll('.pine-board').length;
-    log('dom', { applied: ap.ok, boards: boardCount, cells: cellCount, afterRemove });
+    await wait(600);
+    const afterRemove = (chart.getIndicators() || []).filter(i => /^PINE_/.test(i.name)).length;
+    log('dom', { applied: ap.ok, onChart, afterRemove });
 
     // 5) 设置面板：Position / Size 必须是下拉（input.string 带 options）
     await state.pine.apply(entry, bars);
@@ -88,16 +89,15 @@ export async function run(state) {
     document.querySelectorAll('.pine-board').forEach(el => el.remove());
     await (await import('./db.js')).kvSet('pine:lib', (await libList()).filter(e => e.id !== entry.id));
 
+    const s_dom = R.checks.dom;
     R.pass = (
       r.ok === true
       && lastP('t') > 0 && lastP('h') >= 0
       && lastP('s60') > 0 && lastP('s240') > 0
       && lines.length > 50 && lines.filter(o => o.x1 != null).length > 50
       && labels.filter(o => o.x != null).length > 20
-      && cells.length > 20
-      && (cells.includes('☑') || cells.includes('☐'))
-      && boardCount === 1 && cellCount > 15
-      && afterRemove === 0
+      && cells.length > 20 && cells.includes('Aligned')
+      && s_dom.onChart === 1 && s_dom.afterRemove === 0
       && selects.length === 2
       && selects.find(x => x.n === 'dashboardPositionInput')?.opts.join(',') === 'Top Right,Bottom Right,Bottom Left'
       && selects.find(x => x.n === 'dashboardSizeInput')?.opts.join(',') === 'Tiny,Small,Normal,Large,Huge'

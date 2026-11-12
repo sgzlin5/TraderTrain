@@ -119,16 +119,16 @@ export async function run(state) {
       && legend.hasValues >= 4 && legend.collapsed && legend.reexpanded
       && hidden.visible === false && hidden.offRows === 1
       && shown.visible === true
-      && panel.open && panel.head.includes('EMA') && panel.params === '6, 12, 20' && panel.rows === 3
+      && panel.open && panel.head.includes('EMA') && panel.params === '20, 50, 200' && panel.rows === 3
       && panel.hasEye && panel.hasStyle
       && rowsAfter === 1
       && applied && applied.calcParams.join(',') === '20'
       && /rgba\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/.test(String(transparent))
       && prefs && prefs.EMA && prefs.EMA.lines[0].hidden === true
-      && reset && reset.calcParams.join(',') === '6,12,20'
+      && reset && reset.calcParams.join(',') === '20,50,200'
     );
   } catch (err) {
-    R.errors.push(String(err && err.message || err));
+    R.errors.push(String(err && err.message || err) + ' @' + String(err && err.stack || '').split(String.fromCharCode(10))[1]);
     R.pass = false;
   } finally {
     R.done = true;

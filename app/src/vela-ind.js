@@ -7,7 +7,8 @@
 import { CUSTOM_INDS } from './customIndicators.js';
 import { SMC_INDS } from './smc.js';
 import { FLOW_INDS } from './flow.js';
-import { libList } from './pine.js';
+import { OSC_INDS } from './oscIndicators.js';
+import { libList, rememberPine, forgetPine } from './pine.js';
 import { kvGet } from './db.js';
 
 window.__VI_COPIES = (window.__VI_COPIES || 0) + 1;   // 模块副本计数（诊断双实例）
@@ -18,6 +19,7 @@ const LINE_STYLE_MAP = { solid: 'solid', dashed: 'dashed', dotted: 'dotted', das
 function figToSeries(tpl, fig, biz, rows, paramsHash) {
   const st = (typeof fig.styles === 'function' ? fig.styles(undefined, undefined) : fig.styles) || {};
   const kind = fig.type === 'circle' ? 'circles' : (fig.type === 'bar' ? 'histogram' : 'line');
+  publishLast(tpl, fig, rows);
   return {
     id: `tt-${tpl.name.toLowerCase()}-${fig.key}-${paramsHash}`,
     title: (fig.title || fig.key).replace(/:\s*$/, '').replace(/:\s*/, ''),
@@ -28,14 +30,63 @@ function figToSeries(tpl, fig, biz, rows, paramsHash) {
       ...(st.color ? {} : {})
     })),
     style: {
-      color: st.color || '#8adeff',
-      width: st.size ?? 1,
+      color: styleOverride(tpl.name, fig.key)?.color || st.color || '#8adeff',
+      width: styleOverride(tpl.name, fig.key)?.size ?? st.size ?? 1,
       lineStyle: LINE_STYLE_MAP[st.style] || 'solid'
     }
   };
 }
 
+/** 旧口径 calcParams 长度决定线数：只改了 1 个参数就只留第 1 条线 */
+function sliceFigs(tpl) {
+  const all = tpl.figures || [];
+  const n = (window.__TT_CALC_LEN || {})[tpl.name];
+  return (Number.isFinite(n) && n > 0) ? all.slice(0, n) : all;
+}
+
+/** 线颜色/线宽覆盖：overrideIndicator 写这里，重算时按 key 覆盖默认样式（内核 props 面不承载业务线色） */
+function styleOverride(name, key) {
+  const o = (window.__TT_IND_STYLES || {})[name];
+  return (o && o[key]) || null;
+}
+/** 发布「指标 → 图形 key / 默认色」，供覆盖与自检查证 */
+function publishFigures(tpl) {
+  window.__TT_FIG_KEYS = window.__TT_FIG_KEYS || {};
+  window.__TT_FIG_DEF = window.__TT_FIG_DEF || {};
+  window.__TT_FIG_KEYS[tpl.name] = (tpl.figures || []).map((f) => f.key).filter(Boolean);
+  window.__TT_FIG_DEF[tpl.name] = (tpl.figures || []).filter((f) => f.key).map((f) => {
+    const st = (typeof f.styles === 'function' ? f.styles(undefined, undefined) : f.styles) || {};
+    const ty = f.type === 'bar' ? 'bar' : (f.type === 'circle' ? 'circle' : 'line');
+    return { key: f.key, title: (f.title || '').trim(), type: ty, color: st.color || '#8adeff', size: st.size ?? 1 };
+  });
+  window.__TT_FIG_TITLE = window.__TT_FIG_TITLE || {};
+  window.__TT_FIG_TITLE[tpl.name] = window.__TT_FIG_DEF[tpl.name];
+}
+
+/** 末根有效值快照：内核句柄不暴露 result，图例数值从这里取 */
+function publishLast(tpl, fig, rows) {
+  let v = null;
+  for (let i = rows.length - 1; i >= 0 && i >= rows.length - 400; i--) {
+    const r = rows[i];
+    if (r && r[fig.key] != null) { v = r[fig.key]; break; }
+  }
+  window.__TT_LASTVAL = window.__TT_LASTVAL || {};
+  const bag = (window.__TT_LASTVAL[tpl.name] = window.__TT_LASTVAL[tpl.name] || {});
+  bag[fig.key] = v;
+}
+
 let _registered = false;
+/** 已注册的 native 指标类型（自检/面板用它回答「注册了吗」，替代旧 window.klinecharts 查询） */
+const NATIVE_TYPES = new Set();
+export function nativeTypes() { return [...NATIVE_TYPES]; }
+/** 去掉 TT_ 前缀的旧名列表（旧口径断言用） */
+export function supportedLegacyNames() { return [...NATIVE_TYPES].map((t) => t.replace(/^TT_/, '')); }
+function publishNativeTypes() {
+  try {
+    window.__TT_NATIVE_TYPES__ = nativeTypes();
+    window.__TT_SUPPORTED__ = supportedLegacyNames;      // () => ['EMA','RMA','ZLEMA',…]
+  } catch {}
+}
 /** 把 CUSTOM_INDS（PDHL/ORB/AVWAP/EMA/RMA/ZLEMA）注册成 Vela native indicators */
 export function registerNativeVelaIndicators() {
   const { registerNativeIndicator } = V() || {};
@@ -73,8 +124,11 @@ export function registerNativeVelaIndicators() {
               let rows = [];
               try { rows = tpl.calc(biz, { params, calcParams: params }) || []; } catch (e) { console.warn('[vela-ind]', tpl.name, e?.message); }
               const ph = params.join('-').replace(/\./g, '_') || 'd';
+              // 逐根结果快照：旧口径按 ind.result[i] 读值，内核句柄不给，这里自己留一份
+              window.__TT_IND_RESULT = window.__TT_IND_RESULT || {};
+              window.__TT_IND_RESULT[tpl.name] = rows;
               const series = [];
-              for (const fig of (tpl.figures || [])) {
+              for (const fig of sliceFigs(tpl)) {
                 if (!fig?.key) continue;
                 try { series.push(figToSeries(tpl, fig, biz, rows, ph)); } catch (e) { console.warn('[vela-ind:fig]', tpl.name, fig.key, e?.message); }
               }
@@ -83,10 +137,13 @@ export function registerNativeVelaIndicators() {
           };
         }
       });
+      NATIVE_TYPES.add('TT_' + tpl.name);
+      publishFigures(tpl);
       n++;
     } catch (e) { console.warn('[vela-ind:reg]', tpl.name, e?.message); }
   }
   _registered = true;
+  publishNativeTypes();
   return n;
 }
 
@@ -568,7 +625,8 @@ export function updateSmcLayers(app) {
       const rows = tpl.calc(bars, { params, calcParams: params }) || [];
       const payload = rows.__smc || null;
       const items = payload ? smcPayloadToItems(tpl.name, payload, bars.map(b => ({ time: b.timestamp }))) : [];
-      if (items.length) { window.__TT_LAYER_DATA[type] = { items }; wrote = true; }
+      // __smc 载荷同时留住：图例/自检按旧口径读 ind.result.__smc
+      if (items.length) { window.__TT_LAYER_DATA[type] = { items, __smc: payload }; wrote = true; }
     } catch (e) { console.warn('[vela-smc:host]', tpl.name, e?.message); }
   }
   // FLOW_VP/WALL/DEPTH：像素层载荷（原始 __smc 直接给画派）
@@ -610,7 +668,7 @@ export function registerSmcVelaIndicators() {
   const { registerNativeIndicator } = V() || {};
   if (typeof registerNativeIndicator !== 'function') return 0;
   let n = 0;
-  for (const tpl of [...SMC_INDS, ...FLOW_INDS]) {
+  for (const tpl of [...SMC_INDS, ...FLOW_INDS, ...OSC_INDS]) {
     if (tpl.name === 'SMC_DASH') continue;                 // DOM 面板：暂缓
     const isSmc = tpl.name.startsWith('SMC_');
     try {
@@ -656,14 +714,15 @@ export function registerSmcVelaIndicators() {
               {
                 // FLOW_VOL：vu/vd 直方图
                 const series = [];
-                for (const fig of (tpl.figures || [])) {
+                for (const fig of sliceFigs(tpl)) {
                   if (!fig?.key) continue;
+                  publishLast(tpl, fig, rows);
                   series.push({
                     id: `tt-${tpl.name.toLowerCase()}-${fig.key}`,
                     title: (fig.title || fig.key).replace(/:\s*/, ''),
-                    kind: 'histogram',
+                    kind: fig.type === 'histogram' ? 'histogram' : 'line',
                     points: rows.map((r, i) => ({ time: biz[i].time, value: r && r[fig.key] != null ? r[fig.key] : null })),
-                    style: { color: (typeof fig.styles === 'function' ? fig.styles() : fig.styles)?.color || '#8adeff', width: 1, lineStyle: 'solid', base: 0 }
+                    style: { color: styleOverride(tpl.name, fig.key)?.color || (typeof fig.styles === 'function' ? fig.styles() : fig.styles)?.color || '#8adeff', width: styleOverride(tpl.name, fig.key)?.size ?? 1, lineStyle: 'solid', ...(fig.type === 'histogram' ? { base: 0 } : {}) }
                   });
                 }
                 // 之前这里写的是 out.series = series / ctx.emit(out)，而 out 在该作用域根本没定义
@@ -674,9 +733,12 @@ export function registerSmcVelaIndicators() {
           };
         }
       });
+      NATIVE_TYPES.add('TT_' + tpl.name);
+      publishFigures(tpl);
       n++;
     } catch (e) { console.warn('[vela-smc:reg]', tpl.name, e?.message); }
   }
+  publishNativeTypes();
   return n;
 }
 
@@ -702,6 +764,30 @@ export async function resolvePineImport(path) {
 
 /* ---------------- Pine 管理器（Vela 版） ---------------- */
 /** 公开面 = 旧 pine.js 的 PineManager（apply/list/remove/compute/clear/symbol/findByIndName） */
+/** Pine 指标快照：window.__TT_PINE_IND[indName] = { names, data:[{key:val}], lines } */
+function publishPine(item, plots, entry) {
+  window.__TT_PINE_IND = window.__TT_PINE_IND || {};
+  const rec = (window.__TT_PINE_IND[item.indName] = window.__TT_PINE_IND[item.indName] || {
+    kernelId: item.kernelId, names: item.names, data: [], lines: []
+  });
+  rec.kernelId = item.kernelId;
+  rec.names = item.names;
+  rec.name = item.name;              // 脚本名（图例/面板标题用）
+  const snap = {};
+  for (const k of Object.keys(plots || {})) snap[k] = plots[k];
+  if (Object.keys(snap).length) {
+    const last = rec.data[rec.data.length - 1];
+    // 同一根重复推（流式）就覆盖，别把数组撑爆
+    if (last && JSON.stringify(last) === JSON.stringify(snap)) { /* noop */ }
+    else rec.data.push(snap);
+    if (rec.data.length > 4000) rec.data.splice(0, rec.data.length - 4000);
+  }
+  const st = (entry && entry.lineStyles) || [];
+  rec.lines = item.names.map((n, i) => ({
+    key: n, color: st[i]?.color || null, size: st[i]?.size ?? 1, style: st[i]?.style || 'solid', hidden: !!st[i]?.hidden
+  }));
+}
+
 export class PineManagerV {
   constructor(chart) {
     this.chart = chart;
@@ -726,10 +812,16 @@ export class PineManagerV {
 
   list() { return this.items; }
 
+  findByIndName(indName) { return this.items.find((x) => x.indName === indName) || null; }
+
   /** 编译/上图。entry = {id, name, src, inputs, lineStyles, overlay}，bars 参数兼容旧签名（忽略，Vela 自管数据） */
   async apply(entry) {
     if (!this.chart) return { ok: false, error: '图表未就绪' };
     await this.ensureEngine();
+    // 同一个脚本 id 重复 runScript 会被内核拒绝（返回 null）→ 先摘掉上一版
+    this._resById = this._resById || {};
+    const prev = this._resById[entry.id];
+    if (prev) { try { await (prev.remove || prev.run?.remove)?.(); } catch {} delete this._resById[entry.id]; }
     const src = preprocessPineV(entry.src);
     try {
       const res = await this.chart.runScript(src, {
@@ -739,16 +831,31 @@ export class PineManagerV {
       if (!res || res.ok === false) {
         return { ok: false, error: (res && (res.error?.message || res.error)) || 'runScript 失败' };
       }
-      const names = (res.plots || []).map(p => p.title || p.id).filter(Boolean);
+      // Vela 的 runScript 只回最新一根：{ ok, run:{ id, title, plots:{...} }, onUpdate, remove }
+      const run = res.run || {};
+      const names = Object.keys(run.plots || {});
+      const kid = run.id || res.id || entry.id;
       const item = {
-        id: res.id || entry.id,
+        id: entry.id || kid,
         name: entry.name || 'PINE 指标',
-        indName: 'PINE_' + (res.id || entry.id),
+        indName: 'PINE_' + kid,
+        kernelId: kid,
         names,
-        overlay: (res.meta?.overlay ?? true),
+        overlay: run.kind !== 'indicator' ? true : (entry.overlay ?? true),
         series: [],
-        title: res.title || entry.name || 'PINE 指标'
+        title: run.title || entry.name || 'PINE 指标'
       };
+      // 逐根快照 + 流式更新：内核不给全量 result，这里按 bar 去重累积（图例/自检读它）
+      publishPine(item, run.plots || {}, entry);
+      // 刷新后要能认出「这个内核指标是哪个脚本」：写 pine:map（旧口径同样一份）
+      try { await rememberPine(item.indName, { id: entry.id, name: item.name }); } catch {}
+      try {
+        item._res = res;
+        this._resById[entry.id] = res;
+        if (typeof res.onUpdate === 'function') {
+          item._off = res.onUpdate((u) => { publishPine(item, (u && u.plots) || {}, entry); });
+        }
+      } catch {}
       this.items = this.items.filter(x => x.id !== item.id);
       this.items.push(item);
       return { ok: true, names, overlay: item.overlay, title: item.title, plots: res.plots || null, alerts: res.alerts || [] };
@@ -761,7 +868,14 @@ export class PineManagerV {
   async compute(entry) { return this.apply(entry); }
 
   async remove(id) {
+    const it = this.items.find((x) => x.id === id);
     try {
+      if (it) {
+        try { it._off?.(); } catch {}
+        try { (it._res?.remove || it._res?.run?.remove)?.(); } catch {}
+        delete (window.__TT_PINE_IND || {})[it.indName];
+        try { await forgetPine(it.indName, it.id); } catch {}
+      }
       const h = (this.chart.indicators?.() || []).find(x => x.id === id);
       if (h) await h.remove?.();
     } catch {}

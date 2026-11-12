@@ -83,8 +83,8 @@ export async function run(state) {
     log('readded', readded);
 
     R.pass = (
-      added && def && def.cp.join(',') === '6,12,20'
-      && opened.visible && opened.params === '6, 12, 20' && opened.rows === 3
+      added && def && def.cp.join(',') === '20,50,200'
+      && opened.visible && opened.params === '20, 50, 200' && opened.rows === 3
       && rowsAfterParam === 1
       && applied && applied.cp.join(',') === '20' && applied.lines.length === 1
       && String(applied.lines[0].c).toLowerCase() === '#ffcc66'

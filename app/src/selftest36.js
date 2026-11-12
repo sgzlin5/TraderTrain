@@ -36,20 +36,35 @@ export async function run(state) {
       await wait(2500);
     }
     state.cxSync.refresh();
-    const c0 = ws.cells[0];
-    const box = c0.el.getBoundingClientRect();
-    // 直接用内部入口模拟一次 hover（selftest 里没法发真实鼠标事件）
-    state.cxSync._apply(c0, { x: Math.round(box.width / 2), y: Math.round(box.height / 2), paneId: 'candle_pane' });
-    await wait(200);
-    const lines = [...document.querySelectorAll('.cx-line')].map(el => ({
-      cell: el.parentElement?.dataset?.cell, disp: el.style.display, left: el.style.left
-    }));
-    log('crosshair', { cells: ws.cells.length, lines });
-    state.cxSync.setEnabled(false);
+    const cells = ws.cells.slice();
+    const c0 = cells[0];
+    const others = cells.filter(c => c !== c0);
+    // [vela] 幽灵线走 renderer.setExternalCrosshair（数据空间），没有 .cx-line DOM：
+    // 用探针替换其余格的接口，验证「同一 time 被镜像过去」+「关掉后不再镜像」
+    const calls = [];
+    const orig = new Map();
+    for (const c of others) {
+      const r = c?.app?.chart?.renderer;
+      if (!r || typeof r.setExternalCrosshair !== 'function') continue;
+      orig.set(c, r.setExternalCrosshair);
+      r.setExternalCrosshair = (time, price) => { calls.push({ cell: c.i, time, price }); };
+    }
+    const ts = state.app.bars.allBars().slice(-30)[0]?.timestamp ?? null;
+    state.cxSync._onMove(c0, { time: ts, price: 4000, paneKind: 'price' });
+    await wait(150);
+    const mirrored = calls.filter(x => x.time === ts && x.price === 4000).length;
+    state.cxSync.setEnabled(false);          // 关闭时会 _clear()，基线取在它之后
+    await wait(80);
+    const n0 = calls.length;
+    state.cxSync._onMove(c0, { time: ts + 60000, price: 4001, paneKind: 'price' });
     await wait(120);
-    const offHidden = [...document.querySelectorAll('.cx-line')].every(el => el.style.display === 'none');
+    const offStopped = calls.length === n0;
     state.cxSync.setEnabled(true);
-    log('crosshairToggle', { offHidden });
+    for (const [c, fn] of orig) {
+      try { c.app.chart.renderer.setExternalCrosshair = fn; c.app.chart.renderer.setExternalCrosshair(null); } catch {}
+    }
+    log('crosshair', { cells: cells.length, probe: orig.size, mirrored, calls: calls.length });
+    log('crosshairToggle', { offStopped });
 
     // ---- A3：策略回测 ----
     const SRC = `//@version=6
@@ -82,10 +97,9 @@ plot(slow, "s")`;
     R.pass = (
       s.worker.viaWorker === true && s.worker.heavyOk === true && s.worker.workerReady === true
       && s.worker.lightOk === true
-      && s.crosshair.cells >= 2
-      && s.crosshair.lines.length >= 2
-      && s.crosshair.lines.every(l => l.disp === 'block' && l.left && l.left !== '')
-      && s.crosshairToggle.offHidden === true
+      && s.crosshair.cells >= 2 && s.crosshair.probe >= 1
+      && s.crosshair.mirrored >= 1
+      && s.crosshairToggle.offStopped === true
       && s.strategy.ok === true && s.strategy.hasStrategy === true
       && s.strategy.trades > 0 && s.strategy.curve === s.strategy.trades + 1
       && s.strategy.rows === s.strategy.trades && (s.strategy.firstSide === '多' || s.strategy.firstSide === '空')

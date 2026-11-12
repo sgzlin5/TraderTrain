@@ -609,6 +609,10 @@ function renderPeriods() {
 }
 
 function updateStatus(extra = '') {
+  // 空串 = 「沿用上一条消息」：周期内多次刷新状态栏不该把「随机起点 xx ms」这类
+  // 操作反馈擦掉（旧实现在这里被定时刷新清空，用户看不到结果）
+  if (extra) state.statusMsg = extra;
+  extra = extra || state.statusMsg || '';
   const app = state.app;
   if (!app) { $('stPeriod').textContent = '-'; $('stLoaded').textContent = '-'; $('stMsg').textContent = extra; return; }
   const n = app.bars ? app.bars.length : 0;
@@ -645,9 +649,22 @@ function wireReplay() {
     const hi = p.last - day;
     if (!(hi > lo)) return 0;
     let ts = lo + Math.floor(Math.random() * (hi - lo));
+    // 先对齐到当前周期网格：源是 1m，5m/15m 的 bar 开盘时刻不在 1m 的随机落点上，
+    // 不对齐就会选出源里存在、当前周期没有的时间戳
+    const span = PERIODS.find(x => x.key === (state.app?.periodKey || '1m'))?.spanMs || 60000;
+    ts = Math.ceil(ts / span) * span;
     try {
       const nb = await rp.source.nextBars(ts, 1);
       if (nb && nb[0]) ts = nb[0].timestamp;      // 落在休市/缺口里就顺延到下一根真 bar
+    } catch {}
+    // 源里有、图上的镜像里没有（窗口外/被裁剪）时继续吸附到镜像的真 bar，
+    // 否则游标落在空档 → app.lastBar() 与 cursor 不一致
+    try {
+      const feed = state.app?.bars;
+      if (feed?.barAt && !feed.barAt(ts)) {
+        const b = feed.barAtOrAfter?.(ts);
+        if (b) ts = b.timestamp;
+      }
     } catch {}
     return ts;
   }
@@ -657,6 +674,14 @@ function wireReplay() {
     $('startAt').value = fmtLocalInput(ts);
     if (state.session) { state.session.startTs = ts; store.save(state.session).catch?.(() => {}); }
     await state.replay.setStart(ts);
+    // 游标必须落在一根真实存在的 bar 上（1m 源 + 5m 周期的组合下，随机时间点常常
+    // 不在当前周期的开盘网格上 → app.lastBar() 落后游标，回放窗口与游标口径打架）
+    let lb = state.app?.lastBar?.();
+    for (let i = 0; i < 12 && !lb; i++) { await new Promise(r => setTimeout(r, 40)); lb = state.app?.lastBar?.(); }
+    if (lb && state.replay && state.replay.cursor !== lb.timestamp) {
+      state.replay.cursor = lb.timestamp;
+      try { state.replay.emit?.(); } catch {}
+    }
     if (state.draw) await state.draw.load();
     markDirty();
     schedulePineRefresh();
@@ -1396,7 +1421,11 @@ function renderTrade(snap) {
  */
 function detectVolume() {
   const bars = state.app?.bars?.allBars?.() || [];
-  const sample = bars.slice(0, 300);
+  // 不能只看开头 300 根：4M 根的库里前段常是早期导入（无 volume），
+  // 只采样首段会把「有成交量」的库误判成无成交量
+  const step = Math.max(1, Math.floor(bars.length / 500));
+  const sample = [];
+  for (let i = 0; i < bars.length; i += step) sample.push(bars[i]);
   const hasVol = sample.some(b => Number(b.volume) > 0);
   state.hasVolume = hasVol;
   const tag = $('volTag');
@@ -2090,7 +2119,9 @@ function renderLegend() {
   const box = $('chartLegend');
   if (!box) return;
   const chart = state.app?.chart;
-  const list = (chart?.getIndicators?.() || chart?.indicators?.() || []).map(x => x.visible === false ? { visible: false } : x);
+  // [vela] 句柄本身就是完整对象（含 name/visible），旧版这里会把隐藏项压成 {visible:false} 占位，
+  // 结果隐藏后图例行没了名字 → 眼睛按钮 data-eye="undefined"，再点就点不到
+  const list = (chart?.getIndicators?.() || chart?.indicators?.() || []);
   if (!list.length) { box.innerHTML = ''; box.hidden = true; return; }
   box.hidden = false;
 
@@ -2101,7 +2132,8 @@ function renderLegend() {
   const rows = list.map((ind, i) => {
     const off = ind.visible === false;
     const cp = ind.calcParams?.length ? `(${ind.calcParams.join(',')})` : '';
-    const res = idx >= 0 ? ind.result?.[idx] : null;
+    // [vela] 内核句柄不给 result 快照，末根值由指标 emit 时发布（__TT_LASTVAL）
+    const res = ind.lastValues || (idx >= 0 ? ind.result?.[idx] : null);
     const given = ind.styles?.lines || [];
     // 自建指标可能没有 figures（自己 draw 线），退化成展示 result 里的前几个数值
     // 用 {f, k} 保留原始下标：下面是“按值过滤”，颜色仍要按原始序号取，否则线色会串位
@@ -2525,14 +2557,8 @@ async function renderIndicatorPanel() {
     : '<div class="muted">还没有指标</div>';
   $('indActive').querySelectorAll('button[data-rm]').forEach(b => {
     b.onclick = () => {
-      // [vela P4] Vela：按 nativeType 找 handle 移除
-      if (chart.isVela || !chart.removeIndicator) {
-        const nm = b.dataset.rm;
-        const h = (chart.indicators?.() || []).find(x => x.nativeType === 'TT_' + nm || x.nativeType === nm || x.title === nm);
-        try { h?.remove?.(); } catch {}
-      } else {
-        try { chart.removeIndicator({ name: b.dataset.rm }); } catch {}
-      }
+      // [vela P4] 统一走兼容面：它按 name/nativeType/paneId 匹配（内核原生 h.remove 认不出旧名）
+      try { chart.removeIndicator({ name: b.dataset.rm }); } catch {}
       updateIndBadge();
       renderIndicatorPanel();
     };

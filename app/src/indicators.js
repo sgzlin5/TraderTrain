@@ -1,6 +1,7 @@
 import { kvGet, kvSet } from './db.js';
 import { CUSTOM_META } from './customIndicators.js';
-export { CUSTOM_META };
+import { OSC_META } from './oscIndicators.js';
+export { CUSTOM_META, OSC_META };
 
 // 指标库：klinecharts 内置指标 + 本地 Pine 自编
 // 只做“有没有上图”的开关与面板数量控制，指标本身的算法全交给内核 / PineTS
@@ -81,10 +82,12 @@ export function starsHtml(rate) {
   return '★★★★★'.slice(0, full) + '☆☆☆☆☆'.slice(0, 5 - full);
 }
 
-/** 全部可用指标（内置 + 自建），带分类与说明 */
+/** 全部可用指标（内置 + 自建），带分类与说明
+ *  [vela] 可用清单来自 vela-ind 的注册表（window.__TT_SUPPORTED__），不再问 klinecharts —— 它在这儿是死的 */
 export function builtinList() {
-  // 自建指标也注册进了 klinecharts，这里排掉，避免同一个指标出现两次
-  const all = (window.klinecharts?.getSupportedIndicators?.() || []).filter(n => !CUSTOM_META[n]);
+  const custom = { ...CUSTOM_META, ...OSC_META };
+  const reg = (window.__TT_SUPPORTED__?.() || []);
+  const all = [...new Set(reg)].filter(n => !custom[n]);
   const list = all.map(name => ({
     name,
     label: LABELS[name] || name,
@@ -93,7 +96,7 @@ export function builtinList() {
     desc: DESCS[name] || (OVERLAY_INDS.has(name) ? '主图叠加指标' : '副图指标'),
     rate: RATE[name] ?? 3.5
   }));
-  for (const [name, m] of Object.entries(CUSTOM_META)) {
+  for (const [name, m] of Object.entries(custom)) {
     const catMap = { SMC: 'smc', '订单流': 'flow', '关键位': 'key', '均线': 'ma', '通用': 'general' };
     list.push({ name, label: m.label, overlay: m.overlay !== false, cat: catMap[m.cat] || 'key',
       desc: m.desc, custom: true, rate: RATE[name] ?? 4 });
@@ -196,12 +199,32 @@ export function toggleBuiltin(chart, name, overlay, prefs = null) {
       try { window.__TT_SMC_KICK?.(); } catch {}
       return false;
     }
+    // 新建即默认：把上一个实例留下的「活跃参数个数 / 线色覆盖」清掉，否则恢复默认后仍被裁成 1 条线
+    try {
+      delete (window.__TT_CALC_LEN || {})[name];
+      delete (window.__TT_IND_STYLES || {})[name];
+    } catch {}
     const inputs = {};
     if (prefs && Array.isArray(prefs.calcParams) && prefs.calcParams.length) {
       prefs.calcParams.forEach((v, i) => { inputs['p' + i] = v; });
     }
     try {
       chart.addNativeIndicator(type, Object.keys(inputs).length ? { inputs } : undefined);
+      // 偏好回填：参数个数决定线数，线色/线宽按图形 key 覆盖（内核 props 面不承载业务线色）
+      if (prefs && Array.isArray(prefs.calcParams) && prefs.calcParams.length) {
+        window.__TT_CALC_LEN = window.__TT_CALC_LEN || {};
+        window.__TT_CALC_LEN[name] = prefs.calcParams.length;
+      }
+      if (prefs && Array.isArray(prefs.lines) && prefs.lines.length) {
+        const keys = (window.__TT_FIG_KEYS || {})[name] || [];
+        window.__TT_IND_STYLES = window.__TT_IND_STYLES || {};
+        const bag = (window.__TT_IND_STYLES[name] = window.__TT_IND_STYLES[name] || {});
+        prefs.lines.forEach((l, i) => {
+          const k = keys[i];
+          if (!k || !l) return;
+          bag[k] = { color: l.hidden ? 'rgba(0,0,0,0)' : l.color, size: l.size };
+        });
+      }
       try { window.__TT_SMC_KICK?.(); } catch {}
       return true;
     }
@@ -243,16 +266,20 @@ function subPanes(chart) {
     .sort((a, b) => a.order - b.order);
 }
 
-/** 切换面板布局：补/删副图面板，并按比例分配高度 */
-export function applyPaneLayout(chart, target) {
+/** 切换面板布局：补/删副图面板，并按比例分配高度
+ *  [vela] 副图面板是内核异步建的（addNativeIndicator 返回后 pane 还没生成），
+ *  所以每加一个要让出一帧再数，否则循环会一路空转到 guard 上限。 */
+export async function applyPaneLayout(chart, target) {
   if (!chart) return 0;
   const want = Math.max(1, Math.min(PANE_LAYOUTS.length, Number(target) || 1));
+  const tick = () => new Promise(r => setTimeout(r, 80));
 
   // 补：缺的副图用默认指标填上（MACD → RSI → KDJ 循环）
   let guard = 0;
   while (paneCount(chart) < want && guard++ < 8) {
     const name = SUB_FILL[(paneCount(chart) - 1) % SUB_FILL.length];
     chart.createIndicator({ name }, true);
+    await tick();
   }
   // 删：从最后一个副图面板开始清空
   guard = 0;
@@ -261,6 +288,7 @@ export function applyPaneLayout(chart, target) {
     const last = subs[subs.length - 1];
     if (!last) break;
     chart.removeIndicator({ paneId: last.id });
+    await tick();
   }
 
   // 高度：主图比例略大，副图均分

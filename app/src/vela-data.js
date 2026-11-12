@@ -170,6 +170,11 @@ export class TTFeed {
     while (lo <= hi) { const mid = (lo + hi) >> 1; if (m[mid].time <= ts) { r = mid; lo = mid + 1; } else hi = mid - 1; }
     return toBiz(m[r]);
   }
+  /** 第一根 ≥ ts 的真 bar（回放起点吸附用；没有返回 null） */
+  barAtOrAfter(ts) {
+    const i = this.indexAtOrAfter(ts);
+    return i < this.mirror.length ? toBiz(this.mirror[i]) : null;
+  }
   /** 第一个 timestamp >= ts 的下标（没有 → length）；图例取值用 */
   indexAtOrAfter(ts) {
     const m = this.mirror;

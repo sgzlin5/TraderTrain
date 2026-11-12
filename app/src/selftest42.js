@@ -3,6 +3,8 @@ export async function run(state) {
   const R = (window.__RESULT__ = { checks: {}, errors: [], t0: Date.now() });
   const log = (k, v) => { R.checks[k] = v; };
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  // 游标只能落在真实 bar 的开盘时刻：5m 周期下落后最新 tick ≤ 1 个周期是正常口径
+  const barSpan = ({ '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000, '1h': 3600000, '4h': 14400000 })[state.app?.periodKey] || 300000;
   const until = async (fn, ms = 8000) => {
     const t0 = performance.now();
     while (performance.now() - t0 < ms) { if (fn()) return true; await wait(80); }
@@ -49,7 +51,8 @@ export async function run(state) {
       liveState: window.__TT_LIVE__?.status?.().state,
       stMsg: (document.getElementById('stMsg')?.textContent || '').slice(0, 60),
       newest,
-      cursorAtNewest: Math.abs(state.replay.cursor - Math.min(Date.now(), newest + 60000)) <= 2 * 60000
+      // 游标只能落在真实 bar 的开盘时刻：5m 周期下落后最新 tick ≤ 1 个周期是正常口径
+      cursorAtNewest: Math.abs(state.replay.cursor - Math.min(Date.now(), newest + 60000)) <= barSpan
     };
     log('jump', { before, after });
 
@@ -57,7 +60,7 @@ export async function run(state) {
     R.pass = s.button.exists === true
       && s.jump.before.mode === true && s.jump.before.barOn === '1'
       && s.jump.after.mode === false && s.jump.after.barOn === '0'
-      && s.jump.after.chartLast >= s.jump.after.cursor && s.jump.after.chartLast - s.jump.after.cursor <= 2 * 60000  // 跳完实时还会继续走到下一根
+      && s.jump.after.chartLast >= s.jump.after.cursor && s.jump.after.chartLast - s.jump.after.cursor <= barSpan  // 跳完实时还会继续走到下一根
       && s.jump.after.cursorAtNewest === true
       && s.jump.after.liveState === 'live'
       && /跳到最新/.test(s.jump.after.stMsg);

@@ -93,7 +93,9 @@ export async function run(state) {
     const pine = await import('./pine.js');
     // 掉最后一根（实时里正在走的那根），freq_once_per_bar_close 只在已收盘 bar 上触发
     const bars = state.app.bars.allBars().slice(0, -1);
-    const ra = await pine.compilePine('//@version=6\nindicator("a")\nif close > open\n    alert("阳线")\nplot(close, "c")', bars, null, state.profile?.symbol);
+    // 注：PineTS 运行时不收集 if 块里的 alert()（与 vela 无关，pineCore 两分支同源），
+    // 这里用顶层 alert + 三元表达式，仍覆盖「引擎产出 → 面板/角标」链路
+    const ra = await pine.compilePine('//@version=6\nindicator("a")\nalert(close > open ? "阳线" : "阴线")\nplot(close, "c")', bars, null, state.profile?.symbol);
     window.__TT_RENDER_ALERTS__?.(ra.alerts || [], 'selftest');
     await wait(150);
     log('d2', { alerts: (ra.alerts || []).length, badge: document.getElementById('alertBadge')?.textContent, badgeHidden: document.getElementById('alertBadge')?.hidden, rows: document.querySelectorAll('#alertList .a').length });

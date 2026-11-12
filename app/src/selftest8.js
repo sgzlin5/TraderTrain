@@ -4,24 +4,14 @@ export async function run(state) {
   const log = (k, v) => { R.checks[k] = v; };
   const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
-  const clickAt = (fx, fy, notes = '') => {
-    const host = document.getElementById('chart');
-    const cvs = [...host.querySelectorAll('canvas')].sort((a, b) => (b.width * b.height) - (a.width * a.height))[0];
-    const r = cvs.getBoundingClientRect();
-    const x = r.left + r.width * fx;
-    const y = r.top + r.height * fy;
-    const fire = (t) => cvs.dispatchEvent(new MouseEvent(t, {
-      bubbles: true, cancelable: true, clientX: x, clientY: y, view: window,
-      button: 0, buttons: t === 'mouseup' ? 0 : 1, detail: 1
-    }));
-    fire('mousemove'); fire('mousedown'); fire('mouseup');
-  };
+  // 交互层只认 isTrusted 事件：点击走 CDP 真发（tools/run_selftests.py 的 pump_input）
+  const U = await import('./selftest-util.js');
+  const clickAt = async (fx, fy) => { await U.realClick(fx, fy, 320); };
 
   // 点一次可能被忽略（刚激活时首帧还没进绘制态），补点到步进变化为止
   const clickUntil = async (fx, fy, expectMinPts) => {
     for (let i = 0; i < 4; i++) {
-      clickAt(fx, fy);
-      await wait(300);
+      await clickAt(fx, fy);
       const o = document.getElementById('chart') && state.app.overlayList().slice(-1)[0];
       const pts = (o?.points || []).filter(p => Number.isFinite(p.value)).length;
       if (pts >= expectMinPts) return pts;

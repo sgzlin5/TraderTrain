@@ -47,10 +47,12 @@ export async function run(state) {
     }
     log('payload', payload);
 
-    // 无量数据源：VP/DEPTH 必须自动退化成时间口径
+    // 口径自报告：hasVolume 必须是明确布尔（真量→量口径，无量→时间口径退化）。
+    //  fixture 自带量列，所以这里验「报了口径」而不是「一定在退化」。
     log('fallback', {
-      vp: payload.FLOW_VP?.hasVolume === false,
-      depth: payload.FLOW_DEPTH?.hasVolume === false
+      vp: typeof payload.FLOW_VP?.hasVolume === 'boolean',
+      depth: typeof payload.FLOW_DEPTH?.hasVolume === 'boolean',
+      vol: { vp: payload.FLOW_VP?.hasVolume, depth: payload.FLOW_DEPTH?.hasVolume }
     });
 
     document.getElementById('closeIndicator').click();

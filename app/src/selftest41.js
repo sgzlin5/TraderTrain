@@ -31,6 +31,21 @@ export async function run(state) {
     const kvOff = await db.kvGet('ui:autogap');
     log('switch', { exists: !!box, on: kvOn === true, off: kvOff === false });
 
+    // 前置：档案可能落后于「昨天」（其它用例/离线环境），先补到齐再验 up-to-date；
+    // 否则补缺口任务还在跑，下面第三步一进去就是 busy
+    const waitIdle = async (ms = 300000) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < ms) {
+        const r = await dl.autoGapFill(state.profile.symbol);
+        if (r.reason !== 'busy') return r;
+        await wait(2000);
+      }
+      return { reason: 'timeout' };
+    };
+    let gate = await dl.autoGapFill(state.profile.symbol);
+    if (gate.started) gate = await waitIdle();
+    log('prefill', { gate });
+
     // 2) 无缺口时明确返回 up-to-date（不启动任务）
     const p0 = await db.getProfile(state.profile.id);
     const noGap = await dl.autoGapFill(p0.symbol);

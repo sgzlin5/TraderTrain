@@ -17,6 +17,45 @@ function velaTheme() {
   return document.documentElement.dataset.mode === 'light' ? 'light' : 'dark';
 }
 
+/** 把 klinecharts 形状的方法挂到 Vela 实例上（`app.chart` 就是它，存量自检/旧代码直接调）。
+ *  语义全落到 VelaChartApp 的兼容实现，这里只做转接 —— 不给内核塞状态。 */
+/** 旧全局 `window.klinecharts` 的查询面（存量自检/插件会直接问它要清单）。
+ *  只放查询类方法，不放注册类 —— 注册一律走 vela-ind。 */
+function installGlobalCompat(app) {
+  const g = (window.klinecharts = window.klinecharts || {});
+  if (g.__ttProxy) return g;
+  g.__ttProxy = true;
+  g.getSupportedIndicators = () => app.getSupportedIndicators();
+  g.getSupportedFigures = () => [];
+  // 旧 drawStyles / 仓位工具按这份清单挑工具名（Vela 侧是原生 drawing 类型）
+  g.getSupportedOverlays = () => [
+    'longPosition', 'shortPosition', 'segment', 'polyline', 'rayLine',
+    'horizontalStraightLine', 'horizontalRayLine', 'priceLine', 'fibonacciLine',
+    'priceChannelLine', 'brush', 'text', 'arrow', 'rect', 'circle'
+  ];
+  return g;
+}
+
+function installChartCompat(chart, app) {
+  if (!chart || chart.__ttCompat) return chart;
+  const def = (k, fn) => { try { chart[k] = fn; } catch {} };
+  def('getIndicators', () => app.indicators());
+  def('createIndicator', (cfg, ...rest) => app.createIndicator(cfg, ...rest));
+  def('removeIndicator', (q) => app.removeIndicator(q));
+  def('overrideIndicator', (cfg) => app.overrideIndicator(cfg));
+  def('getStyles', () => app.getStyles());
+  def('setStyles', (s, ...rest) => app.setStyles(s, ...rest));
+  def('getPaneOptions', () => app.getPaneOptions());
+  def('getSize', () => app.getSize());
+  def('setPaneOptions', (o) => app.setPaneOptions(o));
+  def('removeOverlay', (q) => app.removeOverlay(q));
+  def('getSupportedIndicators', () => app.getSupportedIndicators());
+  def('getSupportedOverlays', () => app.getSupportedOverlays());
+  chart.__ttCompat = true;
+  chart.isVela = true;                  // 旧调用方（indicators.toggleBuiltin 等）据此走 vela 分支
+  return chart;
+}
+
 /** 图表应用（Vela 版）：公开面 = 旧 chart.js 的 ChartApp */
 export class VelaChartApp {
   /** 图表内核标记（selftest / 功能探测用） */
@@ -53,7 +92,7 @@ export class VelaChartApp {
     try { list = d.toJSON().drawings || []; } catch {}
     return list.map(x => ({
       id: x.id,
-      name: x.props?.tt || REV[x.type] || x.type,
+      name: (window.__TT_DRAW_NAMES__ || {})[x.id] || x.props?.tt || REV[x.type] || x.type,
       points: (x.anchors || []).map(a => ({ timestamp: a.time, value: a.price })),
       styles: { line: { color: x.style?.lineColor, size: x.style?.lineWidth, style: x.style?.lineStyle,
         dashedValue: x.style?.lineStyle === 'dashed' ? [4, 4] : [1, 0] } },
@@ -96,6 +135,8 @@ export class VelaChartApp {
                                         // 待 Vela 修复或查明首跑门控后一行重开
     }, { dataFeed: this.feed });
     this._theme = buildVelaTheme(velaTheme());     // 主题对象基线：setStyles 在它上面盖用户改的涨跌色/网格
+    installChartCompat(this.chart, this);
+    installGlobalCompat(this);
     await this.reloadWindow(this.anchor);
     // 容器尺寸变化兜底（Vela 自带观察，这里只防面板开合的极端情况）
     if (typeof ResizeObserver !== 'undefined') {
@@ -185,8 +226,320 @@ export class VelaChartApp {
         } });
       } catch (e) { console.warn('[vela:styles:candles]', e?.message || e); }
       this._theme = theme;
+      this._userStyles = styles;      // getStyles 回读（旧口径）
       return true;
     } catch (e) { console.warn('[vela:styles]', e?.message || e); return false; }
+  }
+
+  /* ---------------- klinecharts 兼容面 ----------------
+     存量 selftest*.js 与少量旧代码仍按 klinecharts 形状调（getIndicators / createIndicator /
+     removeIndicator / getStyles / removeOverlay / getSupportedIndicators）。这里把同一语义映射到
+     vela 原生 API：既不整批作废用例，也不让旧调用静默失败。新代码请直接用 vela 原生面。 */
+
+  /** 指标把手列表（补 name / paneId / remove 别名，保留 id / nativeType）
+   *  name 用「去 TT_ 前缀的旧名」：存量代码/面板都按 i.name === 'ZLEMA' 这种口径判断 */
+  indicators() {
+    let raw = [];
+    try { raw = this.chart?.indicators?.() || []; } catch { raw = []; }
+    // 指标归属哪个 pane：内核把手不带 paneId，只能反查 panesControl 的 indicators 列表
+    const paneOf = {};
+    try {
+      let plist = this.chart?.panesControl?.list?.() || [];
+      if (!Array.isArray(plist)) plist = [plist];
+      for (const p of plist) {
+        const pid = (p?.kind === 'price' || p?.id === 'price') ? 'candle_pane' : (p?.id || 'pane');
+        const ids = Array.isArray(p?.indicators) ? p.indicators : Object.keys(p?.indicators || {});
+        for (const x of ids) paneOf[typeof x === 'string' ? x : (x?.id)] = pid;
+      }
+    } catch {}
+    // Pine 脚本指标：内核按脚本 id 建，旧口径按 PINE_<id> 认它
+    const pineAll = window.__TT_PINE_IND || {};
+    const pineOf = (h) => {
+      const kids = [h.id, h.nativeType].filter(Boolean).map(String);
+      for (const rec of Object.values(pineAll)) {
+        if (rec && kids.includes(String(rec.kernelId))) return rec;
+      }
+      return null;
+    };
+    return raw.map((h) => {
+      const nt = h.nativeType || h.id || '';
+      const pr = pineOf(h);
+      return {
+        id: h.id,
+        nativeType: pr ? pr.kernelId : h.nativeType,
+        name: pr ? `PINE_${pr.kernelId}` : (h.name || String(nt).replace(/^TT_/, '')),
+        shortName: pr ? String(pr.name || '').slice(0, 20) : undefined,
+        paneId: paneOf[h.id] || h.paneId || h.pane || 'candle_pane',
+        visible: h.visible !== false,
+        calcParams: (() => {
+          try {
+            const v = typeof h.inputValues === 'function' ? h.inputValues() : (h.values || {});
+            const arr = Object.keys(v || {}).sort().map((k) => Number(v[k])).filter((n) => Number.isFinite(n));
+            const lim = (window.__TT_CALC_LEN || {})[String(nt).replace(/^TT_/, '')];
+            return (Number.isFinite(lim) && lim > 0) ? arr.slice(0, lim) : arr;
+          } catch { return []; }
+        })(),
+        styles: (() => {
+          if (pr) return { lines: (pr.lines || []).map((l) => ({ key: l.key, c: l.color, color: l.color, size: l.size })) };
+          const over = (window.__TT_IND_STYLES || {})[String(nt).replace(/^TT_/, '')] || {};
+          const defs = (window.__TT_FIG_DEF || {})[String(nt).replace(/^TT_/, '')] || [];
+          const keys = (window.__TT_FIG_KEYS || {})[String(nt).replace(/^TT_/, '')] || [];
+          const src0 = defs.length ? defs : keys.map((k) => ({ key: k, color: '#8adeff', size: 1 }));
+          const lim = (window.__TT_CALC_LEN || {})[String(nt).replace(/^TT_/, '')];
+          const src = (Number.isFinite(lim) && lim > 0) ? src0.slice(0, lim) : src0;
+          return { lines: src.map((d) => {
+            const c = over[d.key]?.color || d.color;
+            return { key: d.key, c, color: c, size: over[d.key]?.size ?? d.size };
+          }) };
+        })(),
+        figures: pr
+          ? (pr.names || []).map((n) => ({ key: n, title: n, type: 'line', color: '#8adeff', size: 1 }))
+          : ((window.__TT_FIG_DEF || {})[String(nt).replace(/^TT_/, '')] || []),
+        // Pine 用自留快照，其余指标读 emit 时发布的末根值
+        lastValues: pr
+          ? ((pr.data || [])[(pr.data || []).length - 1] || null)
+          : ((window.__TT_LASTVAL || {})[String(nt).replace(/^TT_/, '')] || null),
+        // 旧口径把指标载荷挂在 result.__smc（SMC/Flow 自绘层的数据源）
+        result: (() => {
+          if (pr) return (pr.data || []).slice();          // Pine 脚本：逐根快照
+          const t = String(nt || '');
+          if (!t.startsWith('TT_')) return undefined;
+          const per = (window.__TT_IND_RESULT || {})[String(t).replace(/^TT_/, '')];
+          const lay = (window.__TT_LAYER_DATA || {})[t];
+          const flow = (window.__TT_FLOW_DATA || {})[t];
+          const pay = lay?.__smc || flow || null;
+          const arr = Array.isArray(per) ? per.slice() : (pay ? [] : null);
+          if (!arr) return undefined;
+          if (pay) arr.__smc = pay;
+          return arr;
+        })(),
+        raw: h,
+        remove: () => { try { h.remove?.(); } catch {} }
+      };
+    });
+  }
+
+  getIndicators() { return this.indicators(); }
+
+  /** 按 id / nativeType / 旧名（TT_ 前缀可省）/ paneId 删指标。
+   *  同名多实例时逐个删：一次删一个后要把列表重新读一遍（内核会重排把手）。 */
+  removeIndicator(q = {}) {
+    const name = typeof q === 'object' ? (q.name || null) : String(q);
+    const match = (h) => (
+      (q.id && h.id === q.id) ||
+      (q.nativeType && h.nativeType === q.nativeType) ||
+      (name && (h.name === name || h.nativeType === name || h.nativeType === 'TT_' + name)) ||
+      (q.paneId && h.paneId === q.paneId)
+    );
+    let removed = 0;
+    for (let guard = 0; guard < 16; guard++) {
+      const hit = this.indicators().find(match);
+      if (!hit) break;
+      const nt = hit.nativeType;
+      hit.remove();
+      // 自绘层（SMC/Flow）摘指标后画布不会自己擦：清载荷 + 直接擦 canvas，避免残影
+      if (nt && String(nt).startsWith('TT_')) {
+        try { delete (window.__TT_LAYER_DATA || {})[nt]; } catch {}
+        try {
+          const cv = (window.__LAYER_CV || {})[nt];
+          if (cv?.width) cv.getContext('2d')?.clearRect(0, 0, cv.width, cv.height);
+        } catch {}
+      }
+      removed++;
+    }
+    try { window.__TT_SMC_KICK?.(); } catch {}
+    return removed > 0;
+  }
+
+  /** 旧建指标口子：一律映射成注册过的 native 指标（TT_<name>） */
+  createIndicator(cfg = {}) {
+    try {
+      const nm = typeof cfg === 'string' ? cfg : (cfg?.name || cfg?.nativeType);
+      if (nm) delete (window.__TT_CALC_LEN || {})[String(nm).replace(/^TT_/, '')];
+    } catch {}
+    const name = typeof cfg === 'string' ? cfg : (cfg.name || cfg.nativeType);
+    if (!name) return null;
+    // 旧口径习惯在建指标时就把 calcParams / lines 一起塞进来，这里等价落到 inputs 与样式表
+    if (typeof cfg === 'object' && cfg) {
+      if (Array.isArray(cfg.calcParams) && cfg.calcParams.length) {
+        cfg.inputs = Object.assign({}, cfg.inputs);
+        cfg.calcParams.forEach((v, i) => { cfg.inputs['p' + i] = v; });
+        window.__TT_CALC_LEN = window.__TT_CALC_LEN || {};
+        window.__TT_CALC_LEN[name] = cfg.calcParams.length;
+      }
+      if (Array.isArray(cfg.styles?.lines) && cfg.styles.lines.length) {
+        const keys = (window.__TT_FIG_KEYS || {})[name] || [];
+        window.__TT_IND_STYLES = window.__TT_IND_STYLES || {};
+        const bag = (window.__TT_IND_STYLES[name] = window.__TT_IND_STYLES[name] || {});
+        cfg.styles.lines.forEach((l, i) => {
+          const k = l?.key || keys[i];
+          if (!k || !l) return;
+          bag[k] = { ...(bag[k] || {}), ...(l.hidden ? { color: 'rgba(0,0,0,0)' } : (l.c || l.color ? { color: l.c || l.color } : {})), ...(Number.isFinite(l.size || l.width) ? { size: l.size || l.width } : {}) };
+        });
+      }
+    }
+    // 先按自研指标（TT_<name>）找，找不到就用内核自带原生类型（MACD/RSI/KDJ/BOLL…）
+    let type = name.startsWith('TT_') ? name : 'TT_' + name;
+    try {
+      const known = window.__TT_NATIVE_TYPES__;
+      if (Array.isArray(known) && known.length && !known.includes(type) && !name.startsWith('TT_')) type = name;
+    } catch {}
+    try {
+      this.chart?.addNativeIndicator?.(type, cfg.inputs ? { inputs: cfg.inputs } : undefined);
+      try { window.__TT_SMC_KICK?.(); } catch {}     // SMC/Flow 自绘层：载荷由 host 侧算，加完要踢一下
+      return { id: type, name, paneId: cfg.paneId || 'candle_pane' };
+    } catch (e) { console.warn('[vela:createIndicator]', type, e?.message || e); return null; }
+  }
+
+  /** 旧样式读回（只覆盖我们会写的那几个键）。base 必须按当前主题重算，否则切主题读不到新色 */
+  getStyles() {
+    const s = this._userStyles || {};
+    const base = buildVelaTheme(velaTheme());
+    const bar = s.candle?.bar || {};
+    const grid = s.grid || {};
+    return {
+      candle: { bar: {
+        upColor: bar.upColor || base.upColor, downColor: bar.downColor || base.downColor,
+        upBorderColor: bar.upBorderColor || bar.upColor || base.upColor,
+        downBorderColor: bar.downBorderColor || bar.downColor || base.downColor,
+        upWickColor: bar.upWickColor || bar.upColor || base.upColor,
+        downWickColor: bar.downWickColor || bar.downColor || base.downColor
+      } },
+      grid: {
+        show: grid.show !== false,
+        horizontal: { line: { color: grid?.horizontal?.line?.color || base.gridColor } },
+        vertical: { line: { color: grid?.vertical?.line?.color || base.gridColor } }
+      }
+    };
+  }
+
+  /** 旧面板改参口子 → Vela panesControl.setHeightWeight（height 当权重用，比例等价） */
+  setPaneOptions(opt = {}) {
+    const ctrl = this.chart?.panesControl;
+    if (!ctrl?.list) return false;
+    let list = [];
+    try { list = ctrl.list() || []; } catch { return false; }
+    if (!Array.isArray(list)) list = [list];
+    const key = opt.id;
+    const hit = list.find(p => (p.id === key) || (key === 'candle_pane' && (p.id === 'price' || p.kind === 'price')));
+    if (!hit) return false;
+    const h = Number(opt.height);
+    if (Number.isFinite(h) && h > 0 && typeof ctrl.setHeightWeight === 'function') {
+      try { ctrl.setHeightWeight(hit.id, h); return true; } catch { return false; }
+    }
+    return false;
+  }
+
+  /** 旧画布尺寸查询 → 容器实际像素 */
+  getSize() {
+    const el = this.chart?.container || this.container;
+    if (!el) return { width: 0, height: 0 };
+    const r = el.getBoundingClientRect ? el.getBoundingClientRect() : { width: el.clientWidth, height: el.clientHeight };
+    return { width: Math.round(r.width), height: Math.round(r.height) };
+  }
+
+  /** 旧面板查询口子 → Vela panesControl（主图 id 统一报 candle_pane，`x_axis_pane` 语义不变） */
+  getPaneOptions() {
+    const ctrl = this.chart?.panesControl;
+    let list = [];
+    try { list = ctrl?.list?.() || []; } catch { list = []; }
+    if (!Array.isArray(list)) list = list ? [list] : [];
+    const weights = list.reduce((s, p) => s + (Number(p?.heightWeight) || 1), 0) || 1;
+    const H = this.chart?.container?.clientHeight || this.container?.clientHeight || 0;
+    return list.map((p, i) => ({
+      id: (p?.kind === 'price' || p?.id === 'price') ? 'candle_pane' : (p?.id || 'pane-' + i),
+      order: Number.isFinite(p?.order) ? p.order : i,
+      type: p?.kind,
+      height: H ? Math.round(((Number(p?.heightWeight) || 1) / weights) * H) : 0,
+      data: p
+    }));
+  }
+
+  /** 旧清图画口子 → 清空 Vela 绘图 */
+  removeOverlay() {
+    try {
+      const dr = this.chart?.drawings;
+      const all = dr?.all?.() || [];
+      if (all.length) dr.removeMany?.(all.map((d) => d.id));
+      else all.forEach((d) => { try { dr?.remove?.(d.id); } catch {} });
+      return true;
+    } catch { return false; }
+  }
+
+  /** 旧「可用指标」查询 → 当前挂图的原生类型（TT_ 前缀去掉给旧名） */
+  /** 已注册指标清单（旧口径问「库里有啥」）：自研 native 的旧名 + 内核自带原生类型 */
+  getSupportedIndicators() {
+    const out = new Set();
+    try {
+      for (const t of (window.__TT_NATIVE_TYPES__ || [])) out.add(String(t).replace(/^TT_/, ''));
+    } catch {}
+    try {
+      const kern = this.chart?.availableNativeIndicators?.();
+      const add = (v) => { if (typeof v === 'string') out.add(v); else if (v && typeof v === 'object') out.add(v.type || v.id || v.name); };
+      if (Array.isArray(kern)) kern.forEach(add);
+      else if (kern && typeof kern === 'object') Object.keys(kern).forEach((k) => out.add(k));
+    } catch {}
+    return [...out].filter(Boolean);
+  }
+
+  /** 旧改参口子：calcParams → inputs.p0/p1…（Vela 侧指标参数是 inputs 对象） */
+  overrideIndicator(cfg = {}) {
+    const name = cfg.name || cfg.nativeType;
+    const h = this.indicators().find((x) => name && (
+      x.name === name || x.nativeType === name || x.nativeType === 'TT_' + name
+    ));
+    const raw = h?.raw;
+    if (!raw) return false;
+    if (cfg.visible !== undefined && typeof raw.setVisible === 'function') {
+      try { raw.setVisible(!!cfg.visible); } catch {}
+      if (!cfg.calcParams && !cfg.styles) return true;
+    }
+    let inputs = cfg.inputs || null;
+    if (!inputs && Array.isArray(cfg.calcParams)) {
+      inputs = {};
+      cfg.calcParams.forEach((v, i) => { inputs['p' + i] = v; });
+      // 旧口径：参数个数即线数，多于该数的线不再画
+      window.__TT_CALC_LEN = window.__TT_CALC_LEN || {};
+      window.__TT_CALC_LEN[h.name] = cfg.calcParams.length;
+    }
+    // 线样式覆盖：内核不承载业务线色（props 面为空），改由 emit 时按 key 覆盖
+    let styleTouched = false;
+    const lines = cfg.styles?.lines || cfg.styles?.series;
+    if (Array.isArray(lines) && lines.length) {
+      const keys = (window.__TT_FIG_KEYS || {})[h.name] || [];
+      window.__TT_IND_STYLES = window.__TT_IND_STYLES || {};
+      const bag = (window.__TT_IND_STYLES[h.name] = window.__TT_IND_STYLES[h.name] || {});
+      lines.forEach((ln, i) => {
+        const key = ln?.key || keys[i];
+        if (!key || !ln) return;
+        bag[key] = { ...(bag[key] || {}),
+          ...(ln.c ? { color: ln.c } : {}),
+          ...(ln.color ? { color: ln.color } : {}),
+          ...(Number.isFinite(ln.size) ? { size: ln.size } : {}),
+          ...(Number.isFinite(ln.width) ? { size: ln.width } : {}) };
+        styleTouched = true;
+      });
+    }
+    if (!inputs && !styleTouched) return false;
+    // 参数变更走内核输入面；只改颜色时用同样的参数回灌一次，强制重算重绘
+    const vals = inputs || (typeof raw.inputValues === 'function' ? { ...raw.inputValues() } : null);
+    if (vals) {
+      for (const fn of ['setInputs', 'updateInputs', 'setParams', 'reconfigure']) {
+        if (typeof raw[fn] === 'function') { try { raw[fn](vals); return true; } catch {} }
+      }
+    }
+    return styleTouched;
+  }
+
+  /** 旧「可用绘图」查询 → Vela 原生绘图工具清单 */
+  getSupportedOverlays() {
+    try {
+      const s = this.chart?.drawings?.supported;
+      const v = typeof s === 'function' ? s() : s;
+      if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : x.type || x.id || x.name)).filter(Boolean);
+      if (v && typeof v === 'object') return Object.keys(v);
+    } catch {}
+    return [];
   }
 
   async switchPeriod(key) {

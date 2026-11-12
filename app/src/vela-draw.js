@@ -48,6 +48,8 @@ export class DrawLayerV {
     this.items = [];                 // 旧 item 形状（{name, points, lineStyle}）—— 面板/自检兼容
     this.pending = null;
     this.activeTool = null;
+    this.ttNames = {};               // drawing id → 我们的工具名（内核 props 不放行自定义键，只能旁挂）
+    window.__TT_DRAW_NAMES__ = this.ttNames;   // overlayList（vela.js）也要认这份
     this.onChange = onChange || (() => {});
     this._wired = false;
     this._persistTimer = null;
@@ -63,15 +65,19 @@ export class DrawLayerV {
     if (!d) return;
     // 放置完成：贴上当前模板样式 + 记录来源工具名
     this.chart.on('drawing:created', ({ id }) => {
-      const doc = d.toJSON().drawings.find(x => x.id === id);
-      const tool = this.activeTool;
+      const list = d.toJSON().drawings;
+      const doc = list.find(x => x.id === id) || list[list.length - 1];   // 有的版本 payload 不带 id
+      // 内核在 drawing:tool 里已把 activeTool 清空，这里要认「刚才 armed 的是哪个工具」
+      const tool = this._armedTool || this.activeTool;   // armed 优先：activeTool 可能是上一件工具的残留
       if (doc && tool && TOOL_MAP[tool]) {
-        const patch = { props: { ...(doc.props || {}), tt: tool } };
+        // 内核不保留自定义 props 键（实测 d.update({props:{tt}}) 被丢弃）→ 工具名旁挂
+        this.ttNames[doc.id] = tool;
         const st = styleFromLine(this.styleFor(tool)?.styles?.line);
-        if (st) patch.style = { ...doc.style, ...st };
-        try { d.update(id, patch); } catch {}
+        if (st) { try { d.update(doc.id, { style: { ...doc.style, ...st } }); } catch {} }
       }
+      // armed 名留着：内核有时先发 drawing:tool(null) 再发 drawing:created
       this.pending = null; this.activeTool = null;
+      try { this._armCount = (d.toJSON().drawings || []).length; } catch {}
       this.capture(); this.persist(); this.onChange();
     });
     // 锚点/样式编辑 → 防抖落盘
@@ -104,6 +110,8 @@ export class DrawLayerV {
     const type = TOOL_MAP[toolKey];
     if (!type) return null;
     this.activeTool = toolKey;
+    this._armedTool = toolKey;
+    try { this._armCount = (d.toJSON().drawings || []).length; } catch { this._armCount = 0; }
     try {
       d.setStayMode(false);
       d.setTool(type);
@@ -170,6 +178,8 @@ export class DrawLayerV {
     if (!d) return;
     const ids = d.toJSON().drawings.map(x => x.id);
     if (ids.length) { try { d.removeMany(ids); } catch {} }
+    this.ttNames = {};
+    window.__TT_DRAW_NAMES__ = this.ttNames;
     this.capture(); this.persist(); this.onChange();
   }
 
@@ -179,7 +189,7 @@ export class DrawLayerV {
     const list = d ? (d.toJSON().drawings || []) : [];
     this.items = list
       .map(x => ({
-        name: x.props?.tt || REV_MAP[x.type] || x.type,
+        name: this.ttNames[x.id] || x.props?.tt || REV_MAP[x.type] || x.type,
         type: x.type,
         id: x.id,
         points: (x.anchors || []).map(a => ({ timestamp: a.time, value: a.price })),
@@ -189,11 +199,35 @@ export class DrawLayerV {
     return this.items;
   }
 
+  /** 用内存 items 重建（旧口径 draw.restore()：不读盘，直接照 items 重画） */
+  restore() {
+    const d = this.chart?.drawings;
+    if (!d) return 0;
+    const now = Date.now();
+    const doc = {
+      version: 1,
+      drawings: (this.items || []).map((it, i) => ({
+        id: it.id || `rs${now.toString(36)}${i}`,
+        type: it.type || TOOL_MAP[it.name] || 'trendline',
+        paneId: 'candle_pane',
+        anchors: (it.points || []).filter(p => p.timestamp != null).map(p => ({ time: p.timestamp, price: p.value })),
+        style: { ...(styleFromLine(it.lineStyle) || { lineColor: '#8adeff', lineWidth: 1, lineStyle: 'solid' }) },
+        locked: false, visible: true, zIndex: i, createdAt: now,
+        props: { tt: it.name }
+      }))
+    };
+    try { d.fromJSON(doc); } catch (e) { console.warn('[vela-draw] restore', e?.message); }
+    const n = this.capture();
+    this.onChange();
+    return n.length;
+  }
+
   /** 持久化 = Vela 文档原样落盘（含 id/style/props，恢复零重排） */
   async persist() {
     try {
       const d = this.chart?.drawings;
       const doc = d ? d.toJSON() : { version: 1, drawings: [] };
+      doc.__tt = this.ttNames || {};
       await kvSet(this.key(), doc);
     } catch (e) { console.warn('[vela-draw] persist', e?.message); }
   }
@@ -222,6 +256,8 @@ export class DrawLayerV {
       };
       try { d.fromJSON(doc); } catch (e) { console.warn('[vela-draw] 迁移失败', e?.message); }
     } else if (saved && Array.isArray(saved.drawings)) {
+      this.ttNames = saved.__tt || {};
+      window.__TT_DRAW_NAMES__ = this.ttNames;
       try { d.fromJSON(saved); } catch (e) { console.warn('[vela-draw] 读档失败', e?.message); }
     }
     const n = this.capture();
