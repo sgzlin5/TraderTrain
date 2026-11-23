@@ -35,6 +35,8 @@ import queue
 import threading
 import urllib.parse
 import urllib.request
+
+LOG_REQ = bool(os.environ.get("TT_LOG_REQ"))     # TT_LOG_REQ=1 → 打印访问日志（排查实时/下载卡住）
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
@@ -105,7 +107,7 @@ def _biquote_ticker(code):
     return code
 
 
-def _biquote_ohlc(ticker, interval="1m", limit=5, attempts=3, timeout=8):
+def _biquote_ohlc(ticker, interval="1m", limit=5, attempts=2, timeout=6):
     """取最近 N 根（含正在走的那根，isOpen=true）。返回 (bars, error)"""
     url = f"{BIQUOTE_BASE}/{ticker}/ohlc?interval={interval}&limit={max(1, min(1000, limit))}"
     last = None
@@ -519,7 +521,10 @@ class Handler(SimpleHTTPRequestHandler):
     server_version = "TraderTrain/1.0"
 
     def log_message(self, fmt, *args):
-        pass                                     # 静音访问日志
+        # 访问日志：默认静音；排查实时/下载卡住时设 TT_LOG_REQ=1
+        if LOG_REQ:
+            sys.stderr.write("[%s] %s\n" % (time.strftime("%H:%M:%S"), (fmt % args)))
+            sys.stderr.flush()
 
     def translate_path(self, path):
         # /data/bin/* 允许指向包外的真实目录：exe 扫到盘上已有行情时，清单写用户目录、

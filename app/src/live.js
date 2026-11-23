@@ -15,6 +15,7 @@ const BACKFILL_LIMIT = 1000;      // biquote 的 1m 上限（约 5 小时）
 const POLL_LIMIT = 15;            // 每轮多取 15 根：短暂断线能自愈
 const GAP_MIN = 2;                // 落后超过 N 分钟就触发补洞
 const GAP_FETCH_LIMIT = 1000;     // 补洞按缺口长度取（上限 = biquote 单次 1m 上限，约 16h）；写死 120 会让 >2h 的停摆永久留洞
+const FETCH_TIMEOUT_MS = 8_000;   // 单次 /api/live 超时：上游偶发 5–6 s，超过 8 s 就当本轮失败，别让轮询链卡死
 
 export class LiveFeed {
   /**
@@ -56,6 +57,9 @@ export class LiveFeed {
     this.running = true;
     this.onStatus(this.status());
 
+    // 0) 先开 SSE：回补/轮询都可能被上游拖慢（biquote 单次 1.3–6 s），先把快路径架起来
+    this._openStream();
+
     // 1) 回补：库里 last 与实际最新之间可能有缺口
     try {
       const back = await this._fetch(BACKFILL_LIMIT);
@@ -85,7 +89,6 @@ export class LiveFeed {
       const wait = Math.max(150, target - (Date.now() - t0));
       if (this.running) this.timer = setTimeout(tick, wait);
     };
-    this._openStream();
     this.timer = setTimeout(tick, 300);
     this.flushTimer = setInterval(() => { this._flush().catch(() => {}); }, FLUSH_MS);
     return this.status();
@@ -109,7 +112,15 @@ export class LiveFeed {
 
   async _fetch(limit) {
     const url = `/api/live?symbol=${encodeURIComponent(this.profile.symbol)}&limit=${limit}`;
-    const r = await fetch(url, { cache: 'no-store' });
+    // 上游 biquote 实测 1.3–6 s；不带超时的话一次卡住的请求会把整条轮询链拖死（表现为"实时卡住"）
+    const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS) : null;
+    let r;
+    try {
+      r = await fetch(url, { cache: 'no-store', signal: ctl?.signal });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j?.error || `实时接口 ${r.status}`);
     return (j.bars || []).map(b => ({
@@ -123,6 +134,10 @@ export class LiveFeed {
     const closed = bars.filter(b => !b.forming);
     if (forming.length && this.onForming) this.onForming(forming[forming.length - 1]);
     if (!closed.length) return;
+    // SSE 1 s 一条，而一次入库可能要等 IDB 或补洞请求（上游 1.3–6 s）：
+    // 不加在飞行锁的话 1 s 会叠一条并发链，每条都拿旧 known 去补洞 → 请求风暴 → 越补越卡
+    if (this._inflight) { this._again = true; return; }
+    this._inflight = true;
     const run = async () => {
       let known = this.lastTs ?? (await liveLastTs(this.profile.id)) ?? this._histLast();
       const newest = closed[closed.length - 1].timestamp;
@@ -145,7 +160,12 @@ export class LiveFeed {
         if (this.pendingFlush) await this._flush();
       }
     };
-    return run().catch((e) => { this.stats.lastErr = String(e.message || e); this.onStatus(this.status({ err: this.stats.lastErr })); });
+    return run()
+      .catch((e) => { this.stats.lastErr = String(e.message || e); this.onStatus(this.status({ err: this.stats.lastErr })); })
+      .then(() => {
+        this._inflight = false;
+        if (this._again) { this._again = false; return this._ingest(bars); }
+      });
   }
 
   /** SSE 快路径：服务端单例订阅 biquote，1 s 推一次；失败自动退回轮询 */
@@ -181,6 +201,8 @@ export class LiveFeed {
   }
 
   async _poll() {
+    if (this._polling) return;                        // 上一轮还在等上游，别叠请求
+    this._polling = true;
     this.stats.polls++;
     this.stats.lastPollAt = Date.now();
     try {
@@ -193,6 +215,8 @@ export class LiveFeed {
       this.stats.errors++;
       this.stats.lastErr = String(e.message || e);
       this.onStatus(this.status({ err: this.stats.lastErr }));
+    } finally {
+      this._polling = false;
     }
   }
 

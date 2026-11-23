@@ -4793,7 +4793,7 @@ function paintLive(s = {}) {
 /** 窗口末根离实时多远还算“贴着实时”（超过就当用户停在历史，不自动拽） */
 const NEAR_LIVE_MS = 10 * 60_000;
 
-async function startLiveFeed() {
+async function startLiveFeed({ jump = false } = {}) {
   const p = state.profile;
   if (!p) { updateStatus('实时：还没有行情数据'); return; }
   // 单实例：同一品种已经在采就不要再起一个（两个 feed 会互相覆盖 live 分片）
@@ -4849,6 +4849,19 @@ async function startLiveFeed() {
   await state.live.start();
   await kvSet('ui:live', true).catch(() => {});
   paintLive(state.live.status());
+
+  // 用户明确点了「实时」：窗口若还停在历史（数据止于几天/几周前很常见），直接把图表贴到实时尾巴。
+  // 否则 onForming/onClosed 的「≤2 分钟 / ≤10 分钟」门槛会让图一根都不动，看着就是"实时卡住"。
+  if (jump) {
+    try {
+      const s = state.live.status();
+      const tail = state.app?.lastTs?.();
+      if (s?.last && tail && s.last - tail > NEAR_LIVE_MS) {
+        await catchUpLive(s.last);
+        updateStatus(`实时已开 · 图表已贴到实时（${fmtTs(s.last)}）`);
+      }
+    } catch (e) { logErr('live:贴实时', e); }
+  }
 
   // 历史与实时之间的空洞要明说（不自欺：图上那一大段空白不是渲染问题）
   try {
@@ -4991,7 +5004,7 @@ async function jumpToLatest(opts = {}) {
 function wireLive() {
   liveBtn()?.addEventListener('click', async () => {
     if (state.live) await stopLiveFeed();
-    else await startLiveFeed();
+    else await startLiveFeed({ jump: true });
   });
   $('btnLatest')?.addEventListener('click', async () => { await jumpToLatest(); });
   $('btnReplay')?.addEventListener('click', async () => {

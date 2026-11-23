@@ -1600,3 +1600,16 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | 反证（变异测试） | 两处修复各回退一处再跑 | `fromDay>=toDay` → `pass=false`（无 `/api/job`、补 0 根）；不释放 `jobId` → `pass=false`（失败后起不了新任务） |
 
 改动：`download.js`（同日判断、失败/取消释放 `jobId`、动态数据源、扫描分级、补洞超时与中止）、`live.js`（按缺口长度取数 + `lastTs` 去重）、`ingest.js`（档案记 `source`/`price`）。用例全程桩 `/api/*` + 合成 CSV，不联网、不碰真实档案，`ZZS48*` 档案跑完自动删。
+
+## 实时采集不卡死（2026-11-23，`?selftest=49` 13.0 s）
+
+| 判据 | 方法 | 结果 |
+|---|---|---|
+| 轮询不叠请求 | 桩 `/api/live` 延迟 400 ms，连调 3 次 `_poll()` | 只发 1 次请求（原来 3 次） |
+| SSE 不并发补洞 | `lastTs` 落后 149 天，同一条消息连推 5 次 | 只发 1 次补洞请求、补到窗口尾巴、只写 200 根（原来 5 次请求 / 写 1000 根） |
+| 单请求有超时 | 桩 fetch 永不返回 | 9.0 s 抛 `AbortError`（`FETCH_TIMEOUT_MS=8 s`），轮询链不被吊死 |
+| SSE 先于回补 | 桩回补延迟 1.2 s | EventSource 0 ms 打开，回补 2.0 s 才回，快路径不被堵在前面 |
+| 图表贴实时 | 历史止于 2026-06-27，点「实时」 | 图从 `06-27 05:58` 跳到 `11-23 09:53`（原来一根不动，看着像卡住） |
+| 反证（变异测试） | 去掉 `_polling` 门 → `pollNoOverlap.reqs=3`；去掉 `_inflight` 门 → 5 次请求 / 写 1000 根 | 两次 `pass=false` |
+
+改动：`live.js`（`FETCH_TIMEOUT_MS` 超时、`_poll` 在飞行锁、`_ingest` 单飞 + `_again` 补跑、`start()` 先开 SSE 再回补）、`main.js`（点「实时」时窗口落后 >10 分钟自动贴到实时尾巴）、`serve.py`（`_biquote_ohlc` 重试 2 次 × 6 s，另加 `TT_LOG_REQ=1` 访问日志便于事后判读）。
