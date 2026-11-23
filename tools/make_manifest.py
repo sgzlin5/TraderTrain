@@ -22,7 +22,8 @@ def sha256(path, buf=1 << 20):
             h.update(b)
     return h.hexdigest()
 
-def build(data_dir):
+def build(data_dir, dir_prefix=None):
+    """dir_prefix 给了就用它拼清单里的 dir（exe 运行时用 "data/bin"），否则用相对仓库根的路径。"""
     profiles = []
     for name in sorted(os.listdir(data_dir)):
         pdir = os.path.join(data_dir, name)
@@ -59,7 +60,7 @@ def build(data_dir):
             "first": min((c["first"] for c in chunks if c["first"]), default=None),
             "last": max((c["last"] for c in chunks if c["last"]), default=None),
             "gaps": meta.get("gaps_over_1min", 0),
-            "dir": os.path.relpath(pdir, ROOT).replace("\\", "/"),
+            "dir": (f"{dir_prefix}/{name}" if dir_prefix else os.path.relpath(pdir, ROOT).replace("\\", "/")),
             "chunks": chunks,
         })
     return {"version": 1, "recordBytes": RECORD, "generatedAt": None, "profiles": profiles}

@@ -3,7 +3,10 @@ TraderTrain v0.2.0-beta —— Windows 桌面版
 
 一、怎么启动
    双击 TraderTrain-0.2.0-beta.exe。
-   窗口打开后用「04 数据」下载或导入行情（首次是空的，数据存在本机）。
+   默认发行包**不内置历史行情**（108 MB 不适合塞进 exe）：启动时会扫描盘上已有的 data\bin，
+   扫到就出现在「04 数据 → 可导入」里，点「导入」直接用（读原目录，不复制、不额外占空间）。
+   查找顺序：%TT_DATA% → exe 同级的 data\（便携）→ 上一级 data\ → 仓库根 data\ → %LOCALAPPDATA%\TraderTrain\data\
+   都没扫到时清单为空，行情用「04 数据 → 在线下载」或「导入 CSV」。
    数据目录：%LOCALAPPDATA%\TraderTrain\
      app\      程序文件（升级时自动重铺）
      data\     行情清单
@@ -28,6 +31,9 @@ TraderTrain v0.2.0-beta —— Windows 桌面版
    · 杀软报毒：PyInstaller 单文件包常被误报，加白即可。
 
 四、重新打包
-   bash packaging/build.sh      （需要 Python 3.12；脚本会自建 .venv 并装 pywebview + pyinstaller）
+   bash packaging/build.sh                       （需要 Python 3.12；脚本会自建 .venv 并装 pywebview + pyinstaller）
    产物：packaging/dist/TraderTrain-0.2.0-beta.exe
+   要连历史行情一起打包（+108 MB，给没有数据的机器）：
+     WITH_DATA=1 bash packaging/build.sh
+   注意：清单由 exe 启动时按扫到的 data\bin 自动生成（写到 %LOCALAPPDATA%\TraderTrain\data\manifest.json），不用手工维护。
    改了 app/ 里的代码必须重新打包，exe 内嵌的是打包那一刻的副本。

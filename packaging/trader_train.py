@@ -12,6 +12,7 @@
 （跟 start.bat 一样），这样 v0.1 之前导入的行情能继续用。
 """
 import ctypes
+import json
 import os
 import shutil
 import socket
@@ -95,6 +96,80 @@ def ensure_app(bundle, home):
         os.makedirs(os.path.join(home, "data"), exist_ok=True)
         shutil.copyfile(mf, os.path.join(home, "data", "manifest.json"))
     return dst
+
+
+# ---------------------------------------------------------------- 扫描盘上行情
+
+DATA_ENV = "TT_DATA"        # 自定义数据目录（其下应有 bin/<profile>/…）。也可放 exe 同级 data/
+
+
+def _exe_dir():
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return PROJECT_DIR
+
+
+def _data_candidates(home):
+    """按优先级列出可能带 bin/ 的 data 目录：TT_DATA → exe 同级 → 上级/仓库 → 用户目录。"""
+    exe_dir = _exe_dir()
+    out = []
+    env = os.environ.get(DATA_ENV)
+    if env:
+        out.append(os.path.abspath(env))
+    out += [
+        os.path.join(exe_dir, "data"),                                          # 便携：data 就放 exe 旁边
+        os.path.abspath(os.path.join(exe_dir, os.pardir, "data")),              # packaging/dist → packaging/data
+        os.path.abspath(os.path.join(exe_dir, os.pardir, os.pardir, "data")),   # 仓库根/data（开发机）
+        os.path.join(home, "data"),                                             # %LOCALAPPDATA%\TraderTrain\data
+    ]
+    if getattr(sys, "_MEIPASS", None):
+        out.insert(0, os.path.join(sys._MEIPASS, "data"))                       # WITH_DATA=1 内置的那份
+    return out
+
+
+def _bin_dir_of(data_dir):
+    b = os.path.join(data_dir, "bin")
+    try:
+        for name in os.listdir(b):
+            p = os.path.join(b, name)
+            if os.path.isdir(p) and any(f.endswith(".meta.json") for f in os.listdir(p)):
+                return b
+    except Exception:
+        pass
+    return None
+
+
+def prepare_data(home):
+    """扫盘上已有的 data/bin → 生成用户目录里的清单，返回真实 bin 目录（没有就 None）。
+
+    exe 不内置 108 MB 历史：哪台机器上有数据就能用哪台的数据，不需要复制。
+    """
+    bins = []
+    for d in _data_candidates(home):
+        b = _bin_dir_of(d)
+        if b and b not in bins:
+            bins.append(b)
+    mf = os.path.join(home, "data", "manifest.json")
+    os.makedirs(os.path.dirname(mf), exist_ok=True)
+    if not bins:
+        log("没扫到 data/bin → 清单置空（用「04 数据 → 在线下载」或导入 CSV）")
+        with open(mf, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "recordBytes": 28, "generatedAt": None, "profiles": []}, f,
+                      ensure_ascii=False, indent=1)
+        return None
+    bin_dir = bins[0]
+    log("行情目录:", bin_dir, f"(候选 {len(bins)} 个)")
+    try:
+        sys.path.insert(0, os.path.join(resource_root(), "tools"))
+        import make_manifest                            # tools/make_manifest.py，打包时一起带上
+        m = make_manifest.build(bin_dir, dir_prefix="data/bin")
+        with open(mf, "w", encoding="utf-8") as f:
+            json.dump(m, f, ensure_ascii=False, indent=1)
+        for p in m["profiles"]:
+            log(f"  可导入 {p['id']}: {p['bars']} 根 / {p['bytes'] / 1048576:.1f} MB")
+    except Exception as e:
+        log("清单生成失败:", repr(e))
+    return bin_dir
 
 
 # ---------------------------------------------------------------- 本地服务
@@ -228,21 +303,28 @@ def main():
 
     if "--chrome" in sys.argv:
         ensure_app(resource_root(), home)
+        bin_dir = prepare_data(home)
+        srv = None
         if not port_busy(PORT):
-            start_server(home)
+            srv = start_server(home)
+        if srv is not None and bin_dir:
+            srv.bin_dir = bin_dir
         ok = launch_chrome_mode()
         log("chrome mode:", "ok" if ok else "chrome 未找到")
         time.sleep(1.2)
         return
 
     ensure_app(resource_root(), home)
+    bin_dir = prepare_data(home)
 
     if port_busy(PORT):
         if not http_ok(PORT):
             raise SystemExit(f"端口 {PORT} 被别的程序占用，请先关掉它再启动。")
         log("端口已在服务中，直接开窗")
     else:
-        start_server(home)
+        srv = start_server(home)
+        if bin_dir:
+            srv.bin_dir = bin_dir
 
     import webview
 

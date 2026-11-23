@@ -39,7 +39,13 @@ export async function importProfile(profile, { onProgress = () => {}, signal, ve
       onProgress({ phase: 'fetch', file: ch.file, fileIndex: i, fileCount: profile.chunks.length, doneBytes: done, totalBytes: total });
 
       const res = await fetch(new URL(`${profile.dir}/${ch.file}`, BASE));
-      if (!res.ok) throw new Error(`下载失败 ${ch.file}: ${res.status}`);
+      if (!res.ok) {
+        // 404 基本都是「清单列了但 bin 没随包/没放到 data/bin」—— 别报成泛泛的下载失败
+        if (res.status === 404) {
+          throw new Error(`找不到 ${profile.dir}/${ch.file}（本包未内置这份行情；用「04 数据 → 在线下载」或导入 CSV）`);
+        }
+        throw new Error(`下载失败 ${ch.file}: ${res.status}`);
+      }
       const buf = await res.arrayBuffer();
 
       if (buf.byteLength !== ch.bytes) throw new Error(`${ch.file} 大小不符：期望 ${ch.bytes}，实际 ${buf.byteLength}`);

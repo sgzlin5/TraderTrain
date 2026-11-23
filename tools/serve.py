@@ -521,6 +521,19 @@ class Handler(SimpleHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass                                     # 静音访问日志
 
+    def translate_path(self, path):
+        # /data/bin/* 允许指向包外的真实目录：exe 扫到盘上已有行情时，清单写用户目录、
+        # 二进制留在原处（不复制、不多占空间）；其余路径照旧走 server.root
+        root = getattr(self.server, "bin_dir", None)
+        if root:
+            p = urllib.parse.unquote(path.split("?", 1)[0].split("#", 1)[0])
+            if p.startswith("/data/bin/"):
+                base = os.path.normpath(root)
+                target = os.path.normpath(os.path.join(base, p[len("/data/bin/"):]))
+                if target.startswith(base) and os.path.isfile(target):
+                    return target
+        return super().translate_path(path)
+
     def end_headers(self):
         # 静态资源也禁缓存：改了 JS/CSS 之后 Ctrl+R 必须拿到新文件，
         # 否则 HTML 是新的、ES 模块还是旧的 → 页面空白/点了没反应。
