@@ -1,8 +1,8 @@
-TraderTrain v0.1.0 —— Windows 桌面版
+TraderTrain v0.2.0-beta —— Windows 桌面版
 =====================================
 
 一、怎么启动
-   双击 TraderTrain-0.1.0.exe。
+   双击 TraderTrain-0.2.0-beta.exe。
    窗口打开后用「04 数据」下载或导入行情（首次是空的，数据存在本机）。
    数据目录：%LOCALAPPDATA%\TraderTrain\
      app\      程序文件（升级时自动重铺）
@@ -29,5 +29,5 @@ TraderTrain v0.1.0 —— Windows 桌面版
 
 四、重新打包
    bash packaging/build.sh      （需要 Python 3.12；脚本会自建 .venv 并装 pywebview + pyinstaller）
-   产物：packaging/dist/TraderTrain-0.1.0.exe
+   产物：packaging/dist/TraderTrain-0.2.0-beta.exe
    改了 app/ 里的代码必须重新打包，exe 内嵌的是打包那一刻的副本。

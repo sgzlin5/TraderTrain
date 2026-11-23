@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""TraderTrain v0.1.0 —— 单文件 exe 入口。
+"""TraderTrain v0.2.0-beta —— 单文件 exe 入口。
 
 做什么：
   1) 把打包进来的 app/ 铺到 %LOCALAPPDATA%\\TraderTrain\\app（可写，带 BUILD 戳做版本升级）；
@@ -31,7 +31,7 @@ try:
 except Exception:      # 没装 pythonnet / cffi 时让 pywebview 自己报错
     pass
 
-VERSION = "0.1.0"
+VERSION = "0.2.0-beta"          # 与 packaging/build.sh 的 VER 一致（exe 文件名同源）
 APP_NAME = "TraderTrain"
 PORT = int(os.environ.get("TT_PORT", "8733"))   # 仅供冒烟测试改端口；正式用 8733
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # 源码运行时用

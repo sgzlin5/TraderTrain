@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")"
 
-VER=0.1.0
+VER="${VER:-0.2.0-beta}"
 PY="py -3.12"
 
 echo "== 1) 生成 BUILD 戳 =="
