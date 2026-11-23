@@ -14,7 +14,7 @@ const FLUSH_BARS = 20;
 const BACKFILL_LIMIT = 1000;      // biquote 的 1m 上限（约 5 小时）
 const POLL_LIMIT = 15;            // 每轮多取 15 根：短暂断线能自愈
 const GAP_MIN = 2;                // 落后超过 N 分钟就触发补洞
-const GAP_FETCH_LIMIT = 120;
+const GAP_FETCH_LIMIT = 1000;     // 补洞按缺口长度取（上限 = biquote 单次 1m 上限，约 16h）；写死 120 会让 >2h 的停摆永久留洞
 
 export class LiveFeed {
   /**
@@ -129,13 +129,17 @@ export class LiveFeed {
       let all = bars;
       if (known != null && newest - known > GAP_MIN * MIN) {
         try {
-          all = await this._fetch(GAP_FETCH_LIMIT);
+          // 缺口多大就取多大（上限 BACKFILL_LIMIT）：固定小 limit 只能补最近一截，更早那截会被永久跳过
+          const need = Math.min(BACKFILL_LIMIT, Math.ceil((newest - known) / MIN) + 2);
+          all = await this._fetch(need);
           this.stats.healed = (this.stats.healed || 0) + 1;
         } catch (e) { /* 补洞失败不影响本轮 */ }
       }
       const fresh = all.filter(b => !b.forming).filter(b => known == null || b.timestamp > known);
       if (fresh.length) {
         this.buffer.push(...fresh);
+        // 立即推进 lastTs：否则 next 一轮拿旧 known 去过滤，同一根会反复入 buffer（写入端虽去重，撮合器仍被重复喂）
+        this.lastTs = Math.max(this.lastTs || 0, fresh[fresh.length - 1].timestamp);
         this.pendingFlush = this.buffer.length >= FLUSH_BARS;
         this.onStatus(this.status());
         if (this.pendingFlush) await this._flush();

@@ -203,7 +203,9 @@ export async function importCsvSources(sources, opt = {}) {
     id: built.id, symbol: built.sym, period: { span: 1, type: 'minute' }, recordBytes: RECORD_BYTES,
     priceScale: built.scale, zeroVolume: built.zeroVol === built.bars,
     bars: built.bars, bytes: built.bytes, importedBytes: built.bytes,
-    first: built.first, last: built.last, gaps: 0, dir: '(csv)', source: 'csv',
+    first: built.first, last: built.last, gaps: 0, dir: '(csv)',
+    source: opt?.source || 'csv',            // 数据源记进档案：补洞时按同一源拉（dukascopy / binance）
+    ...(opt?.price ? { price: opt.price } : {}),   // 价格类型（BID/ASK）也记下来，避免后续把 ASK 混进 BID 历史
     skipped: built.skipped, dupeTimestamps: built.dupes,
     importedAt: new Date().toISOString(), importId, chunks: []
   };
@@ -287,6 +289,8 @@ export async function appendCsvSources(sources, opt = {}) {
       ...prev,
       bars, bytes, first, last,
       importedBytes: bytes,
+      source: opt?.source || prev.source || 'csv',       // 续传记录本次源；老档案没有就沿用
+      ...(opt?.price || prev.price ? { price: opt?.price || prev.price } : {}),
       appendedAt: new Date().toISOString(),
       appendedBars: built.bars,
       importId, chunks

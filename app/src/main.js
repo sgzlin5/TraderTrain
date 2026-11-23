@@ -4692,7 +4692,7 @@ async function loadProfile(profile) {
     if (state.profile && pref !== false && !state.live) await startLiveFeed();
   } catch (e) { logErr('live:恢复', e); }
 
-  // 启动自动补缺口（默认关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
+  // 启动自动补缺口（默认开，用户取消勾选才关；一次页面生命周期只试一次，避免导入后 loadProfile 递归）
   try {
     if (state.profile && !state._gapTried && (await kvGet('ui:autogap')) !== false) {
       state._gapTried = true;

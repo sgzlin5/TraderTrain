@@ -9,7 +9,12 @@ const DL = {
   jobId: null,
   timer: null,
   abort: null,
-  notify: null            // 自动补缺口时把进度镜像到状态栏（手动模式下为 null）
+  notify: null,           // 自动补缺口时把进度镜像到状态栏（手动模式下为 null）
+  cancelled: false,       // 用户点了取消（补洞流程要据此停下，而不是跳下一段）
+  failed: null,           // 最近一次任务的失败原因（补洞流程据此中止剩余段）
+  jobPrice: null,         // 本次任务实际用的价格类型（BID/ASK），跟档案走
+  jobFrom: null,          // 本次任务实际区间（补洞时 UI 日期框可能不是它）
+  jobTo: null
 };
 
 function dlMsg(text, isErr = false) {
@@ -83,6 +88,29 @@ function utcDay(d) { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(
 function isoDay(d) { return d.toISOString().slice(0, 10); }
 function yesterdayUTC() { const d = new Date(); d.setUTCDate(d.getUTCDate() - 1); return utcDay(d); }
 
+/** 7×24 品种判定（与服务端 serve.py 的 CRYPTO_HINTS 保持一致）：周末不套休市规则 */
+const CRYPTO_HINTS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE', 'ADA', 'AVAX', 'LINK', 'LTC', 'DOT', 'TRX', 'TON', 'SUI', 'APT', 'ARB', 'OP', 'NEAR', 'INJ'];
+export function isCryptoCode(code) {
+  const s = String(code || '').toUpperCase();
+  return s.endsWith('USDT') || CRYPTO_HINTS.some(h => s.startsWith(h));
+}
+
+/** 某标的该用哪个源：以内置清单为准（档案里也可能记着 source），加密走 Binance */
+async function dlSourceOf(code) {
+  const sym = String(code || '').toUpperCase();
+  try {
+    const { getProfile } = await import('./db.js');
+    const p = await getProfile(`${sym}-1m`);
+    if (p?.source === 'binance' || p?.source === 'dukascopy') return p.source;
+  } catch {}
+  try {
+    const { INSTRUMENTS } = await import('./instruments.js');
+    const hit = INSTRUMENTS.find(x => x.code === sym);
+    if (hit?.source) return hit.source;
+  } catch {}
+  return isCryptoCode(sym) ? 'binance' : 'dukascopy';
+}
+
 /** 「补到昨天」按钮的可用性：要有档案，且最后一天早于昨天 */
 async function dlSyncAppendBtn() {
   const btn = document.getElementById('dlAppend');
@@ -113,17 +141,22 @@ async function dlAppend(opts = {}) {
   }
   const fromDay = opts.from ? utcDay(new Date(opts.from)) : utcDay(new Date(prev.last));  // 含最后一天（边界 K 线可能不完整）
   const toDay = opts.to ? utcDay(new Date(opts.to)) : yesterdayUTC();
-  if (fromDay >= toDay) { dlMsg(`已是最新：最后一天 ${isoDay(fromDay)}`, false); return; }
+  // 用 > 而不是 >=：单日缺口（缺口首尾落在同一天）必须能补；服务端也只拒 d1<d0
+  if (fromDay > toDay) { dlMsg(`已是最新：最后一天 ${isoDay(fromDay)}`, false); return; }
 
   DL.appendMode = true;
   DL.prevBars = prev.bars;
+  DL.cancelled = false;
+  DL.failed = null;
+  DL.jobPrice = prev.price || document.getElementById('dlPrice')?.value || 'BID';   // 价格类型跟档案走，别把 ASK 混进 BID 历史
+  DL.jobFrom = isoDay(fromDay); DL.jobTo = isoDay(toDay);
   dlMsg('');
   dlSetProgress(0, `续传 ${isoDay(fromDay)} → ${isoDay(toDay)} …`);
   document.getElementById('dlCancel').hidden = false;
   try {
-    const source = DL.picked.source || 'dukascopy';
+    const source = DL.picked.source || await dlSourceOf(code);
     const url = `/api/job?symbol=${encodeURIComponent(code)}&source=${source}`
-      + `&tf=M1&from=${isoDay(fromDay)}&to=${isoDay(toDay)}&price=${document.getElementById('dlPrice').value || 'BID'}`;
+      + `&tf=M1&from=${isoDay(fromDay)}&to=${isoDay(toDay)}&price=${DL.jobPrice}`;
     const res = await fetch(url);
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -132,6 +165,7 @@ async function dlAppend(opts = {}) {
     dlPoll(data.total);
   } catch (err) {
     DL.appendMode = false;
+    DL.failed = err.message || String(err);
     dlMsg(`续传失败：${err.message}`, true);
     dlStop();
     document.getElementById('dlProgWrap').hidden = true;
@@ -169,10 +203,15 @@ async function dlStart() {
   }
   dlMsg('');
   DL.appendMode = false;
+  DL.cancelled = false;
+  DL.failed = null;
+  DL.jobPrice = price;
+  DL.jobFrom = from; DL.jobTo = to;
   dlSetProgress(0, '创建任务…');
   document.getElementById('dlCancel').hidden = false;
   try {
-    const url = `/api/job?symbol=${encodeURIComponent(DL.picked.code)}&source=${DL.picked.source || 'dukascopy'}`
+    const source = DL.picked.source || await dlSourceOf(DL.picked.code);
+    const url = `/api/job?symbol=${encodeURIComponent(DL.picked.code)}&source=${source}`
       + `&tf=${tf}&from=${from}&to=${to}&price=${price}`;
     const res = await fetch(url);
     const data = await res.json();
@@ -197,20 +236,35 @@ function dlPoll(total) {
       dlSetProgress(pct * 0.85, `下载 ${j.done}/${j.total} ${DL.unit || '天'} · ${j.bars.toLocaleString()} 根`);
       if (j.state === 'done') { clearInterval(DL.timer); DL.timer = null; await dlFinish(j); }
       else if (j.state === 'error' || j.state === 'cancelled') {
+        // 失败/取消必须把 jobId 释放掉，否则 dlStart/dlAppend 会被永久挡住，补洞流程也会死等
+        const failed = j.state === 'error';
+        DL.failed = failed ? (j.error || '下载失败') : null;
+        DL.jobId = null;
+        DL.appendMode = false;
+        DL.notify = null;
+        document.getElementById('dlProgWrap').hidden = true;
         dlStop();
-        dlMsg(j.state === 'cancelled' ? '已取消' : `下载失败：${j.error}`, j.state === 'error');
+        dlMsg(failed ? `下载失败：${j.error}` : '已取消', failed);
+        dlSyncAppendBtn();
       }
     } catch (err) {
+      DL.failed = `进度获取失败：${err.message}`;
+      DL.jobId = null;
+      DL.appendMode = false;
+      DL.notify = null;
+      document.getElementById('dlProgWrap').hidden = true;
       dlStop();
-      dlMsg(`进度获取失败：${err.message}`, true);
+      dlMsg(DL.failed, true);
+      dlSyncAppendBtn();
     }
   }, 1200);
 }
 
 async function dlFinish(job) {
   const sym = DL.picked.code;
-  const from = document.getElementById('dlFrom').value;
-  const to = document.getElementById('dlTo').value;
+  // 区间以任务实际参数为准（补洞时 UI 日期框可能还是别的区间）
+  const from = DL.jobFrom || document.getElementById('dlFrom').value;
+  const to = DL.jobTo || document.getElementById('dlTo').value;
   dlSetProgress(88, '读取 CSV…');
   try {
     const res = await fetch(`/api/job/${DL.jobId}/csv`, { cache: 'no-store' });
@@ -219,9 +273,10 @@ async function dlFinish(job) {
     dlSetProgress(92, DL.appendMode ? '合并入库…' : '解析并入库…');
     const ing = await import('./ingest.js');
     const src = [{ name: `${sym}_${from}_${to}.csv`, getText: async () => text }];
+    const opt = { symbol: sym, source: DL.picked?.source || null, price: DL.jobPrice || null };   // 记进档案，下次补洞沿用同一数据源/价格类型
     const saved = DL.appendMode
-      ? await ing.appendCsvSources(src, { symbol: sym })
-      : await ing.importCsvSources(src, { symbol: sym });
+      ? await ing.appendCsvSources(src, opt)
+      : await ing.importCsvSources(src, opt);
     dlSetProgress(100, '完成');
     if (DL.appendMode) {
       const delta = saved.bars - (DL.prevBars || 0);
@@ -253,6 +308,7 @@ export async function scanInteriorGaps(code) {
   const { RECORD_BYTES } = await import('./binread.js');
   const prev = await getProfile(`${code}-1m`);
   if (!prev?.chunks?.length) return { gaps: [], bars: 0 };
+  const crypto = isCryptoCode(code) || prev.source === 'binance';   // 7×24：周末本就不休市，别把真断档当休市
   let prevTs = null;
   const gaps = [];
   let bars = 0;
@@ -272,39 +328,73 @@ export async function scanInteriorGaps(code) {
           const dow = d.getUTCDay(), hour = d.getUTCHours(), days = dt / 86400000;
           const nbars = Math.max(1, Math.round(dt / MIN) - 1);
           let kind = 'gap';
-          if (days <= 0.09 && hour === 5 && d.getUTCMinutes() >= 50) kind = 'maint';
-          else if (nbars >= 55 && nbars <= 65) kind = 'maint';            // ~1h 维护段（不同年代时刻不一）
-          else if (days <= 3.6 && (dow === 5 || dow === 6 || (dow === 0 && hour >= 12))) kind = 'weekend';
-          if (kind === 'gap') gaps.push({
+          if (days <= 0.09 && hour === 5 && d.getUTCMinutes() >= 50) kind = 'maint';                 // Dukascopy 每日 06:00 UTC
+          else if (!crypto && days <= 3.6 && (dow === 5 || dow === 6 || (dow === 0 && hour >= 12))) kind = 'weekend';
+          // ~1h 的洞先别急着当维护：要等全档扫完，看同一钟点是不是天天都缺（见下方 maintHours）
+          else if (nbars >= 55 && nbars <= 65) kind = 'maint?';
+          gaps.push({
             startDay: isoDay(new Date(prevTs + MIN)), endDay: isoDay(new Date(ts - MIN)),
-            bars: nbars, kind
+            bars: nbars, kind, startHour: hour
           });
         }
       }
       prevTs = ts;
     }
   }
-  return { gaps, bars };
+  // 「~1h 且每天同一钟点」才算每日维护；一次性 1h 断档（例如盘中停摆一小时）是真缺口
+  const hoursByDay = new Map();
+  for (const g of gaps) {
+    if (g.kind !== 'maint?') continue;
+    const s = hoursByDay.get(g.startHour) || new Set();
+    s.add(g.startDay); hoursByDay.set(g.startHour, s);
+  }
+  const maintHours = new Set([...hoursByDay].filter(([, s]) => s.size >= 3).map(([h]) => h));
+  const out = [];
+  for (const g of gaps) {
+    if (g.kind === 'maint?' && !maintHours.has(g.startHour)) out.push({ ...g, kind: 'gap' });
+    else if (g.kind === 'gap') out.push(g);
+  }
+  return { gaps: out, bars };
 }
 
 /** 顺序补齐候选缺口：每段走一次「补到昨天」同款管线（下载 → 去重合并入库 → 刷新）。 */
 export async function fillGaps(code, gaps, onStatus = () => {}) {
   if (DL.jobId) { onStatus('下载队列忙，稍后再试', true); return false; }
-  DL.picked = { code, source: 'dukascopy' };
+  DL.picked = { code, source: await dlSourceOf(code) };     // 加密走 Binance，别一律按 Dukascopy 拉
+  DL.cancelled = false;
+  DL.failed = null;
   const { getProfile } = await import('./db.js');
+  const WAIT_MS = 20 * 60 * 1000;                          // 单段兜底超时，别让界面永远转圈
+  let done = 0;
   for (let i = 0; i < gaps.length; i++) {
+    if (DL.cancelled) { onStatus(`已取消：完成 ${done}/${gaps.length} 段`); return false; }
+    if (DL.failed) { onStatus(`下载失败：${DL.failed}（已中止剩余 ${gaps.length - done} 段）`, true); return false; }
     const g = gaps[i];
     onStatus(`[${i + 1}/${gaps.length}] 补 ${g.startDay} → ${g.endDay} …`);
     const before = (await getProfile(`${code}-1m`))?.bars ?? 0;
     await dlAppend({ from: g.startDay, to: g.endDay });
-    if (!DL.jobId) { onStatus(`跳过 ${g.startDay}（无需下载或接口不可用）`); continue; }
-    // 等 dlPoll 完成（DL.jobId 在完成后被清空）+ 入库/刷新收尾
-    while (DL.jobId) await new Promise(r => setTimeout(r, 500));
-    await new Promise(r => setTimeout(r, 1500));
+    if (DL.failed) { onStatus(`下载失败：${DL.failed}（已中止剩余 ${gaps.length - i} 段）`, true); return false; }
+    if (!DL.jobId) { onStatus(`跳过 ${g.startDay}（接口不可用或区间为空）`); continue; }
+    // 等 dlPoll 完成（成功/失败/取消都会清 jobId），带超时
+    const t0 = Date.now();
+    while (DL.jobId && !DL.cancelled && !DL.failed && Date.now() - t0 < WAIT_MS) {
+      await new Promise(r => setTimeout(r, 500));
+    }
+    if (DL.cancelled) { onStatus(`已取消：完成 ${done}/${gaps.length} 段`); return false; }
+    if (DL.failed) { onStatus(`下载失败：${DL.failed}（已中止剩余 ${gaps.length - i} 段）`, true); return false; }
+    if (DL.jobId) {                                            // 超时：清掉任务，别把队列卡死
+      try { await fetch(`/api/job/${DL.jobId}`, { method: 'DELETE' }); } catch {}
+      DL.jobId = null;
+      onStatus(`[${i + 1}/${gaps.length}] ${g.startDay} → ${g.endDay}：等待超时，已中止`, true);
+      dlStop();
+      return false;
+    }
+    await new Promise(r => setTimeout(r, 300));
     const after = (await getProfile(`${code}-1m`))?.bars ?? 0;
-    onStatus(`[${i + 1}/${gaps.length}] ${g.startDay} → ${g.endDay}：新增 ${(after - before).toLocaleString()} 根${after - before === 0 ? '（可能为休市日，上游也无数据）' : ''}`);
+    done++;
+    onStatus(`[${i + 1}/${gaps.length}] ${g.startDay} → ${g.endDay}：新增 ${(after - before).toLocaleString()} 根${after - before === 0 ? '（可能是休市日，上游也无数据）' : ''}`);
   }
-  onStatus(`补齐完成：处理 ${gaps.length} 段`);
+  onStatus(`补齐完成：处理 ${done} 段`);
   return true;
 }
 
@@ -318,9 +408,9 @@ export async function autoGapFill(code, opts = {}) {
   if (!(await dlApiReady())) return { started: false, reason: 'no-api' };
   const fromDay = opts.from ? utcDay(new Date(opts.from)) : utcDay(new Date(prev.last));
   const toDay = opts.to ? utcDay(new Date(opts.to)) : yesterdayUTC();
-  if (fromDay >= toDay) return { started: false, reason: 'up-to-date' };
+  if (fromDay > toDay) return { started: false, reason: 'up-to-date' };
 
-  DL.picked = { code, source: 'dukascopy' };
+  DL.picked = { code, source: await dlSourceOf(code) };
   DL.notify = (t, err) => { try { opts.onStatus?.(t, err); } catch {} };
   const f = document.getElementById('dlFrom'), t = document.getElementById('dlTo');
   if (f) f.value = isoDay(fromDay);
@@ -403,7 +493,12 @@ export function wireDownload() {
             const ft = list.querySelector('#gapFillTiny');
             if (ft) ft.onclick = () => {
               const ranges = gapsToDayRanges(tiny);
-              if (ranges.length > 60) { if (info) info.textContent = `零星缺失分布在 ${ranges.length} 天，超过 60 段上限，请分年处理`; return; }
+              // 上限按「天」算：段数≤2 天间隔合并后段数远小于天数，只判段数会放过超大区间
+              const days = ranges.reduce((s2, r) => s2 + Math.round((new Date(r.endDay) - new Date(r.startDay)) / 86400000) + 1, 0);
+              if (days > 60 || ranges.length > 60) {
+                if (info) info.textContent = `零星缺失分布在 ${ranges.length} 段 / 约 ${days} 天，超过 60 上限，请分年处理`;
+                return;
+              }
               runGapFill(code, ranges.map(r => ({ startDay: r.startDay, endDay: r.endDay, bars: 0 })));
             };
           }
@@ -415,10 +510,12 @@ export function wireDownload() {
   }
   dlSyncAppendBtn();
   document.getElementById('dlCancel').onclick = async () => {
+    DL.cancelled = true;                       // 补洞流程看到这个标记就整轮停下，而不是跳下一段
     if (!DL.jobId) return;
     try { await fetch(`/api/job/${DL.jobId}`, { method: 'DELETE' }); } catch {}
     dlStop();
     DL.jobId = null;
+    DL.appendMode = false;
     dlMsg('已取消');
   };
 }

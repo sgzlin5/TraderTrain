@@ -1587,3 +1587,16 @@ layoutMenu: opened=true, byX=true, byOutside=true, byToggle=true, byEsc=true
 | SMC 面板可拖 | `pointer-events` 由 none 改 auto | `auto` |
 | 快捷键表 | 按 `?` | `#helpPanel` 显示 |
 | exe 瘦身 | `--exclude-module` + 锁 6.22.3 | 17,343,282 → 17,133,295 B |
+
+## 补缺失数据修复（2026-11-23，`?selftest=48` 15.5 s）
+
+| 判据 | 方法 | 结果 |
+|---|---|---|
+| 同日缺口可补 | 2 天合成 CSV 挖 30 根（12:00–12:30）→ `scanInteriorGaps` → `fillGaps` | 扫出 1 段；`from=2024-03-04&to=2024-03-04` 真的发 `/api/job`；新增 30 根；复扫 0 段 |
+| 失败不卡死 | 桩 `/api/job/<id>` 返回 `state:error`，两段缺口 | 3.0 s 返回 `false`；第 2 段 0 请求；失败后再补能起新任务（`jobId` 已释放） |
+| 扫描分级 | 加密 7 天挖周五 20:00→周日 20:00 / 一次性 1h / 连续 5 天 13:00 1h | 2880 根报 1 段；一次性 1h 报 1 段；每天同钟点 1h 归「每日维护」不列 |
+| 加密数据源 | `ZZS48USDT` 补洞请求 URL | `source=binance`（原硬编码 dukascopy） |
+| 实时同根去重 | 同一根已收盘 bar 推 5 次 | `buffer=1`、`onClosed` 1 根、写入 1 根 |
+| 反证（变异测试） | 两处修复各回退一处再跑 | `fromDay>=toDay` → `pass=false`（无 `/api/job`、补 0 根）；不释放 `jobId` → `pass=false`（失败后起不了新任务） |
+
+改动：`download.js`（同日判断、失败/取消释放 `jobId`、动态数据源、扫描分级、补洞超时与中止）、`live.js`（按缺口长度取数 + `lastTs` 去重）、`ingest.js`（档案记 `source`/`price`）。用例全程桩 `/api/*` + 合成 CSV，不联网、不碰真实档案，`ZZS48*` 档案跑完自动删。
